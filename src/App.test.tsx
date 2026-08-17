@@ -4,12 +4,15 @@ import App from './App'
 import { render, screen } from './test/render'
 
 describe('App', () => {
-  it('identifies the Atlas Ops foundation with a semantic heading', () => {
+  it('renders the dashboard inside the application shell', () => {
     render(<App />)
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Atlas Ops' }),
+      screen.getByRole('heading', { level: 1, name: 'Dashboard' }),
     ).toBeVisible()
-    expect(screen.getByText('Foundation initialized')).toBeVisible()
+    expect(
+      screen.getByRole('navigation', { name: 'Primary navigation' }),
+    ).toBeVisible()
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content')
   })
 })

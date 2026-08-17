@@ -1,11 +1,19 @@
 import { expect, test } from '@playwright/test'
 
-test('loads the Atlas Ops foundation', async ({ page }) => {
+test('loads the shell and navigates with accessible controls', async ({ page }) => {
   await page.goto('/')
 
   await expect(page).toHaveTitle('Atlas Ops')
   await expect(
-    page.getByRole('heading', { level: 1, name: 'Atlas Ops' }),
+    page.getByRole('heading', { level: 1, name: 'Dashboard' }),
   ).toBeVisible()
-  await expect(page.getByRole('main')).toContainText('Foundation initialized')
+
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused()
+
+  await page.getByRole('link', { name: 'Projects' }).click()
+  await expect(page).toHaveURL('/projects')
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Projects' }),
+  ).toBeVisible()
 })
