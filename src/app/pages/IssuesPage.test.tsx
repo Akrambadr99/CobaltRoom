@@ -8,6 +8,7 @@ import { createAtlasQueryClient } from '../query-client'
 import { createAppServices } from '../services'
 import { createAtlasFixtures, SimulatedNetwork } from '../../data'
 import type { UserId } from '../../domain'
+import { MemoryPreferenceStorage, type PreferenceStorage } from '../../preferences'
 import { render, screen, waitFor, within } from '../../test/render'
 
 function LocationProbe() {
@@ -24,10 +25,12 @@ function renderIssues(
   path = '/issues',
   simulator = new SimulatedNetwork(),
   actorId?: UserId,
+  preferenceStorage?: PreferenceStorage,
 ) {
   const services = createAppServices({
     simulator,
     ...(actorId ? { actorId } : {}),
+    ...(preferenceStorage ? { preferenceStorage } : {}),
   })
 
   return {
@@ -253,6 +256,71 @@ describe('IssuesPage', () => {
     await user.click(screen.getByRole('button', { name: /Title/ }))
     expect(screen.getByTestId('location')).toHaveTextContent('sort=title')
     expect(screen.getByTestId('location')).toHaveTextContent('direction=ascending')
+  })
+
+  it('persists, applies, and deletes private views with a page-size preference', async () => {
+    const user = userEvent.setup()
+    const storage = new MemoryPreferenceStorage()
+    const { services } = renderIssues(
+      '/issues',
+      new SimulatedNetwork(),
+      undefined,
+      storage,
+    )
+
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.selectOptions(screen.getByLabelText('Priority'), 'high')
+    expect(await screen.findByText('2 matching issues')).toBeVisible()
+    await user.type(screen.getByLabelText('View name'), 'High priority')
+    await user.click(screen.getByRole('button', { name: 'Save current view' }))
+
+    expect(screen.getByText('High priority saved as a private view.')).toBeVisible()
+    await user.selectOptions(screen.getByLabelText('Priority'), '')
+    expect(await screen.findByText('6 matching issues')).toBeVisible()
+    await user.selectOptions(
+      screen.getByLabelText('Open saved view'),
+      screen.getByRole('option', { name: 'High priority' }),
+    )
+
+    expect(await screen.findByText('2 matching issues')).toBeVisible()
+    expect(screen.getByTestId('location')).toHaveTextContent('priority=high')
+    await user.selectOptions(screen.getByLabelText('Rows per page'), '10')
+    expect(await screen.findByText('Page 1 of 1')).toBeVisible()
+    expect(services.preferences.getSnapshot().issuePageSize).toBe(10)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Delete selected view' }),
+    )
+    expect(screen.getByText('High priority deleted.')).toBeVisible()
+    expect(
+      screen.queryByRole('option', { name: 'High priority' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('reports durable preference write failures without changing the active view', async () => {
+    const user = userEvent.setup()
+    const storage: PreferenceStorage = {
+      get: () => null,
+      set: () => {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError')
+      },
+    }
+    const { services } = renderIssues(
+      '/issues?priority=high',
+      new SimulatedNetwork(),
+      undefined,
+      storage,
+    )
+
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.type(screen.getByLabelText('View name'), 'High priority')
+    await user.click(screen.getByRole('button', { name: 'Save current view' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Preferences could not be saved on this device.',
+    )
+    expect(services.preferences.getSnapshot().savedIssueViews).toHaveLength(0)
+    expect(screen.getByTestId('location')).toHaveTextContent('priority=high')
   })
 
   it('shows a useful empty state for a valid query with no matches', async () => {

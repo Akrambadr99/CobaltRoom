@@ -95,6 +95,7 @@ export function serializeIssueWorkspaceState(
 export function toIssueQuery(
   workspaceId: WorkspaceId,
   state: IssueWorkspaceState,
+  pageSize = 5,
 ): IssueQuery {
   return {
     filters: {
@@ -104,7 +105,7 @@ export function toIssueQuery(
       ...(state.search ? { search: state.search } : {}),
     },
     sort: { field: state.sortField, direction: state.sortDirection },
-    page: { number: state.page, size: 5 },
+    page: { number: state.page, size: pageSize },
   }
 }
 

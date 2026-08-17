@@ -15,6 +15,8 @@ import {
   type IssueWorkspaceState,
 } from '../../features/issues/issue-workspace-state'
 import { IssueCreateDialog } from '../../features/issues/IssueCreateDialog'
+import { SavedIssueViews } from '../../features/issues/SavedIssueViews'
+import { useUserPreferences } from '../../preferences'
 import { useAppServices } from '../providers/app-services-context'
 import './issues-page.css'
 import './pages.css'
@@ -31,7 +33,11 @@ export function IssuesPage() {
   const services = useAppServices()
   const [parameters, setParameters] = useSearchParams()
   const state = useMemo(() => parseIssueWorkspaceState(parameters), [parameters])
-  const { issues, projects } = useIssueWorkspaceData(state)
+  const preferences = useUserPreferences()
+  const { issues, projects } = useIssueWorkspaceData(
+    state,
+    preferences.issuePageSize,
+  )
   const bulkUpdate = useBulkUpdateIssuePriority()
   const [selectedIssues, setSelectedIssues] = useState<ReadonlyMap<IssueId, Issue>>(
     () => new Map(),
@@ -137,6 +143,18 @@ export function IssuesPage() {
           }}
         />
       ) : null}
+
+      <SavedIssueViews
+        currentState={state}
+        onApply={(savedState) => {
+          setSelectedIssues(new Map())
+          setBulkStatus('')
+          setParameters(serializeIssueWorkspaceState(savedState))
+        }}
+        onPageSizeChange={() => {
+          updateState({ page: 1 })
+        }}
+      />
 
       <form className="issue-filters" role="search" onSubmit={handleSearch}>
         <label className="issue-filter issue-filter--search">

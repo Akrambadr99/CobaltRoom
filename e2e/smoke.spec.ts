@@ -149,3 +149,30 @@ test('searches globally with the keyboard shortcut', async ({ page }) => {
     }),
   ).toBeVisible()
 })
+
+test('restores a private saved view and page-size preference after reload', async ({
+  page,
+}) => {
+  await page.goto('/issues')
+  await expect(page.getByRole('table', { name: 'Workspace issues' })).toBeVisible()
+
+  await page.getByLabel('Priority').selectOption('urgent')
+  await expect(page.getByText('2 matching issues')).toBeVisible()
+  await page.getByLabel('View name').fill('Urgent operations')
+  await page.getByRole('button', { name: 'Save current view' }).click()
+  await expect(
+    page.getByText('Urgent operations saved as a private view.'),
+  ).toBeVisible()
+  await page.getByLabel('Rows per page').selectOption('10')
+
+  await page.reload()
+  await expect(page.getByLabel('Rows per page')).toHaveValue('10')
+  await page.getByLabel('Priority').selectOption('')
+  await expect(page.getByText('6 matching issues')).toBeVisible()
+  await page.getByLabel('Open saved view').selectOption({
+    label: 'Urgent operations',
+  })
+
+  await expect(page).toHaveURL(/priority=urgent/)
+  await expect(page.getByText('2 matching issues')).toBeVisible()
+})

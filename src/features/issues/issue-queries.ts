@@ -10,10 +10,14 @@ import { atlasQueryKeys } from '../query-keys'
 import { toIssueQuery, type IssueWorkspaceState } from './issue-workspace-state'
 import type { AtlasGateway, CreateIssueInput } from '../../data'
 import type { Issue, IssuePriority } from '../../domain'
+import type { IssuePageSize } from '../../preferences/types'
 
-export function useIssueWorkspaceData(state: IssueWorkspaceState) {
+export function useIssueWorkspaceData(
+  state: IssueWorkspaceState,
+  pageSize: IssuePageSize,
+) {
   const { gateway, workspaceId } = useAppServices()
-  const query = toIssueQuery(workspaceId, state)
+  const query = toIssueQuery(workspaceId, state, pageSize)
   const projects = useQuery({
     queryKey: atlasQueryKeys.projects(workspaceId),
     queryFn: ({ signal }) => gateway.listProjects(workspaceId, { signal }),

@@ -17,6 +17,11 @@ import {
   type UserId,
   type WorkspaceId,
 } from '../domain'
+import { UserPreferenceRepository } from '../preferences/repository'
+import {
+  MemoryPreferenceStorage,
+  type PreferenceStorage,
+} from '../preferences/storage'
 
 export interface AppSession {
   readonly user: User
@@ -26,6 +31,7 @@ export interface AppSession {
 
 export interface AppServices {
   readonly gateway: AtlasGateway
+  readonly preferences: UserPreferenceRepository
   readonly session: AppSession
   readonly workspaceId: WorkspaceId
   can(permission: Permission, projectId?: ProjectId): boolean
@@ -35,6 +41,7 @@ export interface CreateAppServicesOptions {
   readonly clock?: Clock
   readonly simulator?: RequestSimulator
   readonly actorId?: UserId
+  readonly preferenceStorage?: PreferenceStorage
 }
 
 export function createAppServices(
@@ -78,11 +85,17 @@ export function createAppServices(
     simulator,
     ...(options.clock ? { clock: options.clock } : {}),
   }
+  const preferences = new UserPreferenceRepository({
+    storage: options.preferenceStorage ?? new MemoryPreferenceStorage(),
+    storageKey: `atlas-ops:${workspaceId}:${actorId}:preferences`,
+    ...(options.clock ? { clock: options.clock } : {}),
+  })
 
   return {
     workspaceId,
     session,
     gateway: new MockAtlasGateway(gatewayOptions),
+    preferences,
     can: (permission, projectId) =>
       can(
         {
