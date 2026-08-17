@@ -3,6 +3,7 @@ import type {
   ActivityEvent,
   AuditEvent,
   Comment,
+  CommentMention,
   CommentId,
   IssueId,
   IssuePriority,
@@ -309,6 +310,7 @@ export interface BoardMetadata {
 
 export interface IssueActivityData {
   readonly comments: readonly Comment[]
+  readonly commentMentions: readonly CommentMention[]
   readonly activityEvents: readonly ActivityEvent[]
   readonly users: readonly User[]
   readonly mentionableUsers: readonly User[]
@@ -337,6 +339,8 @@ export interface UpdateCommentInput {
   readonly id: CommentId
   readonly expectedRevision: number
   readonly body: string
+  /** Omit to preserve the active mention set for backwards-compatible clients. */
+  readonly mentionedUserIds?: readonly UserId[]
 }
 
 export interface DeleteCommentInput {

@@ -430,6 +430,52 @@ describe('IssueDetailPage', () => {
     expect(screen.getByRole('button', { name: 'Edit comment' })).toHaveFocus()
   })
 
+  it('adds identity-backed mentions while editing and reports delivery', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const issue = fixtures.issues[0]
+    const comment = fixtures.comments[0]
+    const mentioned = fixtures.users.find(
+      ({ id, displayName }) => id !== comment?.authorId && displayName === 'Lena Ortiz',
+    )
+    if (!issue || !comment || !mentioned) {
+      throw new Error('Expected issue, comment, and mention fixtures.')
+    }
+    const store = new InMemoryDataStore(fixtures)
+    renderIssueDetail(
+      `/issues/${issue.id}`,
+      comment.authorId,
+      new SimulatedNetwork(),
+      undefined,
+      store,
+    )
+
+    await screen.findByText(comment.body)
+    await user.click(screen.getByRole('button', { name: 'Edit comment' }))
+    await user.selectOptions(
+      screen.getByLabelText('Member to mention in this edit'),
+      mentioned.id,
+    )
+    await user.click(screen.getByRole('button', { name: 'Insert mention in edit' }))
+    expect(screen.getByRole('textbox', { name: 'Edit comment' })).toHaveValue(
+      `${comment.body} @${mentioned.displayName} `,
+    )
+    await user.click(screen.getByRole('button', { name: 'Save comment' }))
+
+    expect(await screen.findByText('Comment updated.')).toHaveAttribute('role', 'status')
+    expect(
+      store.read().data.commentMentions.some(
+        ({ commentId, userId, removedAt }) =>
+          commentId === comment.id && userId === mentioned.id && removedAt === null,
+      ),
+    ).toBe(true)
+    expect(
+      store.read().data.notifications.some(
+        ({ recipientId, kind }) => recipientId === mentioned.id && kind === 'mention',
+      ),
+    ).toBe(true)
+  })
+
   it('moderates a comment through confirmation and focuses its tombstone', async () => {
     const user = userEvent.setup()
     const issue = getFixtureIssue()

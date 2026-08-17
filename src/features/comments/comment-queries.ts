@@ -8,6 +8,7 @@ import { atlasQueryKeys } from '../query-keys'
 interface UpdateCommentVariables {
   readonly comment: Comment
   readonly body: string
+  readonly mentionedUserIds: readonly UserId[]
 }
 
 interface DeleteCommentVariables {
@@ -27,11 +28,12 @@ export function useUpdateComment(issueId: IssueId, commentId: CommentId) {
 
   return useMutation<Comment, Error, UpdateCommentVariables, CommentMutationContext>({
     scope: { id: `comment:${commentId}` },
-    mutationFn: ({ comment, body }) =>
+    mutationFn: ({ comment, body, mentionedUserIds }) =>
       gateway.updateComment({
         id: comment.id,
         expectedRevision: comment.revision,
         body,
+        mentionedUserIds,
       }),
     onMutate: async ({ comment, body }) => {
       await queryClient.cancelQueries({ queryKey: activityKey })
@@ -161,6 +163,12 @@ async function invalidateCommentRecords(
     }),
     queryClient.invalidateQueries({
       queryKey: atlasQueryKeys.governanceReports(workspaceId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: atlasQueryKeys.workspaceActivityReports(workspaceId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: atlasQueryKeys.notifications(workspaceId),
     }),
   ])
 }

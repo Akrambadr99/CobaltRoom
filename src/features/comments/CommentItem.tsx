@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
 
 import { useAuthorization } from '../../app/providers/authorization-context'
 import { GatewayConflictError } from '../../data'
-import type { Comment, IssueId, ProjectId } from '../../domain'
+import type { Comment, IssueId, ProjectId, User, UserId } from '../../domain'
 import { useDeleteComment, useUpdateComment } from './comment-queries'
 
 interface CommentItemProps {
@@ -10,6 +10,8 @@ interface CommentItemProps {
   readonly comment: Comment
   readonly deletedByName: string | null
   readonly issueId: IssueId
+  readonly mentionedUserIds: readonly UserId[]
+  readonly mentionableUsers: readonly User[]
   readonly projectId: ProjectId
   readonly readOnly?: boolean
 }
@@ -19,6 +21,8 @@ export function CommentItem({
   comment,
   deletedByName,
   issueId,
+  mentionedUserIds,
+  mentionableUsers,
   projectId,
   readOnly = false,
 }: CommentItemProps) {
@@ -35,6 +39,9 @@ export function CommentItem({
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [draft, setDraft] = useState(comment.body)
+  const [mentionUserId, setMentionUserId] = useState('')
+  const [selectedMentionUserIds, setSelectedMentionUserIds] =
+    useState<readonly UserId[]>(mentionedUserIds)
   const [message, setMessage] = useState('')
   const isAuthor = comment.authorId === authorization.session.user.id
   const canEdit =
@@ -82,8 +89,12 @@ export function CommentItem({
       setMessage('Enter a comment between 1 and 5,000 characters.')
       return
     }
+    const activeMentionUserIds = selectedMentionUserIds.filter((userId) => {
+      const user = mentionableUsers.find(({ id }) => id === userId)
+      return user ? containsMention(body, user.displayName) : false
+    })
     updateComment.mutate(
-      { comment, body },
+      { comment, body, mentionedUserIds: activeMentionUserIds },
       {
         onSuccess: () => {
           restoreEditFocusRef.current = true
@@ -154,6 +165,52 @@ export function CommentItem({
               }}
             />
           </label>
+          {mentionableUsers.length > 0 ? (
+            <div
+              className="comment-form__mentions"
+              aria-label="Mention a workspace member while editing"
+            >
+              <label htmlFor={`edit-mention-member-${comment.id}`}>
+                Member to mention in this edit
+              </label>
+              <select
+                id={`edit-mention-member-${comment.id}`}
+                value={mentionUserId}
+                onChange={(event) => {
+                  setMentionUserId(event.currentTarget.value)
+                }}
+              >
+                <option value="">Choose a member</option>
+                {mentionableUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.displayName} ({user.email})
+                  </option>
+                ))}
+              </select>
+              <button
+                className="text-button"
+                type="button"
+                disabled={mentionUserId.length === 0}
+                onClick={() => {
+                  const user = mentionableUsers.find(({ id }) => id === mentionUserId)
+                  if (!user) return
+                  const token = `@${user.displayName}`
+                  setDraft((current) =>
+                    current.includes(token)
+                      ? current
+                      : `${current}${current.length > 0 && !current.endsWith(' ') ? ' ' : ''}${token} `,
+                  )
+                  setSelectedMentionUserIds((current) =>
+                    current.includes(user.id) ? current : [...current, user.id],
+                  )
+                  setMentionUserId('')
+                  editTextAreaRef.current?.focus()
+                }}
+              >
+                Insert mention in edit
+              </button>
+            </div>
+          ) : null}
           <div className="comment-list__actions">
             <button className="primary-button" type="submit" disabled={updateComment.isPending}>
               {updateComment.isPending ? 'Saving…' : 'Save comment'}
@@ -166,6 +223,8 @@ export function CommentItem({
                 restoreEditFocusRef.current = true
                 setEditing(false)
                 setDraft(comment.body)
+                setSelectedMentionUserIds(mentionedUserIds)
+                setMentionUserId('')
                 setMessage('')
               }}
             >
@@ -187,6 +246,8 @@ export function CommentItem({
               onClick={() => {
                 setEditing(true)
                 setDraft(comment.body)
+                setSelectedMentionUserIds(mentionedUserIds)
+                setMentionUserId('')
                 setMessage('')
               }}
             >
@@ -249,6 +310,11 @@ export function CommentItem({
       ) : null}
     </li>
   )
+}
+
+function containsMention(body: string, displayName: string): boolean {
+  const escapedName = displayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(^|\\s)@${escapedName}(?=$|[\\s.,!?;:])`, 'iu').test(body)
 }
 
 function formatTimestamp(value: string): string {

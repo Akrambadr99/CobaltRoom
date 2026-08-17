@@ -339,6 +339,10 @@ function IssueCollaboration({
               <CommentItem
                 key={comment.id}
                 issueId={issue.id}
+                mentionableUsers={activity.data.mentionableUsers}
+                mentionedUserIds={activity.data.commentMentions
+                  .filter(({ commentId }) => commentId === comment.id)
+                  .map(({ userId }) => userId)}
                 projectId={issue.projectId}
                 readOnly={readOnly}
                 comment={comment}
@@ -455,7 +459,9 @@ function CommentForm({
           >
             <option value="">Choose a member</option>
             {mentionableUsers.map((user) => (
-              <option key={user.id} value={user.id}>{user.displayName}</option>
+              <option key={user.id} value={user.id}>
+                {user.displayName} ({user.email})
+              </option>
             ))}
           </select>
           <button

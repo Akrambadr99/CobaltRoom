@@ -1607,8 +1607,10 @@ export class MockAtlasGateway implements AtlasGateway {
         )
         .sort(compareTimelineEntries)
       const commentIds = new Set(comments.map(({ id }) => id))
-      const mentionedUserIds = data.commentMentions
-        .filter(({ commentId }) => commentIds.has(commentId))
+      const commentMentions = data.commentMentions.filter(
+        ({ commentId, removedAt }) => commentIds.has(commentId) && removedAt === null,
+      )
+      const mentionedUserIds = commentMentions
         .map(({ userId }) => userId)
       const userIds = new Set([
         ...comments.map(({ authorId }) => authorId),
@@ -1626,6 +1628,7 @@ export class MockAtlasGateway implements AtlasGateway {
 
       return {
         comments,
+        commentMentions,
         activityEvents,
         users: data.users.filter(({ id }) => userIds.has(id)),
         mentionableUsers: data.users
@@ -1919,6 +1922,7 @@ export class MockAtlasGateway implements AtlasGateway {
         commentId: comment.id,
         userId,
         createdAt: occurredAt,
+        removedAt: null,
       }))
       const authorAlreadySubscribed = current.data.issueSubscriptions.some(
         ({ issueId, userId }) => issueId === issue.id && userId === this.actorId,
@@ -2038,7 +2042,27 @@ export class MockAtlasGateway implements AtlasGateway {
           'Comments must contain 1 to 5,000 characters.',
         )
       }
-      if (body === comment.body) return comment
+      const activeMentions = current.data.commentMentions.filter(
+        ({ commentId, removedAt }) => commentId === comment.id && removedAt === null,
+      )
+      const requestedMentionUsers = input.mentionedUserIds
+        ? this.resolveCommentMentions(current.data, issue, body, input.mentionedUserIds)
+        : current.data.users.filter(({ id }) =>
+            activeMentions.some(({ userId }) => userId === id),
+          )
+      const requestedMentionIds = new Set(requestedMentionUsers.map(({ id }) => id))
+      const activeMentionIds = new Set(activeMentions.map(({ userId }) => userId))
+      const addedMentionIds = [...requestedMentionIds].filter(
+        (userId) => !activeMentionIds.has(userId),
+      )
+      const removedMentionIds = [...activeMentionIds].filter(
+        (userId) => !requestedMentionIds.has(userId),
+      )
+      if (
+        body === comment.body &&
+        addedMentionIds.length === 0 &&
+        removedMentionIds.length === 0
+      ) return comment
 
       const occurredAt = this.clock.now()
       const updated: Comment = {
@@ -2049,9 +2073,53 @@ export class MockAtlasGateway implements AtlasGateway {
       }
       const comments = [...current.data.comments]
       comments[index] = updated
+      const commentMentions = current.data.commentMentions.map((mention) =>
+        mention.commentId === comment.id && removedMentionIds.includes(mention.userId)
+          ? { ...mention, removedAt: occurredAt }
+          : mention,
+      )
+      for (const userId of addedMentionIds) {
+        const existingIndex = commentMentions.findIndex(
+          (mention) => mention.commentId === comment.id && mention.userId === userId,
+        )
+        if (existingIndex >= 0) {
+          const existing = commentMentions[existingIndex]
+          if (existing) commentMentions[existingIndex] = { ...existing, removedAt: null }
+        } else {
+          commentMentions.push({
+            id: this.ids.commentMention('comment_edit'),
+            commentId: comment.id,
+            userId,
+            createdAt: occurredAt,
+            removedAt: null,
+          })
+        }
+      }
+      const mentionNotifications: readonly Notification[] = addedMentionIds
+        .filter((recipientId) =>
+          this.allowsNotification(
+            current.data,
+            issue.workspaceId,
+            recipientId,
+            'mention',
+          ),
+        )
+        .sort((left, right) => left.localeCompare(right))
+        .map((recipientId) => ({
+          id: this.ids.notification('comment_mention_added'),
+          workspaceId: issue.workspaceId,
+          recipientId,
+          kind: 'mention',
+          target: { kind: 'issue', id: issue.id },
+          title: `You were mentioned on ${this.issueReference(current.data, issue)}`,
+          body: body.slice(0, 160),
+          occurredAt,
+          readAt: null,
+        }))
       this.commit(current.version, {
         ...current.data,
         comments,
+        commentMentions,
         activityEvents: [
           ...current.data.activityEvents,
           {
@@ -2079,9 +2147,13 @@ export class MockAtlasGateway implements AtlasGateway {
               issueId: issue.id,
               commentId: updated.id,
               revision: updated.revision,
+              addedMentionCount: addedMentionIds.length,
+              removedMentionCount: removedMentionIds.length,
+              notificationCount: mentionNotifications.length,
             },
           },
         ],
+        notifications: [...current.data.notifications, ...mentionNotifications],
       })
       return updated
     })
@@ -2120,11 +2192,24 @@ export class MockAtlasGateway implements AtlasGateway {
       }
       const comments = [...current.data.comments]
       comments[index] = deleted
+      const activeMentionIds = new Set(
+        current.data.commentMentions
+          .filter(
+            ({ commentId, removedAt }) => commentId === comment.id && removedAt === null,
+          )
+          .map(({ userId }) => userId),
+      )
+      const commentMentions = current.data.commentMentions.map((mention) =>
+        mention.commentId === comment.id && mention.removedAt === null
+          ? { ...mention, removedAt: occurredAt }
+          : mention,
+      )
       const action = moderated ? 'comment.moderated' : 'comment.deleted'
       const idScope = moderated ? 'comment_moderated' : 'comment_deleted'
       this.commit(current.version, {
         ...current.data,
         comments,
+        commentMentions,
         activityEvents: [
           ...current.data.activityEvents,
           {
@@ -2153,6 +2238,7 @@ export class MockAtlasGateway implements AtlasGateway {
               commentId: deleted.id,
               revision: deleted.revision,
               moderated,
+              removedMentionCount: activeMentionIds.size,
             },
           },
         ],

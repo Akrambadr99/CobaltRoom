@@ -217,11 +217,12 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
     if (
       !issue ||
       !workspaceMembershipUsers.has(`${issue.workspaceId}:${mention.userId}`) ||
+      (mention.removedAt !== null && mention.removedAt < mention.createdAt) ||
       deliveredMentions.has(recipientKey)
     ) {
       throw new DataIntegrityError(
         'commentMentions',
-        'Comment mentions require a unique workspace member recipient per comment.',
+        'Comment mentions require a unique workspace member recipient per comment and a valid lifecycle.',
       )
     }
     deliveredMentions.add(recipientKey)

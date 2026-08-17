@@ -186,6 +186,7 @@ describe('InMemoryDataStore', () => {
       commentId: comment.id,
       userId: recipient.id,
       createdAt: comment.createdAt,
+      removedAt: null,
     }
 
     expect(

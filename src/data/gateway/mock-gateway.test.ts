@@ -1825,6 +1825,76 @@ describe('MockAtlasGateway', () => {
     ).rejects.toBeInstanceOf(GatewayConflictError)
   })
 
+  it('reconciles edited mentions atomically and only notifies newly mentioned members', async () => {
+    const fixtures = createAtlasFixtures()
+    const issue = fixtures.issues[1]
+    const mentioned = fixtures.users.find(({ displayName }) => displayName === 'Lena Ortiz')
+    if (!issue || !mentioned) throw new Error('Expected issue and mention fixtures.')
+    const actorId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    if (!actorId) throw new Error('Expected an administrator fixture.')
+    const store = new InMemoryDataStore(fixtures)
+    const gateway = new MockAtlasGateway({
+      actorId,
+      store,
+      clock: new FixedClock(isoDateTime('2026-02-01T08:00:00.000Z')),
+      idGenerator: new DeterministicIdGenerator('mention_edit'),
+    })
+    const comment = await gateway.createComment({
+      issueId: issue.id,
+      body: 'Initial review request.',
+    })
+
+    const added = await gateway.updateComment({
+      id: comment.id,
+      expectedRevision: comment.revision,
+      body: 'Please review this, @Lena Ortiz.',
+      mentionedUserIds: [mentioned.id],
+    })
+    expect(store.read().data.commentMentions).toEqual([
+      expect.objectContaining({
+        commentId: comment.id,
+        userId: mentioned.id,
+        removedAt: null,
+      }),
+    ])
+    expect(store.read().data.notifications.at(-1)).toMatchObject({
+      recipientId: mentioned.id,
+      kind: 'mention',
+      body: added.body,
+    })
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'comment.updated',
+      metadata: {
+        addedMentionCount: 1,
+        removedMentionCount: 0,
+        notificationCount: 1,
+      },
+    })
+
+    const notificationCount = store.read().data.notifications.length
+    const removed = await gateway.updateComment({
+      id: added.id,
+      expectedRevision: added.revision,
+      body: 'The review request is complete.',
+      mentionedUserIds: [],
+    })
+    expect(store.read().data.commentMentions[0]?.removedAt).toBe(
+      '2026-02-01T08:00:00.000Z',
+    )
+    expect(store.read().data.notifications).toHaveLength(notificationCount)
+    expect((await gateway.getIssueActivity(issue.id)).commentMentions).toEqual([])
+
+    await gateway.updateComment({
+      id: removed.id,
+      expectedRevision: removed.revision,
+      body: 'Please recheck this, @Lena Ortiz.',
+      mentionedUserIds: [mentioned.id],
+    })
+    expect(store.read().data.commentMentions).toHaveLength(1)
+    expect(store.read().data.commentMentions[0]?.removedAt).toBeNull()
+    expect(store.read().data.notifications).toHaveLength(notificationCount + 1)
+  })
+
   it('tombstones moderated comments and rejects authorization bypasses', async () => {
     const fixtures = createAtlasFixtures()
     const comment = fixtures.comments[0]

@@ -83,7 +83,9 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
 
   const commentDraft = page.getByLabel('Add a comment')
   await commentDraft.fill('Confirmed incident owners and next steps.')
-  await page.getByLabel('Member to mention').selectOption({ label: 'Lena Ortiz' })
+  await page
+    .getByLabel('Member to mention')
+    .selectOption({ label: 'Lena Ortiz (lena@example.test)' })
   await page.getByRole('button', { name: 'Insert mention' }).click()
   await expect(commentDraft).toHaveValue(
     'Confirmed incident owners and next steps. @Lena Ortiz ',

@@ -74,4 +74,5 @@ export interface CommentMention {
   readonly commentId: CommentId
   readonly userId: UserId
   readonly createdAt: IsoDateTime
+  readonly removedAt: IsoDateTime | null
 }
