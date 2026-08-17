@@ -2168,6 +2168,25 @@ describe('MockAtlasGateway', () => {
     ).rejects.toBeInstanceOf(ForbiddenGatewayError)
   })
 
+  it('prevents archived projects from gaining new watchers', async () => {
+    const { fixtures, gateway } = createGateway()
+    const project = fixtures.projects[0]
+    if (!project) throw new Error('Expected a project fixture.')
+
+    await gateway.archiveProject({
+      id: project.id,
+      expectedRevision: project.revision,
+    })
+
+    await expect(
+      gateway.setProjectSubscription({
+        projectId: project.id,
+        expectedSubscribed: false,
+        subscribed: true,
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+  })
+
   it('lets read-only members watch issues without granting mutation access', async () => {
     const fixtures = createAtlasFixtures()
     const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId

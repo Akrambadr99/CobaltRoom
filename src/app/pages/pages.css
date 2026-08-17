@@ -1041,6 +1041,68 @@
   gap: var(--space-6);
 }
 
+.project-watchers {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.8fr) minmax(0, 1.2fr);
+  align-items: start;
+  gap: var(--space-5);
+}
+
+.project-watchers__introduction h2,
+.project-watchers__introduction p,
+.project-watchers__summary p,
+.project-watchers__status,
+.project-watchers__empty,
+.project-watchers__unavailable {
+  margin: 0;
+}
+
+.project-watchers__introduction h2 {
+  margin-block: var(--space-2);
+}
+
+.project-watchers__summary,
+.project-watchers__error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.project-watchers__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.project-watchers__list li {
+  padding: var(--space-1) var(--space-2);
+  border-radius: 999px;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.project-watchers__status {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.project-watchers__unavailable,
+.project-watchers__empty {
+  color: var(--color-text-muted);
+}
+
+.project-watchers button[aria-disabled='true'] {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .project-detail-actions,
 .project-lifecycle-form__actions {
   display: flex;
@@ -1293,6 +1355,10 @@
   }
 
   .project-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .project-watchers {
     grid-template-columns: minmax(0, 1fr);
   }
 

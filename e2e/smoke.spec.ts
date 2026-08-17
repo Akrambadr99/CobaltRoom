@@ -116,6 +116,25 @@ test('filters the authoritative project portfolio with durable URL state', async
   await expect(page.getByText('No matching projects')).toBeVisible()
 })
 
+test('watches a project with accessible state and durable activity', async ({ page }) => {
+  await page.goto('/projects')
+  await page.getByRole('link', { name: 'Launch readiness' }).click()
+  const watchers = page.getByRole('region', { name: 'Project watchers' })
+  await expect(watchers.getByText('1 watcher')).toBeVisible()
+  await expect(
+    watchers.getByRole('list', { name: 'People watching this project' }),
+  ).toContainText('Maya Chen')
+
+  const watch = watchers.getByRole('button', { name: 'Watch project' })
+  await watch.click()
+  const stop = watchers.getByRole('button', { name: 'Stop watching project' })
+  await expect(stop).toHaveAttribute('aria-pressed', 'true')
+  await expect(stop).toBeFocused()
+  await expect(watchers.getByText('2 watchers')).toBeVisible()
+  await expect(watchers.getByText('You are now watching this project.')).toBeVisible()
+  await expect(page.getByText(/Omar Haddad Started watching this project\./)).toBeVisible()
+})
+
 test('creates a governed project foundation with an accessible workflow', async ({
   page,
 }) => {

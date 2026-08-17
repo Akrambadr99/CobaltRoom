@@ -1,4 +1,4 @@
-import { useState, type SyntheticEvent } from 'react'
+import { useRef, useState, type SyntheticEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { ModalDialog } from '../../components/dialog/ModalDialog'
@@ -18,6 +18,10 @@ import {
 import { ProjectMembershipPanel } from '../../features/projects/ProjectMembershipPanel'
 import { ProjectLeadTransferDialog } from '../../features/projects/ProjectLeadTransferDialog'
 import { ProjectWorkflowPanel } from '../../features/projects/ProjectWorkflowPanel'
+import {
+  useProjectSubscriptionData,
+  useSetProjectSubscription,
+} from '../../features/projects/project-subscription-queries'
 import { hasAppErrorKind } from '../errors/classify-app-error'
 import { useAuthorization } from '../providers/authorization-context'
 import './pages.css'
@@ -52,6 +56,7 @@ function LoadedProject({
   const authorization = useAuthorization()
   const { issues, metadata } = useProjectDetail(requestedId, page)
   const activity = useProjectActivity(requestedId, activityPage)
+  const subscription = useProjectSubscriptionData(requestedId)
 
   if (metadata.isPending || issues.isPending) return <ProjectLoading />
   if (hasAppErrorKind(metadata.error, 'not-found')) {
@@ -149,6 +154,12 @@ function LoadedProject({
       <p className="visually-hidden" role="status" aria-live="polite">
         {announcement}
       </p>
+
+      <ProjectWatchPanel
+        project={project}
+        subscription={subscription}
+        canSubscribe={authorization.can('project:subscribe', project.id)}
+      />
 
       <section className="work-panel" aria-labelledby="project-issues-title">
         <div className="work-panel__header">
@@ -250,6 +261,117 @@ function LoadedProject({
           }}
         />
       ) : null}
+    </section>
+  )
+}
+
+function ProjectWatchPanel({
+  project,
+  subscription,
+  canSubscribe,
+}: Readonly<{
+  project: Project
+  subscription: ReturnType<typeof useProjectSubscriptionData>
+  canSubscribe: boolean
+}>) {
+  const update = useSetProjectSubscription(project.id)
+  const [status, setStatus] = useState('')
+  const mutationInFlight = useRef(false)
+
+  return (
+    <section className="work-panel project-watchers" aria-labelledby="project-watchers-title">
+      <div className="project-watchers__introduction">
+        <p className="page-eyebrow">Collaboration</p>
+        <h2 id="project-watchers-title">Project watchers</h2>
+        <p>Watch this project to receive lifecycle and workflow notifications.</p>
+      </div>
+      {subscription.isPending ? (
+        <p role="status">Loading project watchers…</p>
+      ) : subscription.isError ? (
+        <div className="project-watchers__error" role="alert">
+          <span>Project watchers could not be loaded.</span>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void subscription.refetch()}
+          >
+            Retry project watchers
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="project-watchers__summary">
+            <p>
+              {subscription.data.subscribers.length.toString()}{' '}
+              {subscription.data.subscribers.length === 1 ? 'watcher' : 'watchers'}
+            </p>
+            {canSubscribe &&
+            (project.status !== 'archived' || subscription.data.subscribed) ? (
+              <button
+                className="secondary-button"
+                type="button"
+                aria-pressed={subscription.data.subscribed}
+                aria-disabled={update.isPending}
+                onClick={() => {
+                  if (mutationInFlight.current) return
+                  mutationInFlight.current = true
+                  const subscribed = !subscription.data.subscribed
+                  setStatus('')
+                  update.mutate(
+                    {
+                      projectId: project.id,
+                      expectedSubscribed: subscription.data.subscribed,
+                      subscribed,
+                    },
+                    {
+                      onSuccess: () => {
+                        setStatus(
+                          subscribed
+                            ? 'You are now watching this project.'
+                            : 'You stopped watching this project.',
+                        )
+                      },
+                      onError: (error) => {
+                        setStatus(
+                          hasAppErrorKind(error, 'conflict')
+                            ? 'Watch state changed in another session. Current state restored.'
+                            : 'Watch state could not be updated. Previous state restored.',
+                        )
+                      },
+                      onSettled: () => {
+                        mutationInFlight.current = false
+                      },
+                    },
+                  )
+                }}
+              >
+                {update.isPending
+                  ? 'Updating…'
+                  : subscription.data.subscribed
+                    ? 'Stop watching project'
+                    : 'Watch project'}
+              </button>
+            ) : project.status === 'archived' ? (
+              <p className="project-watchers__unavailable">
+                Archived projects cannot gain new watchers.
+              </p>
+            ) : null}
+          </div>
+          {subscription.data.subscribers.length > 0 ? (
+            <ul
+              className="project-watchers__list"
+              aria-label="People watching this project"
+            >
+              {subscription.data.subscribers.map((subscriber) => (
+                <li key={subscriber.id}>{subscriber.displayName}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="project-watchers__empty">No one is watching yet.</p>
+          )}
+        </>
+      )}
+      {status ? <p className="project-watchers__status" role="status">{status}</p> : null}
     </section>
   )
 }

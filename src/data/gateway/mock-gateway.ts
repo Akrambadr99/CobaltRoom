@@ -1702,6 +1702,9 @@ export class MockAtlasGateway implements AtlasGateway {
       const project = current.data.projects.find(({ id }) => id === input.projectId)
       if (!project) throw new EntityNotFoundError('Project')
       this.assertPermission('project:subscribe', project.workspaceId, project.id)
+      if (input.subscribed && project.status === 'archived') {
+        throw new GatewayConflictError('Archived projects cannot gain new watchers.')
+      }
 
       const existing = current.data.projectSubscriptions.find(
         ({ projectId, userId }) => projectId === project.id && userId === this.actorId,

@@ -86,6 +86,138 @@ describe('ProjectDetailPage', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('optimistically watches a project and records durable collaboration activity', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    if (!project) throw new Error('Expected a launch project fixture.')
+
+    renderProjectDetail(`/projects/${project.id}`)
+    const watch = await screen.findByRole('button', { name: 'Watch project' })
+    const panel = screen.getByRole('heading', { name: 'Project watchers' }).closest('section')
+    if (!panel) throw new Error('Expected the project watchers panel.')
+    expect(within(panel).getByText('1 watcher')).toBeVisible()
+    expect(within(panel).getByRole('list', {
+      name: 'People watching this project',
+    })).toHaveTextContent('Maya Chen')
+
+    await user.click(watch)
+
+    expect(await within(panel).findByRole('status')).toHaveTextContent(
+      'You are now watching this project.',
+    )
+    const stop = within(panel).getByRole('button', {
+      name: 'Stop watching project',
+    })
+    expect(stop).toHaveAttribute('aria-pressed', 'true')
+    expect(stop).toHaveFocus()
+    expect(within(panel).getByText('2 watchers')).toBeVisible()
+    expect(within(panel).getByRole('list')).toHaveTextContent('Omar Haddad')
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'Project activity' }).closest('section'),
+      ).toHaveTextContent('Omar Haddad Started watching this project.')
+    })
+  })
+
+  it('recovers authoritative project watch state after a concurrent change', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    if (!project) throw new Error('Expected a launch project fixture.')
+    const { services } = renderProjectDetail(`/projects/${project.id}`)
+    const watch = await screen.findByRole('button', { name: 'Watch project' })
+
+    await services.gateway.setProjectSubscription({
+      projectId: project.id,
+      expectedSubscribed: false,
+      subscribed: true,
+    })
+    await user.click(watch)
+
+    expect(
+      await screen.findByText(
+        'Watch state changed in another session. Current state restored.',
+      ),
+    ).toHaveAttribute('role', 'status')
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Stop watching project' }),
+      ).toHaveAttribute('aria-pressed', 'true')
+    })
+  })
+
+  it('coalesces repeated project watch activation while a request is in flight', async () => {
+    const user = userEvent.setup()
+    const project = createAtlasFixtures().projects[0]
+    if (!project) throw new Error('Expected a project fixture.')
+    const { services } = renderProjectDetail(`/projects/${project.id}`, {
+      simulator: new SimulatedNetwork({
+        latency: (operation) =>
+          operation === 'project.subscription.update' ? 100 : 0,
+      }),
+    })
+    const watch = await screen.findByRole('button', { name: 'Watch project' })
+
+    await user.click(watch)
+    expect(watch).toHaveAttribute('aria-disabled', 'true')
+    await user.click(watch)
+    expect(await screen.findByText('You are now watching this project.')).toBeVisible()
+
+    const activity = await services.gateway.getProjectActivity(
+      project.id,
+      { number: 1, size: 20 },
+    )
+    expect(
+      activity.events.items.filter(
+        ({ event }) => event.action === 'project.subscribed',
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('retries project watchers independently after a request failure', async () => {
+    const user = userEvent.setup()
+    const project = createAtlasFixtures().projects[0]
+    let failed = false
+    if (!project) throw new Error('Expected a project fixture.')
+    renderProjectDetail(`/projects/${project.id}`, {
+      simulator: new SimulatedNetwork({
+        failure: (operation) => {
+          if (operation !== 'project.subscription.get' || failed) return null
+          failed = true
+          return 'Project watchers are temporarily unavailable.'
+        },
+      }),
+    })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Project watchers could not be loaded.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Retry project watchers' }))
+    expect(await screen.findByRole('button', { name: 'Watch project' })).toBeVisible()
+  })
+
+  it('keeps archived projects from gaining new watchers', async () => {
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects[0]
+    if (!project) throw new Error('Expected a project fixture.')
+    const store = new InMemoryDataStore({
+      ...fixtures,
+      projects: fixtures.projects.map((candidate) =>
+        candidate.id === project.id
+          ? { ...candidate, status: 'archived' as const, revision: 2 }
+          : candidate,
+      ),
+    })
+
+    renderProjectDetail(`/projects/${project.id}`, { store })
+
+    expect(
+      await screen.findByText('Archived projects cannot gain new watchers.'),
+    ).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Watch project' })).not.toBeInTheDocument()
+  })
+
   it('edits validated project lifecycle fields', async () => {
     const user = userEvent.setup()
     const fixtures = createAtlasFixtures()
