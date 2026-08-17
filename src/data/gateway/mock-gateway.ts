@@ -14,6 +14,7 @@ import type {
   GovernanceReport,
   IssueCreationMetadata,
   IssueActivityData,
+  IssueSubscriptionData,
   IssueQuery,
   MarkNotificationReadInput,
   NotificationInbox,
@@ -30,6 +31,7 @@ import type {
   RequestOptions,
   RemoveProjectMemberInput,
   ResendWorkspaceInvitationInput,
+  SetIssueSubscriptionInput,
   RevokeWorkspaceInvitationInput,
   ActivateWorkspaceInvitationInput,
   TransferProjectLeadInput,
@@ -1617,6 +1619,91 @@ export class MockAtlasGateway implements AtlasGateway {
     })
   }
 
+  getIssueSubscription(
+    issueId: IssueId,
+    options?: RequestOptions,
+  ): Promise<IssueSubscriptionData> {
+    return this.execute('issue.subscription.get', options, () => {
+      const data = this.store.read().data
+      const issue = data.issues.find(({ id }) => id === issueId)
+      if (!issue) throw new EntityNotFoundError('Issue')
+      this.assertPermission('issue:view', issue.workspaceId, issue.projectId)
+      return this.buildIssueSubscriptionData(data, issue)
+    })
+  }
+
+  setIssueSubscription(
+    input: SetIssueSubscriptionInput,
+    options?: RequestOptions,
+  ): Promise<IssueSubscriptionData> {
+    return this.execute('issue.subscription.update', options, (requestId) => {
+      const current = this.store.read()
+      const issue = current.data.issues.find(({ id }) => id === input.issueId)
+      if (!issue) throw new EntityNotFoundError('Issue')
+      this.assertPermission('issue:subscribe', issue.workspaceId, issue.projectId)
+
+      const existing = current.data.issueSubscriptions.find(
+        ({ issueId, userId }) => issueId === issue.id && userId === this.actorId,
+      )
+      if (Boolean(existing) !== input.expectedSubscribed) {
+        throw new GatewayConflictError(
+          'The issue subscription changed in another session. Refresh and try again.',
+        )
+      }
+      if (Boolean(existing) === input.subscribed) {
+        return this.buildIssueSubscriptionData(current.data, issue)
+      }
+
+      const occurredAt = this.clock.now()
+      const issueSubscriptions = input.subscribed
+        ? [
+            ...current.data.issueSubscriptions,
+            {
+              id: this.ids.issueSubscription('issue'),
+              issueId: issue.id,
+              userId: this.actorId,
+              createdAt: occurredAt,
+            },
+          ]
+        : current.data.issueSubscriptions.filter(({ id }) => id !== existing?.id)
+      const action = input.subscribed ? 'issue.subscribed' : 'issue.unsubscribed'
+      const nextData: AtlasDataSnapshot = {
+        ...current.data,
+        issueSubscriptions,
+        activityEvents: [
+          ...current.data.activityEvents,
+          {
+            id: this.ids.activity(action.replace('.', '_')),
+            workspaceId: issue.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'issue',
+            entityId: issue.id,
+            action,
+            occurredAt,
+            summary: input.subscribed
+              ? 'Started watching this issue.'
+              : 'Stopped watching this issue.',
+          },
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit(action.replace('.', '_')),
+            workspaceId: issue.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action,
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: { issueId: issue.id, subscribed: input.subscribed },
+          },
+        ],
+      }
+      this.commit(current.version, nextData)
+      return this.buildIssueSubscriptionData(nextData, issue)
+    })
+  }
+
   listNotifications(
     query: NotificationQuery,
     options?: RequestOptions,
@@ -1804,9 +1891,54 @@ export class MockAtlasGateway implements AtlasGateway {
         deletedAt: null,
         deletedById: null,
       }
+      const authorAlreadySubscribed = current.data.issueSubscriptions.some(
+        ({ issueId, userId }) => issueId === issue.id && userId === this.actorId,
+      )
+      const issueSubscriptions = authorAlreadySubscribed
+        ? current.data.issueSubscriptions
+        : [
+            ...current.data.issueSubscriptions,
+            {
+              id: this.ids.issueSubscription('comment_author'),
+              issueId: issue.id,
+              userId: this.actorId,
+              createdAt: occurredAt,
+            },
+          ]
+      const notificationRecipientIds = new Set<UserId>([
+        ...issueSubscriptions
+          .filter(({ issueId }) => issueId === issue.id)
+          .map(({ userId }) => userId),
+        ...(issue.assigneeId ? [issue.assigneeId] : []),
+      ])
+      notificationRecipientIds.delete(this.actorId)
+      const commentNotifications: readonly Notification[] = [
+        ...notificationRecipientIds,
+      ]
+        .filter((recipientId) =>
+          this.allowsNotification(
+            current.data,
+            issue.workspaceId,
+            recipientId,
+            'comment',
+          ),
+        )
+        .sort((left, right) => left.localeCompare(right))
+        .map((recipientId) => ({
+          id: this.ids.notification('comment_created'),
+          workspaceId: issue.workspaceId,
+          recipientId,
+          kind: 'comment',
+          target: { kind: 'issue', id: issue.id },
+          title: `New comment on ${this.issueReference(current.data, issue)}`,
+          body: body.slice(0, 160),
+          occurredAt,
+          readAt: null,
+        }))
       const nextData: AtlasDataSnapshot = {
         ...current.data,
         comments: [...current.data.comments, comment],
+        issueSubscriptions,
         activityEvents: [
           ...current.data.activityEvents,
           {
@@ -1830,33 +1962,15 @@ export class MockAtlasGateway implements AtlasGateway {
             action: 'comment.created',
             outcome: 'succeeded',
             occurredAt,
-            metadata: { issueId: issue.id, commentId: comment.id },
+            metadata: {
+              issueId: issue.id,
+              commentId: comment.id,
+              notificationCount: commentNotifications.length,
+              autoSubscribed: !authorAlreadySubscribed,
+            },
           },
         ],
-        notifications:
-          issue.assigneeId &&
-          issue.assigneeId !== this.actorId &&
-          this.allowsNotification(
-            current.data,
-            issue.workspaceId,
-            issue.assigneeId,
-            'comment',
-          )
-            ? [
-                ...current.data.notifications,
-                {
-                  id: this.ids.notification('comment_created'),
-                  workspaceId: issue.workspaceId,
-                  recipientId: issue.assigneeId,
-                  kind: 'comment',
-                  target: { kind: 'issue', id: issue.id } as const,
-                  title: `New comment on ${this.issueReference(current.data, issue)}`,
-                  body: body.slice(0, 160),
-                  occurredAt,
-                  readAt: null,
-                },
-              ]
-            : current.data.notifications,
+        notifications: [...current.data.notifications, ...commentNotifications],
       }
 
       this.commit(current.version, nextData)
@@ -2238,6 +2352,9 @@ export class MockAtlasGateway implements AtlasGateway {
       const nextData = {
         ...current.data,
         issues: current.data.issues.filter(({ id }) => id !== issue.id),
+        issueSubscriptions: current.data.issueSubscriptions.filter(
+          ({ issueId }) => issueId !== issue.id,
+        ),
         issueRelations: current.data.issueRelations.filter(
           ({ sourceIssueId, targetIssueId }) =>
             sourceIssueId !== issue.id && targetIssueId !== issue.id,
@@ -2254,6 +2371,41 @@ export class MockAtlasGateway implements AtlasGateway {
 
       this.commit(current.version, nextData)
     })
+  }
+
+  private buildIssueSubscriptionData(
+    data: AtlasDataSnapshot,
+    issue: Issue,
+  ): IssueSubscriptionData {
+    const viewer = data.users.find(({ id }) => id === this.actorId)
+    if (!viewer) throw new EntityNotFoundError('User')
+
+    const activeUserIds = new Set(
+      data.memberships
+        .filter(
+          ({ workspaceId, status }) =>
+            workspaceId === issue.workspaceId && status === 'active',
+        )
+        .map(({ userId }) => userId),
+    )
+    const subscriberIds = new Set(
+      data.issueSubscriptions
+        .filter(({ issueId, userId }) => issueId === issue.id && activeUserIds.has(userId))
+        .map(({ userId }) => userId),
+    )
+    const subscribers = data.users
+      .filter(({ id }) => subscriberIds.has(id))
+      .sort(
+        (left, right) =>
+          left.displayName.localeCompare(right.displayName) || left.id.localeCompare(right.id),
+      )
+
+    return {
+      issueId: issue.id,
+      subscribers,
+      viewer,
+      subscribed: subscriberIds.has(this.actorId),
+    }
   }
 
   private async execute<T>(
@@ -2370,6 +2522,13 @@ export class MockAtlasGateway implements AtlasGateway {
     recipientId: UserId,
     kind: NotificationKind,
   ): boolean {
+    const activeMembership = data.memberships.some(
+      (membership) =>
+        membership.workspaceId === workspaceId &&
+        membership.userId === recipientId &&
+        membership.status === 'active',
+    )
+    if (!activeMembership) return false
     const preferences = data.notificationPreferences.find(
       (candidate) =>
         candidate.workspaceId === workspaceId && candidate.userId === recipientId,

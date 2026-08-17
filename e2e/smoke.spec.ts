@@ -70,12 +70,27 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
   await expect(page.getByRole('dialog', { name: 'Edit issue' })).not.toBeVisible()
   await expect(page.locator('.app-shell')).not.toHaveAttribute('inert', '')
 
+  const watchIssue = page.getByRole('button', { name: 'Watch issue' })
+  await expect(watchIssue).toHaveAttribute('aria-pressed', 'false')
+  await watchIssue.click()
+  await expect(page.getByText('You are now watching this issue.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stop watching' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await page.getByRole('button', { name: 'Stop watching' }).click()
+  await expect(page.getByText('You stopped watching this issue.')).toBeVisible()
+
   const commentDraft = page.getByLabel('Add a comment')
   await commentDraft.fill('Confirmed incident owners and next steps.')
   await expect(commentDraft).toHaveValue('Confirmed incident owners and next steps.')
   await page.getByRole('button', { name: 'Add comment' }).click()
   await expect(page.getByText('Comment added.')).toBeVisible()
   await expect(page.getByText('Confirmed incident owners and next steps.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stop watching' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
 })
 
 test('filters the authoritative project portfolio with durable URL state', async ({

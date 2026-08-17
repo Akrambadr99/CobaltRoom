@@ -46,6 +46,9 @@ export function useCreateIssueComment(issueId: IssueId) {
           queryKey: atlasQueryKeys.issueActivity(workspaceId, issueId),
         }),
         queryClient.cancelQueries({
+          queryKey: atlasQueryKeys.issueSubscription(workspaceId, issueId),
+        }),
+        queryClient.cancelQueries({
           queryKey: atlasQueryKeys.notificationInbox(workspaceId),
         }),
         queryClient.cancelQueries({
@@ -57,6 +60,9 @@ export function useCreateIssueComment(issueId: IssueId) {
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: atlasQueryKeys.issueActivity(workspaceId, issueId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.issueSubscription(workspaceId, issueId),
         }),
         queryClient.invalidateQueries({
           queryKey: atlasQueryKeys.notificationInbox(workspaceId),

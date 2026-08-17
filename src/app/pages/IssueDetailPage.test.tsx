@@ -188,6 +188,84 @@ describe('IssueDetailPage', () => {
     expect(screen.queryByRole('button', { name: /remove comment/i })).not.toBeInTheDocument()
   })
 
+  it('lets a read-only member watch an issue through an accessible pressed control', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const issue = fixtures.issues[0]
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    if (!issue || !viewerId) throw new Error('Expected viewer and issue fixtures.')
+
+    renderIssueDetail(`/issues/${issue.id}`, viewerId)
+    const watch = await screen.findByRole('button', { name: 'Watch issue' })
+    expect(watch).toHaveAttribute('aria-pressed', 'false')
+    await user.click(watch)
+
+    expect(
+      await screen.findByText('You are now watching this issue.'),
+    ).toHaveAttribute('role', 'status')
+    expect(screen.getByRole('button', { name: 'Stop watching' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByRole('list', { name: 'People watching this issue' })).toHaveTextContent(
+      'Theo Martin',
+    )
+    expect(screen.getByText('Read-only access')).toBeVisible()
+  })
+
+  it('rolls subscription state back when delivery fails', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const issue = fixtures.issues[1]
+    if (!issue) throw new Error('Expected an unwatched issue fixture.')
+
+    renderIssueDetail(
+      `/issues/${issue.id}`,
+      undefined,
+      new SimulatedNetwork({
+        failure: (operation) =>
+          operation === 'issue.subscription.update'
+            ? 'Subscription service unavailable.'
+            : null,
+      }),
+    )
+    await user.click(await screen.findByRole('button', { name: 'Watch issue' }))
+
+    expect(
+      await screen.findByText('Watch state could not be updated. Previous state restored.'),
+    ).toHaveAttribute('role', 'status')
+    expect(screen.getByRole('button', { name: 'Watch issue' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
+  it('recovers the authoritative watch state after a concurrent session change', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const issue = fixtures.issues[1]
+    if (!issue) throw new Error('Expected an unwatched issue fixture.')
+    const services = renderIssueDetail(`/issues/${issue.id}`)
+
+    await screen.findByRole('button', { name: 'Watch issue' })
+    await services.gateway.setIssueSubscription({
+      issueId: issue.id,
+      expectedSubscribed: false,
+      subscribed: true,
+    })
+    await user.click(screen.getByRole('button', { name: 'Watch issue' }))
+
+    expect(
+      await screen.findByText(
+        'Watch state changed in another session. Current state restored.',
+      ),
+    ).toHaveAttribute('role', 'status')
+    expect(await screen.findByRole('button', { name: 'Stop watching' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
   it('validates and creates a comment with focus-preserving feedback', async () => {
     const user = userEvent.setup()
     const issue = getFixtureIssue()
@@ -221,6 +299,27 @@ describe('IssueDetailPage', () => {
     if (!activityColumn) throw new Error('Expected the activity column.')
     expect(within(activityColumn).getByText('Added a comment.')).toBeVisible()
     expect(screen.getAllByText('Mar 1, 2026, 10:30 AM')).toHaveLength(2)
+  })
+
+  it('reconciles the watcher projection when commenting auto-subscribes the author', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const issue = fixtures.issues[1]
+    if (!issue) throw new Error('Expected an unwatched issue fixture.')
+    renderIssueDetail(`/issues/${issue.id}`)
+
+    expect(await screen.findByRole('button', { name: 'Watch issue' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    await user.type(screen.getByLabelText('Add a comment'), 'Subscribe through discussion.')
+    await user.click(screen.getByRole('button', { name: 'Add comment' }))
+
+    expect(await screen.findByText('Comment added.')).toBeVisible()
+    expect(await screen.findByRole('button', { name: 'Stop watching' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 
   it('coalesces duplicate comment submissions before React can rerender', async () => {

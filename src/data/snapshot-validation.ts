@@ -38,6 +38,11 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
     snapshot.workspaceInvitations.map((invitation) => [invitation.id, invitation]),
   )
   const projectKeys = new Set<string>()
+  const workspaceMembershipUsers = new Set(
+    snapshot.memberships.map(
+      ({ workspaceId, userId }) => `${workspaceId}:${userId}`,
+    ),
+  )
 
   for (const membership of snapshot.memberships) {
     if (
@@ -166,6 +171,23 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
   assertUniqueIssueNumbers(snapshot)
   assertIssueRelations(snapshot.issues, snapshot.issueRelations)
 
+  const subscriptionOwners = new Set<string>()
+  for (const subscription of snapshot.issueSubscriptions) {
+    const issue = issues.get(subscription.issueId)
+    const ownerKey = `${subscription.issueId}:${subscription.userId}`
+    if (
+      !issue ||
+      !workspaceMembershipUsers.has(`${issue.workspaceId}:${subscription.userId}`) ||
+      subscriptionOwners.has(ownerKey)
+    ) {
+      throw new DataIntegrityError(
+        'issueSubscriptions',
+        'Issue subscriptions require a unique workspace member per issue.',
+      )
+    }
+    subscriptionOwners.add(ownerKey)
+  }
+
   for (const comment of snapshot.comments) {
     const deletionIsConsistent =
       comment.deletedAt === null
@@ -263,6 +285,7 @@ const collectionNames = [
   'workflowStatuses',
   'labels',
   'issues',
+  'issueSubscriptions',
   'issueRelations',
   'comments',
   'activityEvents',

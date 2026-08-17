@@ -313,6 +313,19 @@ export interface IssueActivityData {
   readonly users: readonly User[]
 }
 
+export interface IssueSubscriptionData {
+  readonly issueId: IssueId
+  readonly subscribers: readonly User[]
+  readonly viewer: User
+  readonly subscribed: boolean
+}
+
+export interface SetIssueSubscriptionInput {
+  readonly issueId: IssueId
+  readonly subscribed: boolean
+  readonly expectedSubscribed: boolean
+}
+
 export interface CreateCommentInput {
   readonly issueId: IssueId
   readonly body: string
@@ -660,6 +673,14 @@ export interface AtlasGateway {
     issueId: IssueId,
     options?: RequestOptions,
   ): Promise<IssueActivityData>
+  getIssueSubscription(
+    issueId: IssueId,
+    options?: RequestOptions,
+  ): Promise<IssueSubscriptionData>
+  setIssueSubscription(
+    input: SetIssueSubscriptionInput,
+    options?: RequestOptions,
+  ): Promise<IssueSubscriptionData>
   createComment(
     input: CreateCommentInput,
     options?: RequestOptions,

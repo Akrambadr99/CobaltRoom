@@ -16,7 +16,12 @@ import { FixedClock } from '../clock'
 import { createAtlasFixtures } from '../fixtures'
 import { DeterministicIdGenerator } from '../id-generator'
 import { InMemoryDataStore } from '../store'
-import { isoDateTime, issueId, type UserId } from '../../domain'
+import {
+  isoDateTime,
+  issueId,
+  issueSubscriptionId,
+  type UserId,
+} from '../../domain'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -1866,6 +1871,150 @@ describe('MockAtlasGateway', () => {
         expectedRevision: comment.revision,
       }),
     ).rejects.toBeInstanceOf(GatewayConflictError)
+  })
+
+  it('manages issue subscriptions with expected-state conflicts and durable history', async () => {
+    const { fixtures, gateway, store, tracer } = createGateway()
+    const actorId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    const issue = fixtures.issues.find(
+      ({ id }) =>
+        !fixtures.issueSubscriptions.some(
+          ({ issueId, userId }) => issueId === id && userId === actorId,
+        ),
+    )
+    if (!actorId || !issue) throw new Error('Expected an unwatched issue fixture.')
+
+    const initial = await gateway.getIssueSubscription(issue.id)
+    expect(initial).toMatchObject({ subscribed: false, subscribers: [] })
+
+    const watched = await gateway.setIssueSubscription({
+      issueId: issue.id,
+      expectedSubscribed: false,
+      subscribed: true,
+    })
+    expect(watched.subscribed).toBe(true)
+    expect(watched.subscribers.map(({ id }) => id)).toEqual([actorId])
+    expect(store.read().data.activityEvents.at(-1)).toMatchObject({
+      action: 'issue.subscribed',
+      summary: 'Started watching this issue.',
+    })
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'issue.subscribed',
+      metadata: { issueId: issue.id, subscribed: true },
+    })
+    await expect(
+      gateway.setIssueSubscription({
+        issueId: issue.id,
+        expectedSubscribed: false,
+        subscribed: true,
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+
+    const unwatched = await gateway.setIssueSubscription({
+      issueId: issue.id,
+      expectedSubscribed: true,
+      subscribed: false,
+    })
+    expect(unwatched).toMatchObject({ subscribed: false, subscribers: [] })
+    expect(tracer.read().filter(({ phase }) => phase === 'succeeded')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operation: 'issue.subscription.get' }),
+        expect.objectContaining({ operation: 'issue.subscription.update' }),
+      ]),
+    )
+  })
+
+  it('lets read-only members watch issues without granting mutation access', async () => {
+    const fixtures = createAtlasFixtures()
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    const issue = fixtures.issues[0]
+    if (!viewerId || !issue) throw new Error('Expected viewer and issue fixtures.')
+    const { gateway } = createGateway(new SimulatedNetwork(), viewerId)
+
+    const result = await gateway.setIssueSubscription({
+      issueId: issue.id,
+      expectedSubscribed: false,
+      subscribed: true,
+    })
+    expect(result).toMatchObject({ subscribed: true })
+    await expect(
+      gateway.updateIssue({
+        id: issue.id,
+        expectedRevision: issue.revision,
+        changes: { priority: 'low' },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+  })
+
+  it('fans comments out once to active followers and auto-subscribes authors', async () => {
+    const fixtures = createAtlasFixtures()
+    const issue = fixtures.issues[1]
+    const actorId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    const engineerId = fixtures.users.find(({ email }) => email === 'lena@example.test')?.id
+    if (!issue || !actorId || !engineerId || !issue.assigneeId) {
+      throw new Error('Expected collaboration fan-out fixtures.')
+    }
+    const store = new InMemoryDataStore({
+      ...fixtures,
+      issueSubscriptions: [
+        ...fixtures.issueSubscriptions,
+        {
+          id: issueSubscriptionId('subscription_test_assignee_001'),
+          issueId: issue.id,
+          userId: issue.assigneeId,
+          createdAt: isoDateTime('2026-01-15T09:00:00.000Z'),
+        },
+        {
+          id: issueSubscriptionId('subscription_test_engineer_001'),
+          issueId: issue.id,
+          userId: engineerId,
+          createdAt: isoDateTime('2026-01-15T09:00:00.000Z'),
+        },
+      ],
+    })
+    const gateway = new MockAtlasGateway({
+      actorId,
+      store,
+      clock: new FixedClock(isoDateTime('2026-02-01T08:00:00.000Z')),
+      idGenerator: new DeterministicIdGenerator('fanout'),
+    })
+
+    await gateway.createComment({ issueId: issue.id, body: 'Follower update one.' })
+    const firstNotifications = store.read().data.notifications.filter(
+      ({ occurredAt }) => occurredAt === '2026-02-01T08:00:00.000Z',
+    )
+    expect(firstNotifications.map(({ recipientId }) => recipientId).sort()).toEqual(
+      [engineerId, issue.assigneeId].sort(),
+    )
+    expect(new Set(firstNotifications.map(({ recipientId }) => recipientId)).size).toBe(2)
+    expect(
+      store.read().data.issueSubscriptions.some(
+        ({ issueId, userId }) => issueId === issue.id && userId === actorId,
+      ),
+    ).toBe(true)
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      metadata: { notificationCount: 2, autoSubscribed: true },
+    })
+
+    const current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      memberships: current.data.memberships.map((membership) =>
+        membership.userId === engineerId
+          ? { ...membership, status: 'suspended' as const, revision: 2 }
+          : membership,
+      ),
+    })
+    await gateway.createComment({ issueId: issue.id, body: 'Follower update two.' })
+    const latestNotifications = store.read().data.notifications.filter(
+      ({ body }) => body === 'Follower update two.',
+    )
+    expect(latestNotifications.map(({ recipientId }) => recipientId)).toEqual([
+      issue.assigneeId,
+    ])
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      metadata: { notificationCount: 1, autoSubscribed: false },
+    })
   })
 
   it('creates notifications at the mutation boundary for non-actor assignees', async () => {

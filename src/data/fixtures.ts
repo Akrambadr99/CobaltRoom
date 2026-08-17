@@ -321,6 +321,20 @@ export function createAtlasFixtures(
       { ...incidentReview, labelIds: [customerLabel.id] },
       alertTuning,
     ],
+    issueSubscriptions: [
+      {
+        id: ids.issueSubscription('launch_assignee'),
+        issueId: launchBrief.id,
+        userId: operationsLead.id,
+        createdAt,
+      },
+      {
+        id: ids.issueSubscription('launch_commenter'),
+        issueId: launchBrief.id,
+        userId: productLead.id,
+        createdAt,
+      },
+    ],
     issueRelations: [
       {
         id: ids.issueRelation('launch_risk'),

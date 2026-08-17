@@ -12,6 +12,7 @@ export type ProjectId = DomainId<'ProjectId'>
 export type ProjectMemberId = DomainId<'ProjectMemberId'>
 export type WorkflowStatusId = DomainId<'WorkflowStatusId'>
 export type IssueId = DomainId<'IssueId'>
+export type IssueSubscriptionId = DomainId<'IssueSubscriptionId'>
 export type IssueRelationId = DomainId<'IssueRelationId'>
 export type LabelId = DomainId<'LabelId'>
 export type CommentId = DomainId<'CommentId'>
@@ -65,6 +66,8 @@ export const workflowStatusId = (value: string) =>
   createDomainId(value, 'status', 'WorkflowStatusId')
 export const issueId = (value: string) =>
   createDomainId(value, 'issue', 'IssueId')
+export const issueSubscriptionId = (value: string) =>
+  createDomainId(value, 'subscription', 'IssueSubscriptionId')
 export const issueRelationId = (value: string) =>
   createDomainId(value, 'rel', 'IssueRelationId')
 export const labelId = (value: string) =>

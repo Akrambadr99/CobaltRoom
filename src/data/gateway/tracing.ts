@@ -31,6 +31,8 @@ export type GatewayOperation =
   | 'issue.get'
   | 'issue.creation-metadata'
   | 'issue.list'
+  | 'issue.subscription.get'
+  | 'issue.subscription.update'
   | 'issue.update'
   | 'notification.list'
   | 'notification.mark-all-read'

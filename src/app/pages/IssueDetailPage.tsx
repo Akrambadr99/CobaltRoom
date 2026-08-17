@@ -22,6 +22,10 @@ import {
   useOptimisticIssueUpdate,
 } from '../../features/issues/issue-detail-queries'
 import {
+  useIssueSubscriptionData,
+  useSetIssueSubscription,
+} from '../../features/issues/issue-subscription-queries'
+import {
   validateIssueEditDraft,
   type IssueEditDraft,
 } from '../../features/issues/issue-form'
@@ -50,6 +54,7 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
   const authorization = useAuthorization()
   const { issue, projects } = useIssueDetailData(requestedIssueId)
   const activity = useIssueActivityData(requestedIssueId)
+  const subscription = useIssueSubscriptionData(requestedIssueId)
   const [editing, setEditing] = useState(false)
   const [status, setStatus] = useState('')
 
@@ -142,6 +147,12 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
         </div>
       </dl>
 
+      <IssueWatchPanel
+        issue={issue.data}
+        subscription={subscription}
+        canSubscribe={authorization.can('issue:subscribe', issue.data.projectId)}
+      />
+
       <IssueCollaboration
         issue={issue.data}
         activity={activity}
@@ -164,6 +175,103 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
           }}
         />
       ) : null}
+    </section>
+  )
+}
+
+function IssueWatchPanel({
+  issue,
+  subscription,
+  canSubscribe,
+}: Readonly<{
+  issue: Issue
+  subscription: ReturnType<typeof useIssueSubscriptionData>
+  canSubscribe: boolean
+}>) {
+  const update = useSetIssueSubscription(issue.id)
+  const [status, setStatus] = useState('')
+
+  return (
+    <section className="issue-watchers" aria-labelledby="issue-watchers-title">
+      <div>
+        <p className="page-eyebrow">Collaboration</p>
+        <h2 id="issue-watchers-title">Watchers</h2>
+        <p>Watch this issue to receive comment notifications.</p>
+      </div>
+      {subscription.isPending ? (
+        <p role="status">Loading watchers…</p>
+      ) : subscription.isError ? (
+        <div className="issue-watchers__error" role="alert">
+          <span>Watchers could not be loaded.</span>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void subscription.refetch()}
+          >
+            Retry watchers
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="issue-watchers__summary">
+            <p>
+              {subscription.data.subscribers.length.toString()}{' '}
+              {subscription.data.subscribers.length === 1 ? 'watcher' : 'watchers'}
+            </p>
+            {canSubscribe ? (
+              <button
+                className="secondary-button"
+                type="button"
+                aria-pressed={subscription.data.subscribed}
+                disabled={update.isPending}
+                onClick={() => {
+                  const subscribed = !subscription.data.subscribed
+                  setStatus('')
+                  update.mutate(
+                    {
+                      issueId: issue.id,
+                      expectedSubscribed: subscription.data.subscribed,
+                      subscribed,
+                    },
+                    {
+                      onSuccess: () => {
+                        setStatus(
+                          subscribed
+                            ? 'You are now watching this issue.'
+                            : 'You stopped watching this issue.',
+                        )
+                      },
+                      onError: (error) => {
+                        setStatus(
+                          error instanceof GatewayConflictError
+                            ? 'Watch state changed in another session. Current state restored.'
+                            : 'Watch state could not be updated. Previous state restored.',
+                        )
+                      },
+                    },
+                  )
+                }}
+              >
+                {update.isPending
+                  ? 'Updating…'
+                  : subscription.data.subscribed
+                    ? 'Stop watching'
+                    : 'Watch issue'}
+              </button>
+            ) : null}
+          </div>
+          {subscription.data.subscribers.length > 0 ? (
+            <ul className="issue-watchers__list" aria-label="People watching this issue">
+              {subscription.data.subscribers.map((subscriber) => (
+                <li key={subscriber.id}>{subscriber.displayName}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="issue-collaboration__empty">No one is watching yet.</p>
+          )}
+        </>
+      )}
+      {status ? <p className="issue-watchers__status" role="status">{status}</p> : null}
     </section>
   )
 }
@@ -322,7 +430,8 @@ function CommentForm({ issueId }: Readonly<{ issueId: IssueId }>) {
       />
       <div className="comment-form__footer">
         <p id="comment-guidance">
-          {validationError || `${body.length.toString()} of 5,000 characters`}
+          {validationError ||
+            `${body.length.toString()} of 5,000 characters. Commenting watches this issue.`}
         </p>
         <button
           className="primary-button"

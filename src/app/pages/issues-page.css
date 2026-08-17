@@ -288,6 +288,60 @@
   font-weight: 750;
 }
 
+.issue-watchers {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.8fr) minmax(0, 1.2fr);
+  align-items: start;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.issue-watchers h2,
+.issue-watchers p {
+  margin: 0;
+}
+
+.issue-watchers h2 {
+  margin-block: var(--space-2);
+  font-size: 1.25rem;
+}
+
+.issue-watchers__summary,
+.issue-watchers__error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.issue-watchers__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.issue-watchers__list li {
+  padding: var(--space-1) var(--space-2);
+  border-radius: 999px;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.issue-watchers__status {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
 .issue-collaboration {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr);
@@ -661,6 +715,10 @@
 
   .issue-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .issue-watchers {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .issue-collaboration {

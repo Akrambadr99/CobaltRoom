@@ -2,6 +2,7 @@ import type {
   CommentId,
   IssueId,
   IssueRelationId,
+  IssueSubscriptionId,
   LabelId,
   ProjectId,
   UserId,
@@ -38,6 +39,13 @@ export interface IssueRelation {
   readonly sourceIssueId: IssueId
   readonly targetIssueId: IssueId
   readonly type: IssueRelationType
+}
+
+export interface IssueSubscription {
+  readonly id: IssueSubscriptionId
+  readonly issueId: IssueId
+  readonly userId: UserId
+  readonly createdAt: IsoDateTime
 }
 
 export interface Label {

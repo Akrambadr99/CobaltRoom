@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest'
 import { createAtlasFixtures } from './fixtures'
 import { DataIntegrityError } from './snapshot-validation'
 import { InMemoryDataStore, StaleSnapshotError } from './store'
-import { issueId, isoDateTime, userId, workspaceInvitationId } from '../domain'
+import {
+  issueId,
+  issueSubscriptionId,
+  isoDateTime,
+  userId,
+  workspaceInvitationId,
+} from '../domain'
 
 describe('InMemoryDataStore', () => {
   it('isolates stored state from caller-owned snapshots', () => {
@@ -134,6 +140,39 @@ describe('InMemoryDataStore', () => {
         target: { kind: 'issue', id: issueId('issue_missing_notification_target') },
       }],
     })).toThrow(DataIntegrityError)
+  })
+
+  it('rejects orphaned and duplicate issue subscriptions', () => {
+    const seed = createAtlasFixtures()
+    const subscription = seed.issueSubscriptions[0]
+    if (!subscription) throw new Error('Expected an issue subscription fixture.')
+
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          issueSubscriptions: [
+            {
+              ...subscription,
+              id: issueSubscriptionId('subscription_store_orphan_001'),
+              userId: userId('usr_missing_subscription_owner'),
+            },
+          ],
+        }),
+    ).toThrow(DataIntegrityError)
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          issueSubscriptions: [
+            ...seed.issueSubscriptions,
+            {
+              ...subscription,
+              id: issueSubscriptionId('subscription_store_duplicate_001'),
+            },
+          ],
+        }),
+    ).toThrow(DataIntegrityError)
   })
 
   it('rejects invalid project revisions and mismatched lead memberships', () => {

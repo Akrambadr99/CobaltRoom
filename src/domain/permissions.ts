@@ -14,6 +14,7 @@ export const permissions = [
   'project:update',
   'project:archive',
   'issue:view',
+  'issue:subscribe',
   'issue:create',
   'issue:update',
   'issue:delete',
@@ -44,6 +45,7 @@ const workspacePermissions: Readonly<Record<WorkspaceRole, ReadonlySet<Permissio
     'project:update',
     'project:archive',
     'issue:view',
+    'issue:subscribe',
     'issue:create',
     'issue:update',
     'issue:delete',
@@ -61,6 +63,7 @@ const workspacePermissions: Readonly<Record<WorkspaceRole, ReadonlySet<Permissio
     'project:create',
     'project:view',
     'issue:view',
+    'issue:subscribe',
   ]),
   viewer: new Set([
     'workspace:view',
@@ -69,6 +72,7 @@ const workspacePermissions: Readonly<Record<WorkspaceRole, ReadonlySet<Permissio
     'notification-preferences:manage-self',
     'project:view',
     'issue:view',
+    'issue:subscribe',
   ]),
 }
 
