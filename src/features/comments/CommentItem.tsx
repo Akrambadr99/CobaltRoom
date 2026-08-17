@@ -11,6 +11,7 @@ interface CommentItemProps {
   readonly deletedByName: string | null
   readonly issueId: IssueId
   readonly projectId: ProjectId
+  readonly readOnly?: boolean
 }
 
 export function CommentItem({
@@ -19,6 +20,7 @@ export function CommentItem({
   deletedByName,
   issueId,
   projectId,
+  readOnly = false,
 }: CommentItemProps) {
   const authorization = useAuthorization()
   const updateComment = useUpdateComment(issueId, comment.id)
@@ -36,10 +38,12 @@ export function CommentItem({
   const [message, setMessage] = useState('')
   const isAuthor = comment.authorId === authorization.session.user.id
   const canEdit =
+    !readOnly &&
     comment.deletedAt === null &&
     isAuthor &&
     authorization.can('comment:edit-own', projectId)
   const canDelete =
+    !readOnly &&
     comment.deletedAt === null &&
     (isAuthor
       ? authorization.can('comment:delete-own', projectId)

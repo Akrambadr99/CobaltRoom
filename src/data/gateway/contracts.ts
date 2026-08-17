@@ -62,6 +62,27 @@ export interface ProjectSummary {
   readonly completedIssues: number
 }
 
+export interface ProjectEditMetadata {
+  readonly project: Project
+  readonly eligibleLeads: readonly User[]
+}
+
+export type MutableProjectFields = Pick<
+  Project,
+  'description' | 'leadId' | 'name' | 'status'
+>
+
+export interface UpdateProjectInput {
+  readonly id: ProjectId
+  readonly expectedRevision: number
+  readonly changes: Partial<MutableProjectFields>
+}
+
+export interface ArchiveProjectInput {
+  readonly id: ProjectId
+  readonly expectedRevision: number
+}
+
 export interface IssueFilters {
   readonly workspaceId: WorkspaceId
   readonly projectIds?: readonly ProjectId[]
@@ -261,6 +282,18 @@ export interface AtlasGateway {
     query: ProjectSummaryQuery,
     options?: RequestOptions,
   ): Promise<Page<ProjectSummary>>
+  getProjectEditMetadata(
+    projectId: ProjectId,
+    options?: RequestOptions,
+  ): Promise<ProjectEditMetadata>
+  updateProject(
+    input: UpdateProjectInput,
+    options?: RequestOptions,
+  ): Promise<Project>
+  archiveProject(
+    input: ArchiveProjectInput,
+    options?: RequestOptions,
+  ): Promise<Project>
   listIssues(query: IssueQuery, options?: RequestOptions): Promise<Page<Issue>>
   getIssue(id: IssueId, options?: RequestOptions): Promise<Issue>
   getIssueCreationMetadata(

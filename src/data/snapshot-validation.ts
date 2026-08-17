@@ -49,7 +49,9 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
     if (
       !workspaces.has(project.workspaceId) ||
       !users.has(project.leadId) ||
-      projectKeys.has(key)
+      projectKeys.has(key) ||
+      !Number.isSafeInteger(project.revision) ||
+      project.revision < 1
     ) {
       throw new DataIntegrityError(
         'projects',
@@ -62,6 +64,16 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
       project,
       snapshot.workflowStatuses.filter(({ projectId }) => projectId === project.id),
     )
+
+    const projectLeads = snapshot.projectMembers.filter(
+      ({ projectId, role }) => projectId === project.id && role === 'lead',
+    )
+    if (projectLeads.length !== 1 || projectLeads[0]?.userId !== project.leadId) {
+      throw new DataIntegrityError(
+        'projectMembers',
+        'Projects require exactly one matching project lead membership.',
+      )
+    }
   }
 
   for (const projectMember of snapshot.projectMembers) {

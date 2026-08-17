@@ -24,6 +24,7 @@ export interface Project {
   readonly description: string
   readonly leadId: UserId
   readonly status: ProjectStatus
+  readonly revision: number
   readonly createdAt: IsoDateTime
   readonly updatedAt: IsoDateTime
 }

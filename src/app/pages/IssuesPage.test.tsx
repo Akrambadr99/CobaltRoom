@@ -173,7 +173,7 @@ describe('IssuesPage', () => {
     renderIssues(
       '/issues',
       new SimulatedNetwork({
-        latency: (operation) => (operation === 'issue.create' ? 150 : 0),
+        latency: (operation) => (operation === 'issue.create' ? 600 : 0),
       }),
     )
 

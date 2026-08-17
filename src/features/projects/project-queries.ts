@@ -1,8 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useAppServices } from '../../app/providers/app-services-context'
-import type { AtlasGateway } from '../../data'
-import type { Issue, WorkspaceId } from '../../domain'
+import type { MutableProjectFields, ProjectEditMetadata } from '../../data'
+import type { Project, ProjectId } from '../../domain'
 import { atlasQueryKeys } from '../query-keys'
 import type { ProjectWorkspaceState } from './project-workspace-state'
 
@@ -21,51 +21,111 @@ export function useProjectSummaries(state: ProjectWorkspaceState) {
   })
 }
 
-export function useProjectsIndexData() {
+export function useProjectDetail(projectId: ProjectId, page: number) {
   const { gateway, workspaceId } = useAppServices()
-  const projects = useQuery({
-    queryKey: atlasQueryKeys.projects(workspaceId),
-    queryFn: ({ signal }) => gateway.listProjects(workspaceId, { signal }),
+  const metadata = useQuery({
+    queryKey: atlasQueryKeys.project(workspaceId, projectId),
+    queryFn: ({ signal }) => gateway.getProjectEditMetadata(projectId, { signal }),
   })
   const issues = useQuery({
-    queryKey: atlasQueryKeys.projectIndexIssues(workspaceId),
-    queryFn: ({ signal }) =>
-      loadAllWorkspaceIssues(gateway, workspaceId, signal),
-  })
-
-  return { issues, projects }
-}
-
-async function loadAllWorkspaceIssues(
-  gateway: AtlasGateway,
-  workspaceId: WorkspaceId,
-  signal: AbortSignal,
-): Promise<readonly Issue[]> {
-  const firstPage = await gateway.listIssues(
-    {
-      filters: { workspaceId },
+    queryKey: atlasQueryKeys.issues(workspaceId, {
+      filters: { workspaceId, projectIds: [projectId] },
       sort: { field: 'updatedAt', direction: 'descending' },
-      page: { number: 1, size: 100 },
-    },
-    { signal },
-  )
-
-  if (firstPage.pageCount <= 1) {
-    return firstPage.items
-  }
-
-  const remainingPages = await Promise.all(
-    Array.from({ length: firstPage.pageCount - 1 }, (_, index) =>
+      page: { number: page, size: 20 },
+    }),
+    queryFn: ({ signal }) =>
       gateway.listIssues(
         {
-          filters: { workspaceId },
+          filters: { workspaceId, projectIds: [projectId] },
           sort: { field: 'updatedAt', direction: 'descending' },
-          page: { number: index + 2, size: firstPage.pageSize },
+          page: { number: page, size: 20 },
         },
         { signal },
       ),
-    ),
-  )
+  })
+  return { issues, metadata }
+}
 
-  return [firstPage, ...remainingPages].flatMap(({ items }) => items)
+interface UpdateProjectVariables {
+  readonly project: Project
+  readonly changes: Partial<MutableProjectFields>
+}
+
+export function useUpdateProject(projectId: ProjectId) {
+  const { gateway, workspaceId } = useAppServices()
+  const queryClient = useQueryClient()
+  const key = atlasQueryKeys.project(workspaceId, projectId)
+  return useMutation<
+    Project,
+    Error,
+    UpdateProjectVariables,
+    { readonly previous: ProjectEditMetadata | undefined }
+  >({
+    scope: { id: `project:${projectId}` },
+    mutationFn: ({ project, changes }) =>
+      gateway.updateProject({
+        id: project.id,
+        expectedRevision: project.revision,
+        changes,
+      }),
+    onMutate: async ({ project, changes }) => {
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<ProjectEditMetadata>(key)
+      queryClient.setQueryData<ProjectEditMetadata>(key, (current) =>
+        current
+          ? {
+              ...current,
+              project: {
+                ...project,
+                ...changes,
+                revision: project.revision + 1,
+              },
+            }
+          : current,
+      )
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(key, context.previous)
+    },
+    onSuccess: (project) => {
+      queryClient.setQueryData<ProjectEditMetadata>(key, (current) =>
+        current ? { ...current, project } : current,
+      )
+    },
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: key }),
+        queryClient.invalidateQueries({ queryKey: atlasQueryKeys.projects(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: atlasQueryKeys.analytics(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: atlasQueryKeys.governanceReports(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: atlasQueryKeys.authorization(workspaceId) }),
+      ])
+    },
+  })
+}
+
+export function useArchiveProject(projectId: ProjectId) {
+  const { gateway, workspaceId } = useAppServices()
+  const queryClient = useQueryClient()
+  const key = atlasQueryKeys.project(workspaceId, projectId)
+  return useMutation({
+    scope: { id: `project:${projectId}` },
+    mutationFn: (project: Project) =>
+      gateway.archiveProject({ id: project.id, expectedRevision: project.revision }),
+    onSuccess: (project) => {
+      queryClient.setQueryData<ProjectEditMetadata>(key, (current) =>
+        current ? { ...current, project } : current,
+      )
+    },
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: key }),
+        queryClient.invalidateQueries({ queryKey: atlasQueryKeys.projects(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: atlasQueryKeys.workspaceIssues(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: atlasQueryKeys.analytics(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: atlasQueryKeys.governanceReports(workspaceId) }),
+      ])
+    },
+  })
 }

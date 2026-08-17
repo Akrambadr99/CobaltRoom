@@ -121,4 +121,31 @@ describe('InMemoryDataStore', () => {
         }),
     ).toThrow(DataIntegrityError)
   })
+
+  it('rejects invalid project revisions and mismatched lead memberships', () => {
+    const seed = createAtlasFixtures()
+    const project = seed.projects[0]
+    if (!project) throw new Error('Expected a fixture project.')
+
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          projects: seed.projects.map((candidate) =>
+            candidate.id === project.id ? { ...candidate, revision: 0 } : candidate,
+          ),
+        }),
+    ).toThrow(DataIntegrityError)
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          projectMembers: seed.projectMembers.map((membership) =>
+            membership.projectId === project.id && membership.role === 'lead'
+              ? { ...membership, role: 'contributor' as const }
+              : membership,
+          ),
+        }),
+    ).toThrow(DataIntegrityError)
+  })
 })

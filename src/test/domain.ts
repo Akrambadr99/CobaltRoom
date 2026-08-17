@@ -56,6 +56,7 @@ export function createTestProject(overrides: Partial<Project> = {}): Project {
     description: 'Coordinate the launch workspace.',
     leadId: testIds.user,
     status: 'active',
+    revision: 1,
     createdAt: timestamp,
     updatedAt: timestamp,
     ...overrides,

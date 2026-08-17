@@ -21,14 +21,14 @@ const issuePriorities = ['urgent', 'high', 'medium', 'low', 'none'] as const
 export function DashboardPage() {
   const services = useAppServices()
   const authorization = useAuthorization()
-  const { analytics, issues } = useDashboardData()
+  const { analytics, issues, projects } = useDashboardData()
   const preferences = useUserPreferences()
   const updatePriority = useUpdateIssuePriority()
   const [mutationMessage, setMutationMessage] = useState<string | null>(null)
   const [customizing, setCustomizing] = useState(false)
   const [preferenceError, setPreferenceError] = useState('')
 
-  if (issues.isPending || analytics.isPending) {
+  if (issues.isPending || analytics.isPending || projects.isPending) {
     return (
       <section className="page" aria-labelledby="dashboard-title" aria-busy="true">
         <DashboardHeader />
@@ -39,7 +39,7 @@ export function DashboardPage() {
     )
   }
 
-  if (issues.isError || analytics.isError) {
+  if (issues.isError || analytics.isError || projects.isError) {
     return (
       <section className="page" aria-labelledby="dashboard-title">
         <DashboardHeader />
@@ -50,7 +50,11 @@ export function DashboardPage() {
             className="secondary-button"
             type="button"
             onClick={() => {
-              void Promise.all([issues.refetch(), analytics.refetch()])
+              void Promise.all([
+                issues.refetch(),
+                analytics.refetch(),
+                projects.refetch(),
+              ])
             }}
           >
             Retry dashboard
@@ -152,7 +156,12 @@ export function DashboardPage() {
 
         <ol className="issue-list">
           {issues.data.items.map((issue) => {
-            const canUpdate = authorization.can('issue:update', issue.projectId)
+            const project = projects.data.find(({ id }) => id === issue.projectId)
+            const canUpdate =
+              (project?.status === 'planned' ||
+                project?.status === 'active' ||
+                project?.status === 'paused') &&
+              authorization.can('issue:update', issue.projectId)
             const mutationIsPending =
               updatePriority.isPending &&
               updatePriority.variables.issue.id === issue.id

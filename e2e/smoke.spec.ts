@@ -95,6 +95,30 @@ test('filters the authoritative project portfolio with durable URL state', async
   await expect(page.getByText('No matching projects')).toBeVisible()
 })
 
+test('governs project lifecycle changes and archival', async ({ page }) => {
+  await page.goto('/projects')
+  await page.getByRole('link', { name: 'Launch readiness' }).click()
+  await page.getByRole('button', { name: 'Edit project' }).click()
+  await page.getByLabel('Name').fill('Launch assurance')
+  await page.getByLabel('Status').selectOption('paused')
+  await page.getByRole('button', { name: 'Save project' }).click()
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Launch assurance' }),
+  ).toBeVisible()
+  await expect(page.getByText('OPS · paused')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Archive project' }).click()
+  const confirmation = page.getByRole('dialog')
+  await expect(confirmation).toContainText('issues and comments become read-only')
+  await confirmation.getByRole('button', { name: 'Archive project' }).click()
+  await expect(
+    page.getByText(
+      'This project is archived. Its issues and comments are read-only.',
+    ),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Edit project' })).toHaveCount(0)
+})
+
 test('creates a permission-aware issue with workflow metadata', async ({ page }) => {
   await page.goto('/issues')
   await expect(page.getByRole('table', { name: 'Workspace issues' })).toBeVisible()

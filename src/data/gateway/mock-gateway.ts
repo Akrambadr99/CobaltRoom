@@ -1,5 +1,6 @@
 import type {
   AtlasGateway,
+  ArchiveProjectInput,
   AuthorizationSession,
   BoardMetadata,
   CreateCommentInput,
@@ -16,10 +17,12 @@ import type {
   NotificationQuery,
   Page,
   ProjectSummaryQuery,
+  ProjectEditMetadata,
   RequestOptions,
   UpdateIssueInput,
   UpdateCommentInput,
   UpdateNotificationPreferencesInput,
+  UpdateProjectInput,
   WorkspaceAnalytics,
 } from './contracts'
 import { buildWorkspaceAnalytics } from './analytics'
@@ -58,6 +61,7 @@ import {
   type Permission,
   type Project,
   type ProjectId,
+  type ProjectStatus,
   type UserId,
   type WorkspaceId,
   isoDate,
@@ -68,6 +72,14 @@ const openProjectStatuses: ReadonlySet<Project['status']> = new Set([
   'active',
   'paused',
 ])
+
+const projectStatusTransitions: Readonly<Record<ProjectStatus, ReadonlySet<ProjectStatus>>> = {
+  planned: new Set(['active', 'paused', 'completed']),
+  active: new Set(['paused', 'completed']),
+  paused: new Set(['active', 'completed']),
+  completed: new Set(['active']),
+  archived: new Set(),
+}
 
 export interface MockAtlasGatewayOptions {
   readonly store: InMemoryDataStore
@@ -167,6 +179,215 @@ export class MockAtlasGateway implements AtlasGateway {
     return this.execute('project.summary-list', options, () => {
       this.assertPermission('project:view', query.workspaceId)
       return queryProjectSummaries(this.store.read().data, query)
+    })
+  }
+
+  getProjectEditMetadata(
+    projectId: ProjectId,
+    options?: RequestOptions,
+  ): Promise<ProjectEditMetadata> {
+    return this.execute('project.metadata.get', options, () => {
+      const data = this.store.read().data
+      const project = data.projects.find(({ id }) => id === projectId)
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('project:view', project.workspaceId, project.id)
+      const activeUserIds = new Set(
+        data.memberships
+          .filter(
+            ({ workspaceId, status }) =>
+              workspaceId === project.workspaceId && status === 'active',
+          )
+          .map(({ userId }) => userId),
+      )
+      const projectUserIds = new Set(
+        data.projectMembers
+          .filter(({ projectId: memberProjectId }) => memberProjectId === project.id)
+          .map(({ userId }) => userId),
+      )
+      return {
+        project,
+        eligibleLeads: data.users
+          .filter(({ id }) => activeUserIds.has(id) && projectUserIds.has(id))
+          .sort((left, right) => left.displayName.localeCompare(right.displayName)),
+      }
+    })
+  }
+
+  updateProject(
+    input: UpdateProjectInput,
+    options?: RequestOptions,
+  ): Promise<Project> {
+    return this.execute('project.update', options, (requestId) => {
+      const current = this.store.read()
+      const projectIndex = current.data.projects.findIndex(({ id }) => id === input.id)
+      const project = current.data.projects[projectIndex]
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('project:update', project.workspaceId, project.id)
+      if (project.status === 'archived') {
+        throw new GatewayConflictError('Archived projects are read-only.')
+      }
+      if (project.revision !== input.expectedRevision) {
+        throw new GatewayConflictError(
+          'The project changed after it was loaded. Refresh and try again.',
+        )
+      }
+
+      const name = input.changes.name?.trim() ?? project.name
+      const description = input.changes.description?.trim() ?? project.description
+      if (name.length === 0 || name.length > 120) {
+        throw new InvalidGatewayRequestError(
+          'Project names must contain 1 to 120 characters.',
+        )
+      }
+      if (description.length > 5_000) {
+        throw new InvalidGatewayRequestError(
+          'Project descriptions may not exceed 5,000 characters.',
+        )
+      }
+      const status = input.changes.status ?? project.status
+      if (
+        status !== project.status &&
+        !projectStatusTransitions[project.status].has(status)
+      ) {
+        throw new InvalidGatewayRequestError(
+          `Projects may not move from ${project.status} to ${status}.`,
+        )
+      }
+      const leadId = input.changes.leadId ?? project.leadId
+      const eligibleLead = current.data.projectMembers.some(
+        ({ projectId, userId }) => projectId === project.id && userId === leadId,
+      ) && current.data.memberships.some(
+        ({ workspaceId, userId, status }) =>
+          workspaceId === project.workspaceId &&
+          userId === leadId &&
+          status === 'active',
+      )
+      if (!eligibleLead) {
+        throw new InvalidGatewayRequestError(
+          'Project leads must be active members of the project.',
+        )
+      }
+
+      const occurredAt = this.clock.now()
+      const updated: Project = {
+        ...project,
+        ...input.changes,
+        name,
+        description,
+        status,
+        leadId,
+        revision: project.revision + 1,
+        updatedAt: occurredAt,
+      }
+      const projects = [...current.data.projects]
+      projects[projectIndex] = updated
+      const projectMembers = current.data.projectMembers.map((member) => {
+        if (member.projectId !== project.id) return member
+        if (member.userId === leadId) return { ...member, role: 'lead' as const }
+        if (member.role === 'lead') return { ...member, role: 'contributor' as const }
+        return member
+      })
+      this.commit(current.version, {
+        ...current.data,
+        projects,
+        projectMembers,
+        activityEvents: [
+          ...current.data.activityEvents,
+          {
+            id: this.ids.activity('project_updated'),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'project',
+            entityId: project.id,
+            action: 'project.updated',
+            occurredAt,
+            summary: `Updated ${project.key}.`,
+          },
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit('project_updated'),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action: 'project.updated',
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: {
+              projectId: project.id,
+              fromRevision: project.revision,
+              toRevision: updated.revision,
+              status: updated.status,
+            },
+          },
+        ],
+      })
+      return updated
+    })
+  }
+
+  archiveProject(
+    input: ArchiveProjectInput,
+    options?: RequestOptions,
+  ): Promise<Project> {
+    return this.execute('project.archive', options, (requestId) => {
+      const current = this.store.read()
+      const projectIndex = current.data.projects.findIndex(({ id }) => id === input.id)
+      const project = current.data.projects[projectIndex]
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('project:archive', project.workspaceId, project.id)
+      if (project.revision !== input.expectedRevision) {
+        throw new GatewayConflictError(
+          'The project changed after it was loaded. Refresh and try again.',
+        )
+      }
+      if (project.status === 'archived') return project
+
+      const occurredAt = this.clock.now()
+      const archived: Project = {
+        ...project,
+        status: 'archived',
+        revision: project.revision + 1,
+        updatedAt: occurredAt,
+      }
+      const projects = [...current.data.projects]
+      projects[projectIndex] = archived
+      this.commit(current.version, {
+        ...current.data,
+        projects,
+        activityEvents: [
+          ...current.data.activityEvents,
+          {
+            id: this.ids.activity('project_archived'),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'project',
+            entityId: project.id,
+            action: 'project.archived',
+            occurredAt,
+            summary: `Archived ${project.key}.`,
+          },
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit('project_archived'),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action: 'project.archived',
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: {
+              projectId: project.id,
+              fromRevision: project.revision,
+              toRevision: archived.revision,
+            },
+          },
+        ],
+      })
+      return archived
     })
   }
 
@@ -477,6 +698,7 @@ export class MockAtlasGateway implements AtlasGateway {
 
       if (!issue) throw new EntityNotFoundError('Issue')
       this.assertPermission('comment:create', issue.workspaceId, issue.projectId)
+      this.assertProjectOpen(current.data, issue.projectId)
 
       const body = input.body.trim()
       if (body.length === 0 || body.length > 5_000) {
@@ -571,6 +793,7 @@ export class MockAtlasGateway implements AtlasGateway {
         throw new ForbiddenGatewayError('Only the comment author can edit it.')
       }
       this.assertPermission('comment:edit-own', issue.workspaceId, issue.projectId)
+      this.assertProjectOpen(current.data, issue.projectId)
       if (comment.deletedAt !== null || comment.revision !== input.expectedRevision) {
         throw new GatewayConflictError(
           'The comment changed or was removed. Refresh and try again.',
@@ -647,6 +870,7 @@ export class MockAtlasGateway implements AtlasGateway {
         issue.workspaceId,
         issue.projectId,
       )
+      this.assertProjectOpen(current.data, issue.projectId)
       if (comment.deletedAt !== null || comment.revision !== input.expectedRevision) {
         throw new GatewayConflictError(
           'The comment changed or was already removed. Refresh and try again.',
@@ -793,6 +1017,7 @@ export class MockAtlasGateway implements AtlasGateway {
       }
 
       this.assertPermission('issue:update', issue.workspaceId, issue.projectId)
+      this.assertProjectOpen(current.data, issue.projectId)
 
       if (issue.revision !== input.expectedRevision) {
         throw new GatewayConflictError(
@@ -911,6 +1136,7 @@ export class MockAtlasGateway implements AtlasGateway {
       }
 
       this.assertPermission('issue:delete', issue.workspaceId, issue.projectId)
+      this.assertProjectOpen(current.data, issue.projectId)
 
       if (issue.revision !== input.expectedRevision) {
         throw new GatewayConflictError(
@@ -989,6 +1215,15 @@ export class MockAtlasGateway implements AtlasGateway {
     this.assertPermission('notifications:view-self', notification.workspaceId)
     if (notification.recipientId !== this.actorId) {
       throw new ForbiddenGatewayError()
+    }
+  }
+
+  private assertProjectOpen(data: AtlasDataSnapshot, projectId: ProjectId): void {
+    const project = data.projects.find(({ id }) => id === projectId)
+    if (!project || !openProjectStatuses.has(project.status)) {
+      throw new GatewayConflictError(
+        'This project is read-only because it is completed or archived.',
+      )
     }
   }
 

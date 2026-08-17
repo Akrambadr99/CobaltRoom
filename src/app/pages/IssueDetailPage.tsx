@@ -81,7 +81,12 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
   }
 
   const project = projects.data.find(({ id }) => id === issue.data.projectId)
-  const canEdit = authorization.can('issue:update', issue.data.projectId)
+  const projectIsWritable =
+    project?.status === 'planned' ||
+    project?.status === 'active' ||
+    project?.status === 'paused'
+  const canEdit =
+    projectIsWritable && authorization.can('issue:update', issue.data.projectId)
 
   return (
     <section className="page" aria-labelledby="issue-detail-title">
@@ -140,7 +145,11 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
       <IssueCollaboration
         issue={issue.data}
         activity={activity}
-        canComment={authorization.can('comment:create', issue.data.projectId)}
+        canComment={
+          projectIsWritable &&
+          authorization.can('comment:create', issue.data.projectId)
+        }
+        readOnly={!projectIsWritable}
       />
 
       {editing ? (
@@ -163,10 +172,12 @@ function IssueCollaboration({
   issue,
   activity,
   canComment,
+  readOnly,
 }: Readonly<{
   issue: Issue
   activity: ReturnType<typeof useIssueActivityData>
   canComment: boolean
+  readOnly: boolean
 }>) {
   if (activity.isPending) {
     return (
@@ -214,6 +225,7 @@ function IssueCollaboration({
                 key={comment.id}
                 issueId={issue.id}
                 projectId={issue.projectId}
+                readOnly={readOnly}
                 comment={comment}
                 authorName={
                   usersById.get(comment.authorId)?.displayName ?? 'Unknown member'

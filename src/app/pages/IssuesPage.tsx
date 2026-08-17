@@ -309,7 +309,14 @@ export function IssuesPage() {
           onToggleIssue={toggleIssue}
           onTogglePage={togglePage}
           isIssueSelectable={(issue) =>
-            authorization.can('issue:update', issue.projectId)
+            authorization.can('issue:update', issue.projectId) &&
+            projects.data.some(
+              (project) =>
+                project.id === issue.projectId &&
+                (project.status === 'planned' ||
+                  project.status === 'active' ||
+                  project.status === 'paused'),
+            )
           }
         />
       )}

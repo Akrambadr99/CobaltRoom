@@ -91,6 +91,136 @@ describe('MockAtlasGateway', () => {
     ])
   })
 
+  it('returns project edit metadata for active project members', async () => {
+    const { fixtures, gateway, tracer } = createGateway()
+    const project = fixtures.projects[0]
+    if (!project) throw new Error('Expected a fixture project.')
+
+    const metadata = await gateway.getProjectEditMetadata(project.id)
+
+    expect(metadata.project).toEqual(project)
+    expect(metadata.eligibleLeads.map(({ displayName }) => displayName)).toEqual([
+      'Maya Chen',
+      'Omar Haddad',
+    ])
+    expect(tracer.read()).toMatchObject([
+      { operation: 'project.metadata.get', phase: 'started' },
+      { operation: 'project.metadata.get', phase: 'succeeded' },
+    ])
+  })
+
+  it('updates project lifecycle fields and transfers leadership atomically', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const project = fixtures.projects[0]
+    const nextLead = fixtures.projectMembers.find(
+      ({ projectId, role }) => projectId === project?.id && role === 'contributor',
+    )
+    if (!project || !nextLead) throw new Error('Expected project leadership fixtures.')
+
+    const updated = await gateway.updateProject({
+      id: project.id,
+      expectedRevision: project.revision,
+      changes: {
+        name: '  Launch assurance  ',
+        description: '  Govern the launch decision.  ',
+        leadId: nextLead.userId,
+        status: 'paused',
+      },
+    })
+
+    expect(updated).toMatchObject({
+      name: 'Launch assurance',
+      description: 'Govern the launch decision.',
+      leadId: nextLead.userId,
+      status: 'paused',
+      revision: 2,
+    })
+    const snapshot = store.read().data
+    expect(
+      snapshot.projectMembers.find(
+        ({ projectId, userId }) =>
+          projectId === project.id && userId === nextLead.userId,
+      ),
+    ).toMatchObject({ role: 'lead' })
+    expect(snapshot.auditEvents.at(-1)).toMatchObject({
+      action: 'project.updated',
+      metadata: { projectId: project.id, fromRevision: 1, toRevision: 2 },
+    })
+  })
+
+  it('rejects stale, invalid, and unauthorized project updates', async () => {
+    const { fixtures, gateway } = createGateway()
+    const project = fixtures.projects[0]
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    if (!project || !viewerId) throw new Error('Expected project and viewer fixtures.')
+
+    await expect(
+      gateway.updateProject({
+        id: project.id,
+        expectedRevision: 99,
+        changes: { name: 'Stale overwrite' },
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+    await expect(
+      gateway.updateProject({
+        id: project.id,
+        expectedRevision: project.revision,
+        changes: { status: 'archived' },
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+
+    const { gateway: viewerGateway } = createGateway(
+      new SimulatedNetwork(),
+      viewerId,
+    )
+    await expect(
+      viewerGateway.updateProject({
+        id: project.id,
+        expectedRevision: project.revision,
+        changes: { name: 'Unauthorized' },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+  })
+
+  it('archives projects with audit history and makes their work read-only', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const project = fixtures.projects[0]
+    const issue = fixtures.issues.find(({ projectId }) => projectId === project?.id)
+    if (!project || !issue) throw new Error('Expected project issue fixtures.')
+
+    const archived = await gateway.archiveProject({
+      id: project.id,
+      expectedRevision: project.revision,
+    })
+
+    expect(archived).toMatchObject({ status: 'archived', revision: 2 })
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'project.archived',
+      metadata: { projectId: project.id, fromRevision: 1, toRevision: 2 },
+    })
+    await expect(
+      gateway.updateIssue({
+        id: issue.id,
+        expectedRevision: issue.revision,
+        changes: { priority: 'low' },
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+    await expect(
+      gateway.createComment({ issueId: issue.id, body: 'Archived bypass' }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+    const comment = fixtures.comments.find(({ issueId }) => issueId === issue.id)
+    if (!comment) throw new Error('Expected an archived project comment fixture.')
+    await expect(
+      gateway.deleteComment({
+        id: comment.id,
+        expectedRevision: comment.revision,
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+    await expect(
+      gateway.deleteIssue({ id: issue.id, expectedRevision: issue.revision }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+  })
+
   it('refreshes live authorization and expires inactive sessions', async () => {
     const { fixtures, gateway, store } = createGateway()
     const workspaceId = fixtures.workspaces[0]?.id

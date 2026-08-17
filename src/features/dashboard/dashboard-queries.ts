@@ -24,8 +24,12 @@ export function useDashboardData() {
         { signal },
       ),
   })
+  const projects = useQuery({
+    queryKey: atlasQueryKeys.projects(workspaceId),
+    queryFn: ({ signal }) => gateway.listProjects(workspaceId, { signal }),
+  })
 
-  return { analytics, issues }
+  return { analytics, issues, projects }
 }
 
 export function useWorkspaceAnalytics() {

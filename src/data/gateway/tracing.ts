@@ -23,6 +23,9 @@ export type GatewayOperation =
   | 'notification.preferences.update'
   | 'project.list'
   | 'project.summary-list'
+  | 'project.metadata.get'
+  | 'project.update'
+  | 'project.archive'
 
 export type RequestPhase = 'cancelled' | 'failed' | 'started' | 'succeeded'
 

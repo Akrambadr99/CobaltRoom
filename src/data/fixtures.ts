@@ -57,6 +57,7 @@ export function createAtlasFixtures(
     description: 'Coordinate cross-functional launch readiness and decisions.',
     leadId: operationsLead.id,
     status: 'active' as const,
+    revision: 1,
     createdAt,
     updatedAt: createdAt,
   }
@@ -68,6 +69,7 @@ export function createAtlasFixtures(
     description: 'Track reliability risks, incidents, and corrective work.',
     leadId: engineer.id,
     status: 'active' as const,
+    revision: 1,
     createdAt,
     updatedAt: createdAt,
   }

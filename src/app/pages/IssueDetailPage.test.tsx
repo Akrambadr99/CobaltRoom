@@ -9,6 +9,7 @@ import { createAppServices } from '../services'
 import {
   createAtlasFixtures,
   FixedClock,
+  InMemoryDataStore,
   SimulatedNetwork,
   type Clock,
   type RequestSimulator,
@@ -27,11 +28,13 @@ function renderIssueDetail(
   actorId?: UserId,
   simulator: RequestSimulator = new SimulatedNetwork(),
   clock?: Clock,
+  dataStore?: InMemoryDataStore,
 ) {
   const services = createAppServices({
     simulator,
     ...(actorId ? { actorId } : {}),
     ...(clock ? { clock } : {}),
+    ...(dataStore ? { dataStore } : {}),
   })
   render(
     <AppProviders queryClient={createAtlasQueryClient()} services={services}>
@@ -46,6 +49,43 @@ function renderIssueDetail(
 }
 
 describe('IssueDetailPage', () => {
+  it('renders archived project work as read-only across issue and comment controls', async () => {
+    const fixtures = createAtlasFixtures()
+    const issue = fixtures.issues[0]
+    if (!issue) throw new Error('Expected a fixture issue.')
+    const store = new InMemoryDataStore({
+      ...fixtures,
+      projects: fixtures.projects.map((project) =>
+        project.id === issue.projectId
+          ? { ...project, status: 'archived' as const, revision: 2 }
+          : project,
+      ),
+    })
+
+    renderIssueDetail(
+      `/issues/${issue.id}`,
+      undefined,
+      new SimulatedNetwork(),
+      undefined,
+      store,
+    )
+    await screen.findByRole('heading', { name: issue.title })
+
+    expect(
+      screen.queryByRole('button', { name: 'Edit issue' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Read-only access')).toBeVisible()
+    expect(
+      screen.queryByRole('form', { name: 'Add comment' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Edit comment' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Remove comment' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('loads a deep-linked issue and edits validated fields', async () => {
     const user = userEvent.setup()
     const issue = getFixtureIssue()
