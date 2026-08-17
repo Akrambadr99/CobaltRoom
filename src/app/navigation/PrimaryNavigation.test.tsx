@@ -40,10 +40,14 @@ describe('PrimaryNavigation', () => {
     renderNavigation()
 
     const dashboard = screen.getByRole('link', { name: 'Dashboard' })
+    const activity = screen.getByRole('link', { name: 'Activity' })
     const projects = screen.getByRole('link', { name: 'Projects' })
     const settings = screen.getByRole('link', { name: 'Settings' })
 
     dashboard.focus()
+    await user.keyboard('{ArrowDown}')
+    expect(activity).toHaveFocus()
+
     await user.keyboard('{ArrowDown}')
     expect(projects).toHaveFocus()
 
@@ -76,6 +80,7 @@ describe('PrimaryNavigation', () => {
     if (!viewerId) throw new Error('Expected a fixture viewer.')
 
     const { unmount } = renderNavigation('/', viewerId)
+    expect(screen.getByRole('link', { name: 'Activity' })).toBeVisible()
     expect(screen.queryByRole('link', { name: 'Governance' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Administration' })).not.toBeInTheDocument()
     unmount()

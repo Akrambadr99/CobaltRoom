@@ -15,6 +15,7 @@ interface NavigationItem {
 
 const navigationItems: readonly NavigationItem[] = [
   { label: 'Dashboard', shortLabel: 'D', to: '/', end: true },
+  { label: 'Activity', shortLabel: 'T', to: '/activity' },
   { label: 'Projects', shortLabel: 'P', to: '/projects' },
   { label: 'Issues', shortLabel: 'I', to: '/issues' },
   { label: 'Board', shortLabel: 'B', to: '/board' },

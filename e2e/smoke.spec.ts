@@ -602,3 +602,25 @@ test('reviews the protected governance audit report', async ({ page }) => {
     'atlas-ops-audit-page-1.csv',
   )
 })
+
+test('explores collaboration activity with durable deep links', async ({ page }) => {
+  await page.goto('/activity')
+
+  await expect(page.getByRole('heading', { level: 1, name: 'Activity' })).toBeVisible()
+  const timeline = page.getByRole('list', { name: 'Workspace activity timeline' })
+  await expect(timeline).toContainText('Moved the launch brief into progress.')
+  await expect(
+    timeline.getByRole('link', {
+      name: 'OPS-1 · Publish the launch readiness brief',
+      exact: true,
+    }),
+  ).toBeVisible()
+
+  await timeline.getByRole('link', { name: 'issue.updated' }).click()
+  await expect(page).toHaveURL(/action=issue.updated/)
+  await expect(page.getByRole('combobox', { name: 'Action' })).toHaveValue('issue.updated')
+
+  await timeline.getByRole('link', { name: /Filter activity for OPS-1/ }).click()
+  await expect(page).toHaveURL(/entity=issue_/)
+  await expect(page.getByRole('textbox', { name: 'Entity ID' })).not.toHaveValue('')
+})

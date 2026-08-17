@@ -19,6 +19,13 @@ export const appRoutes: RouteObject[] = [
         },
       },
       {
+        path: 'activity',
+        lazy: async () => {
+          const { ActivityPage } = await import('./pages/ActivityPage')
+          return { Component: ActivityPage }
+        },
+      },
+      {
         path: 'projects',
         lazy: async () => {
           const { ProjectsPage } = await import('./pages/ProjectsPage')

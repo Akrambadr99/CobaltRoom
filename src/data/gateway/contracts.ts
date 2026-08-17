@@ -34,6 +34,7 @@ import type {
   WorkspaceInvitationId,
   WorkspaceInvitationRole,
   WorkspaceInvitationState,
+  EntityKind,
 } from '../../domain'
 
 export type SortDirection = 'ascending' | 'descending'
@@ -189,6 +190,47 @@ export interface ProjectActivityEntry {
 
 export interface ProjectActivityData {
   readonly events: Page<ProjectActivityEntry>
+}
+
+export interface WorkspaceActivityQuery {
+  readonly workspaceId: WorkspaceId
+  readonly actorId?: UserId
+  readonly action?: string
+  readonly entityKind?: EntityKind
+  readonly entityId?: string
+  readonly occurredFrom?: IsoDateTime
+  readonly occurredTo?: IsoDateTime
+  readonly page?: PageRequest
+}
+
+export interface WorkspaceActivityActorFacet {
+  readonly value: UserId
+  readonly label: string
+  readonly count: number
+}
+
+export interface WorkspaceActivityFacet<TValue extends string> {
+  readonly value: TValue
+  readonly count: number
+}
+
+export interface WorkspaceActivityTarget {
+  readonly label: string
+  readonly href: string | null
+}
+
+export interface WorkspaceActivityEntry {
+  readonly event: ActivityEvent
+  readonly actor: User
+  readonly target: WorkspaceActivityTarget
+}
+
+export interface WorkspaceActivityData {
+  readonly generatedAt: IsoDateTime
+  readonly actors: readonly WorkspaceActivityActorFacet[]
+  readonly actions: readonly WorkspaceActivityFacet<string>[]
+  readonly entityKinds: readonly WorkspaceActivityFacet<EntityKind>[]
+  readonly events: Page<WorkspaceActivityEntry>
 }
 
 export type MutableProjectFields = Pick<
@@ -492,6 +534,10 @@ export interface DeleteIssueInput {
 }
 
 export interface AtlasGateway {
+  getWorkspaceActivity(
+    query: WorkspaceActivityQuery,
+    options?: RequestOptions,
+  ): Promise<WorkspaceActivityData>
   getWorkspaceInvitations(
     query: WorkspaceInvitationQuery,
     options?: RequestOptions,

@@ -3,10 +3,15 @@ import type {
   IssueQuery,
   ProjectSummaryQuery,
   WorkspaceInvitationQuery,
+  WorkspaceActivityQuery,
 } from '../data'
 import type { IssueId, ProjectId, WorkspaceId } from '../domain'
 
 export const atlasQueryKeys = {
+  workspaceActivityReports: (workspaceId: WorkspaceId) =>
+    ['workspaces', workspaceId, 'activity'] as const,
+  workspaceActivity: (query: WorkspaceActivityQuery) =>
+    [...atlasQueryKeys.workspaceActivityReports(query.workspaceId), query] as const,
   authorization: (workspaceId: WorkspaceId) =>
     ['authorization', workspaceId] as const,
   analytics: (workspaceId: WorkspaceId) =>

@@ -2,6 +2,7 @@ import type { GatewayErrorCode } from './errors'
 import type { IsoDateTime } from '../../domain'
 
 export type GatewayOperation =
+  | 'activity.list'
   | 'administration.invitations.get'
   | 'administration.invitations.create'
   | 'administration.invitations.resend'

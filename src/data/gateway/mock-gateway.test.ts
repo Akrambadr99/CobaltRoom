@@ -53,6 +53,24 @@ function createGateway(
 }
 
 describe('MockAtlasGateway', () => {
+  it('returns permission-protected workspace activity with request tracing', async () => {
+    const { fixtures, gateway, tracer } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    if (!workspaceId) throw new Error('Expected a fixture workspace.')
+
+    const activity = await gateway.getWorkspaceActivity({ workspaceId })
+
+    expect(activity.events).toMatchObject({ totalItems: 1, pageCount: 1 })
+    expect(activity.events.items[0]).toMatchObject({
+      actor: { displayName: 'Omar Haddad' },
+    })
+    expect(activity.events.items[0]?.target.href).toMatch(/^\/issues\//)
+    expect(tracer.read()).toMatchObject([
+      { operation: 'activity.list', phase: 'started' },
+      { operation: 'activity.list', phase: 'succeeded' },
+    ])
+  })
+
   it('returns an authoritative analytics snapshot with request tracing', async () => {
     const { fixtures, gateway, tracer } = createGateway()
     const workspaceId = fixtures.workspaces[0]?.id

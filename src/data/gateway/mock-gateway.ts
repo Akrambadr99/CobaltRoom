@@ -47,8 +47,11 @@ import type {
   WorkspaceInvitationAdministrationData,
   WorkspaceInvitationEffectiveState,
   WorkspaceInvitationQuery,
+  WorkspaceActivityData,
+  WorkspaceActivityQuery,
 } from './contracts'
 import { buildWorkspaceAnalytics } from './analytics'
+import { buildWorkspaceActivity } from './activity'
 import { buildGovernanceReport } from './governance'
 import {
   EntityNotFoundError,
@@ -183,6 +186,16 @@ export class MockAtlasGateway implements AtlasGateway {
     this.ids = options.idGenerator ?? new DeterministicIdGenerator('gateway')
     this.simulator = options.simulator ?? new SimulatedNetwork()
     this.tracer = options.tracer ?? noopRequestTracer
+  }
+
+  getWorkspaceActivity(
+    query: WorkspaceActivityQuery,
+    options?: RequestOptions,
+  ): Promise<WorkspaceActivityData> {
+    return this.execute('activity.list', options, () => {
+      this.assertPermission('workspace:view', query.workspaceId)
+      return buildWorkspaceActivity(this.store.read().data, query, this.clock.now())
+    })
   }
 
   getWorkspaceAdministration(

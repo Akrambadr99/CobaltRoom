@@ -1,4 +1,5 @@
 export * from './contracts'
+export * from './activity'
 export * from './analytics'
 export * from './errors'
 export * from './mock-gateway'
