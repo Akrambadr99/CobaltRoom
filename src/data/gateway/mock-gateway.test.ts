@@ -2017,6 +2017,38 @@ describe('MockAtlasGateway', () => {
     })
   })
 
+  it('resolves durable mentions and prioritizes mention notifications', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const issue = fixtures.issues[1]
+    const mentioned = fixtures.users.find(({ displayName }) => displayName === 'Lena Ortiz')
+    if (!issue || !mentioned) throw new Error('Expected mention fixtures.')
+
+    const comment = await gateway.createComment({
+      issueId: issue.id,
+      body: 'Please review @Lena Ortiz, then ask @Lena Ortiz for approval.',
+    })
+    expect(store.read().data.commentMentions).toEqual([
+      expect.objectContaining({ commentId: comment.id, userId: mentioned.id }),
+    ])
+    const mentionNotification = store.read().data.notifications.find(
+      ({ recipientId, body }) =>
+        recipientId === mentioned.id && body === comment.body.slice(0, 160),
+    )
+    expect(mentionNotification?.kind).toBe('mention')
+    expect(mentionNotification?.title).toContain('You were mentioned on')
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      metadata: { mentionCount: 1, notificationCount: 2 },
+    })
+
+    await gateway.createComment({
+      issueId: issue.id,
+      body: 'A partial @Lena token is ordinary comment text.',
+    })
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      metadata: { mentionCount: 0 },
+    })
+  })
+
   it('creates notifications at the mutation boundary for non-actor assignees', async () => {
     const { fixtures, gateway, store } = createGateway()
     const adminId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId

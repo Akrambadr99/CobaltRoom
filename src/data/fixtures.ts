@@ -362,6 +362,7 @@ export function createAtlasFixtures(
         deletedById: null,
       },
     ],
+    commentMentions: [],
     activityEvents: [
       {
         id: ids.activity('launch_brief'),

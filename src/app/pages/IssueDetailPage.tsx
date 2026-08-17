@@ -14,6 +14,7 @@ import {
   type Issue,
   type IssueId,
   type IssuePriority,
+  type User,
 } from '../../domain'
 import {
   useIssueDetailData,
@@ -323,7 +324,12 @@ function IssueCollaboration({
           <p className="page-eyebrow">Discussion</p>
           <h2>Comments</h2>
         </header>
-        {canComment ? <CommentForm issueId={issue.id} /> : null}
+        {canComment ? (
+          <CommentForm
+            issueId={issue.id}
+            mentionableUsers={activity.data.mentionableUsers}
+          />
+        ) : null}
         {activity.data.comments.length === 0 ? (
           <p className="issue-collaboration__empty">No comments yet.</p>
         ) : (
@@ -381,11 +387,15 @@ function IssueCollaboration({
   )
 }
 
-function CommentForm({ issueId }: Readonly<{ issueId: IssueId }>) {
+function CommentForm({
+  issueId,
+  mentionableUsers,
+}: Readonly<{ issueId: IssueId; mentionableUsers: readonly User[] }>) {
   const createComment = useCreateIssueComment(issueId)
   const textAreaRef = useRef<HTMLTextAreaElement>(null)
   const submissionPendingRef = useRef(false)
   const [body, setBody] = useState('')
+  const [mentionUserId, setMentionUserId] = useState('')
   const [validationError, setValidationError] = useState('')
   const [status, setStatus] = useState('')
 
@@ -428,6 +438,40 @@ function CommentForm({ issueId }: Readonly<{ issueId: IssueId }>) {
           setBody(event.currentTarget.value)
         }}
       />
+      {mentionableUsers.length > 0 ? (
+        <div className="comment-form__mentions" aria-label="Mention a workspace member">
+          <label htmlFor={`mention-member-${issueId}`}>Member to mention</label>
+          <select
+            id={`mention-member-${issueId}`}
+            value={mentionUserId}
+            onChange={(event) => { setMentionUserId(event.currentTarget.value) }}
+          >
+            <option value="">Choose a member</option>
+            {mentionableUsers.map((user) => (
+              <option key={user.id} value={user.id}>{user.displayName}</option>
+            ))}
+          </select>
+          <button
+            className="text-button"
+            type="button"
+            disabled={mentionUserId.length === 0}
+            onClick={() => {
+              const user = mentionableUsers.find(({ id }) => id === mentionUserId)
+              if (!user) return
+              const token = `@${user.displayName}`
+              setBody((current) =>
+                current.includes(token)
+                  ? current
+                  : `${current}${current.length > 0 && !current.endsWith(' ') ? ' ' : ''}${token} `,
+              )
+              setMentionUserId('')
+              textAreaRef.current?.focus()
+            }}
+          >
+            Insert mention
+          </button>
+        </div>
+      ) : null}
       <div className="comment-form__footer">
         <p id="comment-guidance">
           {validationError ||

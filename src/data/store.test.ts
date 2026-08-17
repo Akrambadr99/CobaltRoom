@@ -4,6 +4,7 @@ import { createAtlasFixtures } from './fixtures'
 import { DataIntegrityError } from './snapshot-validation'
 import { InMemoryDataStore, StaleSnapshotError } from './store'
 import {
+  commentMentionId,
   issueId,
   issueSubscriptionId,
   isoDateTime,
@@ -170,6 +171,39 @@ describe('InMemoryDataStore', () => {
               ...subscription,
               id: issueSubscriptionId('subscription_store_duplicate_001'),
             },
+          ],
+        }),
+    ).toThrow(DataIntegrityError)
+  })
+
+  it('rejects orphaned and duplicate delivered comment mentions', () => {
+    const seed = createAtlasFixtures()
+    const comment = seed.comments[0]
+    const recipient = seed.users.find(({ id }) => id !== comment?.authorId)
+    if (!comment || !recipient) throw new Error('Expected comment mention fixtures.')
+    const mention = {
+      id: commentMentionId('mention_store_recipient_001'),
+      commentId: comment.id,
+      userId: recipient.id,
+      createdAt: comment.createdAt,
+    }
+
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          commentMentions: [
+            { ...mention, userId: userId('usr_missing_mention_recipient') },
+          ],
+        }),
+    ).toThrow(DataIntegrityError)
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          commentMentions: [
+            mention,
+            { ...mention, id: commentMentionId('mention_store_duplicate_001') },
           ],
         }),
     ).toThrow(DataIntegrityError)

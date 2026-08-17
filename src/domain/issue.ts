@@ -1,5 +1,6 @@
 import type {
   CommentId,
+  CommentMentionId,
   IssueId,
   IssueRelationId,
   IssueSubscriptionId,
@@ -66,4 +67,11 @@ export interface Comment {
   readonly editedAt: IsoDateTime | null
   readonly deletedAt: IsoDateTime | null
   readonly deletedById: UserId | null
+}
+
+export interface CommentMention {
+  readonly id: CommentMentionId
+  readonly commentId: CommentId
+  readonly userId: UserId
+  readonly createdAt: IsoDateTime
 }

@@ -16,6 +16,7 @@ export type IssueSubscriptionId = DomainId<'IssueSubscriptionId'>
 export type IssueRelationId = DomainId<'IssueRelationId'>
 export type LabelId = DomainId<'LabelId'>
 export type CommentId = DomainId<'CommentId'>
+export type CommentMentionId = DomainId<'CommentMentionId'>
 export type ActivityEventId = DomainId<'ActivityEventId'>
 export type AuditEventId = DomainId<'AuditEventId'>
 export type NotificationId = DomainId<'NotificationId'>
@@ -74,6 +75,8 @@ export const labelId = (value: string) =>
   createDomainId(value, 'label', 'LabelId')
 export const commentId = (value: string) =>
   createDomainId(value, 'comment', 'CommentId')
+export const commentMentionId = (value: string) =>
+  createDomainId(value, 'mention', 'CommentMentionId')
 export const activityEventId = (value: string) =>
   createDomainId(value, 'activity', 'ActivityEventId')
 export const auditEventId = (value: string) =>

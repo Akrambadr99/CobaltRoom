@@ -311,6 +311,7 @@ export interface IssueActivityData {
   readonly comments: readonly Comment[]
   readonly activityEvents: readonly ActivityEvent[]
   readonly users: readonly User[]
+  readonly mentionableUsers: readonly User[]
 }
 
 export interface IssueSubscriptionData {

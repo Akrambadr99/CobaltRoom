@@ -407,6 +407,49 @@
   gap: var(--space-3);
 }
 
+.comment-form__mentions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.comment-form__mentions .text-button {
+  min-height: 2rem;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-accent);
+  background: var(--color-bg-surface);
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.comment-form__mentions select {
+  min-height: 2.25rem;
+  max-width: 16rem;
+  padding-inline: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-bg-surface);
+  font: inherit;
+}
+
+.comment-form__mentions .text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.comment-form__mentions .text-button:focus-visible,
+.comment-form__mentions select:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .comment-form__footer p,
 .comment-form > [role='status'] {
   margin: 0;

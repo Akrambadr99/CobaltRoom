@@ -1606,15 +1606,31 @@ export class MockAtlasGateway implements AtlasGateway {
             entityKind === 'issue' && entityId === issueId,
         )
         .sort(compareTimelineEntries)
+      const commentIds = new Set(comments.map(({ id }) => id))
+      const mentionedUserIds = data.commentMentions
+        .filter(({ commentId }) => commentIds.has(commentId))
+        .map(({ userId }) => userId)
       const userIds = new Set([
         ...comments.map(({ authorId }) => authorId),
         ...activityEvents.map(({ actorId }) => actorId),
+        ...mentionedUserIds,
       ])
+      const activeMemberIds = new Set(
+        data.memberships
+          .filter(
+            ({ workspaceId, status }) =>
+              workspaceId === issue.workspaceId && status === 'active',
+          )
+          .map(({ userId }) => userId),
+      )
 
       return {
         comments,
         activityEvents,
         users: data.users.filter(({ id }) => userIds.has(id)),
+        mentionableUsers: data.users
+          .filter(({ id }) => id !== this.actorId && activeMemberIds.has(id))
+          .sort((left, right) => left.displayName.localeCompare(right.displayName)),
       }
     })
   }
@@ -1891,6 +1907,14 @@ export class MockAtlasGateway implements AtlasGateway {
         deletedAt: null,
         deletedById: null,
       }
+      const mentionedUsers = this.resolveCommentMentions(current.data, issue, body)
+      const mentionedUserIds = new Set(mentionedUsers.map(({ id }) => id))
+      const commentMentions = mentionedUsers.map(({ id: userId }) => ({
+        id: this.ids.commentMention('comment'),
+        commentId: comment.id,
+        userId,
+        createdAt: occurredAt,
+      }))
       const authorAlreadySubscribed = current.data.issueSubscriptions.some(
         ({ issueId, userId }) => issueId === issue.id && userId === this.actorId,
       )
@@ -1910,6 +1934,7 @@ export class MockAtlasGateway implements AtlasGateway {
           .filter(({ issueId }) => issueId === issue.id)
           .map(({ userId }) => userId),
         ...(issue.assigneeId ? [issue.assigneeId] : []),
+        ...mentionedUserIds,
       ])
       notificationRecipientIds.delete(this.actorId)
       const commentNotifications: readonly Notification[] = [
@@ -1928,9 +1953,11 @@ export class MockAtlasGateway implements AtlasGateway {
           id: this.ids.notification('comment_created'),
           workspaceId: issue.workspaceId,
           recipientId,
-          kind: 'comment',
+          kind: mentionedUserIds.has(recipientId) ? 'mention' : 'comment',
           target: { kind: 'issue', id: issue.id },
-          title: `New comment on ${this.issueReference(current.data, issue)}`,
+          title: mentionedUserIds.has(recipientId)
+            ? `You were mentioned on ${this.issueReference(current.data, issue)}`
+            : `New comment on ${this.issueReference(current.data, issue)}`,
           body: body.slice(0, 160),
           occurredAt,
           readAt: null,
@@ -1938,6 +1965,7 @@ export class MockAtlasGateway implements AtlasGateway {
       const nextData: AtlasDataSnapshot = {
         ...current.data,
         comments: [...current.data.comments, comment],
+        commentMentions: [...current.data.commentMentions, ...commentMentions],
         issueSubscriptions,
         activityEvents: [
           ...current.data.activityEvents,
@@ -1967,6 +1995,7 @@ export class MockAtlasGateway implements AtlasGateway {
               commentId: comment.id,
               notificationCount: commentNotifications.length,
               autoSubscribed: !authorAlreadySubscribed,
+              mentionCount: commentMentions.length,
             },
           },
         ],
@@ -2360,6 +2389,11 @@ export class MockAtlasGateway implements AtlasGateway {
             sourceIssueId !== issue.id && targetIssueId !== issue.id,
         ),
         comments: current.data.comments.filter(({ issueId }) => issueId !== issue.id),
+        commentMentions: current.data.commentMentions.filter(({ commentId }) =>
+          current.data.comments.some(
+            (comment) => comment.id === commentId && comment.issueId !== issue.id,
+          ),
+        ),
         activityEvents: current.data.activityEvents.filter(
           ({ entityKind, entityId }) =>
             entityKind !== 'issue' || entityId !== issue.id,
@@ -2535,8 +2569,34 @@ export class MockAtlasGateway implements AtlasGateway {
     )
     if (!preferences) return false
     if (kind === 'assignment') return preferences.assignments
-    if (kind === 'comment') return preferences.comments
+    if (kind === 'comment' || kind === 'mention') return preferences.comments
     return preferences.issueUpdates
+  }
+
+  private resolveCommentMentions(
+    data: AtlasDataSnapshot,
+    issue: Issue,
+    body: string,
+  ) {
+    const activeMemberIds = new Set(
+      data.memberships
+        .filter(
+          ({ workspaceId, status }) =>
+            workspaceId === issue.workspaceId && status === 'active',
+        )
+        .map(({ userId }) => userId),
+    )
+
+    return data.users
+      .filter(({ id, displayName }) => {
+        if (id === this.actorId || !activeMemberIds.has(id)) return false
+        const escapedName = displayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        return new RegExp(
+          `(^|\\s)@${escapedName}(?=$|[\\s.,!?;:])`,
+          'iu',
+        ).test(body)
+      })
+      .sort((left, right) => left.id.localeCompare(right.id))
   }
 
   private hasPermission(

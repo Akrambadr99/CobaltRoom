@@ -31,6 +31,7 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
   )
   const labels = new Map(snapshot.labels.map((label) => [label.id, label]))
   const issues = new Map(snapshot.issues.map((issue) => [issue.id, issue]))
+  const comments = new Map(snapshot.comments.map((comment) => [comment.id, comment]))
   const memberships = new Map<string, (typeof snapshot.memberships)[number]>(
     snapshot.memberships.map((membership) => [membership.id, membership]),
   )
@@ -208,6 +209,24 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
     }
   }
 
+  const deliveredMentions = new Set<string>()
+  for (const mention of snapshot.commentMentions) {
+    const comment = comments.get(mention.commentId)
+    const issue = comment ? issues.get(comment.issueId) : undefined
+    const recipientKey = `${mention.commentId}:${mention.userId}`
+    if (
+      !issue ||
+      !workspaceMembershipUsers.has(`${issue.workspaceId}:${mention.userId}`) ||
+      deliveredMentions.has(recipientKey)
+    ) {
+      throw new DataIntegrityError(
+        'commentMentions',
+        'Comment mentions require a unique workspace member recipient per comment.',
+      )
+    }
+    deliveredMentions.add(recipientKey)
+  }
+
   for (const activity of snapshot.activityEvents) {
     if (!workspaces.has(activity.workspaceId) || !users.has(activity.actorId)) {
       throw new DataIntegrityError(
@@ -288,6 +307,7 @@ const collectionNames = [
   'issueSubscriptions',
   'issueRelations',
   'comments',
+  'commentMentions',
   'activityEvents',
   'auditEvents',
   'notifications',

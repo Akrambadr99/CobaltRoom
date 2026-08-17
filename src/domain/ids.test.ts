@@ -4,6 +4,7 @@ import {
   InvalidDomainIdError,
   issueId,
   issueSubscriptionId,
+  commentMentionId,
   notificationId,
   notificationPreferenceId,
   projectId,
@@ -20,6 +21,7 @@ describe('domain identifiers', () => {
     [projectId, 'prj_launch'],
     [issueId, 'issue_launch_42'],
     [issueSubscriptionId, 'subscription_launch_42'],
+    [commentMentionId, 'mention_launch_42'],
     [notificationId, 'notification_launch_42'],
     [notificationPreferenceId, 'notification_pref_launch_42'],
   ])('constructs a valid prefixed identifier', (factory, value) => {
@@ -33,6 +35,7 @@ describe('domain identifiers', () => {
     [projectId, 'prj_'],
     [issueId, ' issue_launch_42'],
     [issueSubscriptionId, 'watch_launch_42'],
+    [commentMentionId, 'comment_mention_launch_42'],
     [notificationId, 'notice_launch_42'],
     [notificationPreferenceId, 'notification_preference_launch_42'],
   ])('rejects an invalid prefixed identifier', (factory, value) => {

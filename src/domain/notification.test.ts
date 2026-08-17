@@ -7,6 +7,7 @@ describe('notificationCategory', () => {
     const kinds: readonly NotificationKind[] = [
       'assignment',
       'comment',
+      'mention',
       'issue-update',
       'project-update',
       'workspace-administration',
@@ -15,6 +16,7 @@ describe('notificationCategory', () => {
 
     expect(kinds.map(notificationCategory)).toEqual([
       'work',
+      'collaboration',
       'collaboration',
       'work',
       'work',

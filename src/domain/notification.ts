@@ -13,6 +13,7 @@ import type { IsoDateTime } from './time'
 export type NotificationKind =
   | 'assignment'
   | 'comment'
+  | 'mention'
   | 'issue-update'
   | 'project-update'
   | 'workspace-administration'
@@ -47,7 +48,7 @@ export interface Notification {
 }
 
 export function notificationCategory(kind: NotificationKind): NotificationCategory {
-  if (kind === 'comment') return 'collaboration'
+  if (kind === 'comment' || kind === 'mention') return 'collaboration'
   if (kind === 'workspace-administration') return 'administration'
   if (kind === 'governance') return 'governance'
   return 'work'

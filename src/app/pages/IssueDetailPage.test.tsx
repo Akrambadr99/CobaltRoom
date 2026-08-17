@@ -305,14 +305,25 @@ describe('IssueDetailPage', () => {
     const user = userEvent.setup()
     const fixtures = createAtlasFixtures()
     const issue = fixtures.issues[1]
-    if (!issue) throw new Error('Expected an unwatched issue fixture.')
+    const mentionedUser = fixtures.users.find(
+      ({ displayName }) => displayName === 'Maya Chen',
+    )
+    if (!issue || !mentionedUser) throw new Error('Expected mention composer fixtures.')
     renderIssueDetail(`/issues/${issue.id}`)
 
     expect(await screen.findByRole('button', { name: 'Watch issue' })).toHaveAttribute(
       'aria-pressed',
       'false',
     )
-    await user.type(screen.getByLabelText('Add a comment'), 'Subscribe through discussion.')
+    const composer = screen.getByLabelText('Add a comment')
+    await user.type(composer, 'Subscribe through discussion.')
+    await user.selectOptions(
+      screen.getByLabelText('Member to mention'),
+      mentionedUser.id,
+    )
+    await user.click(screen.getByRole('button', { name: 'Insert mention' }))
+    expect(composer).toHaveFocus()
+    expect(composer).toHaveValue('Subscribe through discussion. @Maya Chen ')
     await user.click(screen.getByRole('button', { name: 'Add comment' }))
 
     expect(await screen.findByText('Comment added.')).toBeVisible()

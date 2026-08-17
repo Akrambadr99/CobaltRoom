@@ -2,6 +2,7 @@ import {
   activityEventId,
   auditEventId,
   commentId,
+  commentMentionId,
   issueId,
   issueSubscriptionId,
   issueRelationId,
@@ -18,6 +19,7 @@ import {
   type ActivityEventId,
   type AuditEventId,
   type CommentId,
+  type CommentMentionId,
   type IssueId,
   type IssueSubscriptionId,
   type IssueRelationId,
@@ -93,6 +95,10 @@ export class DeterministicIdGenerator {
 
   comment(scope: string): CommentId {
     return commentId(this.next('comment', scope))
+  }
+
+  commentMention(scope: string): CommentMentionId {
+    return commentMentionId(this.next('mention', scope))
   }
 
   activity(scope: string): ActivityEventId {

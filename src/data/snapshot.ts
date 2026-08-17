@@ -2,6 +2,7 @@ import type {
   ActivityEvent,
   AuditEvent,
   Comment,
+  CommentMention,
   Issue,
   IssueRelation,
   IssueSubscription,
@@ -30,6 +31,7 @@ export interface AtlasDataSnapshot {
   readonly issueRelations: readonly IssueRelation[]
   readonly issueSubscriptions: readonly IssueSubscription[]
   readonly comments: readonly Comment[]
+  readonly commentMentions: readonly CommentMention[]
   readonly activityEvents: readonly ActivityEvent[]
   readonly auditEvents: readonly AuditEvent[]
   readonly notifications: readonly Notification[]
