@@ -86,7 +86,7 @@ function compareIssueField(
   return leftValue.localeCompare(rightValue)
 }
 
-function validatePage(page: PageRequest): PageRequest {
+export function validatePage(page: PageRequest): PageRequest {
   if (
     !Number.isSafeInteger(page.number) ||
     page.number < 1 ||
@@ -102,7 +102,7 @@ function validatePage(page: PageRequest): PageRequest {
   return page
 }
 
-function paginate<T>(items: readonly T[], page: PageRequest): Page<T> {
+export function paginate<T>(items: readonly T[], page: PageRequest): Page<T> {
   const offset = (page.number - 1) * page.size
 
   return {

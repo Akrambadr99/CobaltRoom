@@ -141,9 +141,21 @@ describe('MockAtlasGateway', () => {
       throw new Error('Expected an unread administrative notification fixture.')
     }
 
-    const inbox = await gateway.listNotifications(workspaceId)
-    expect(inbox.items).toHaveLength(2)
+    const inbox = await gateway.listNotifications({
+      workspaceId,
+      page: { number: 1, size: 1 },
+    })
+    expect(inbox.items).toHaveLength(1)
+    expect(inbox).toMatchObject({ pageCount: 2, totalItems: 2 })
     expect(inbox.unreadCount).toBe(1)
+
+    const older = await gateway.listNotifications({
+      workspaceId,
+      page: { number: 2, size: 1 },
+    })
+    expect(older.items).toHaveLength(1)
+    expect(older.items[0]?.id).not.toBe(inbox.items[0]?.id)
+    expect(older.unreadCount).toBe(1)
 
     const marked = await gateway.markNotificationRead({ id: unread.id, read: true })
     expect(marked.readAt).toBe('2026-02-01T08:00:00.000Z')
@@ -153,10 +165,23 @@ describe('MockAtlasGateway', () => {
 
     await gateway.markNotificationRead({ id: unread.id, read: false })
     await expect(gateway.markAllNotificationsRead(workspaceId)).resolves.toBe(1)
-    expect((await gateway.listNotifications(workspaceId)).unreadCount).toBe(0)
+    expect((await gateway.listNotifications({ workspaceId })).unreadCount).toBe(0)
     expect(tracer.read().some(({ operation }) => operation === 'notification.list')).toBe(
       true,
     )
+  })
+
+  it('rejects invalid notification page boundaries', async () => {
+    const { fixtures, gateway } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    if (!workspaceId) throw new Error('Expected a fixture workspace.')
+
+    await expect(
+      gateway.listNotifications({
+        workspaceId,
+        page: { number: 1, size: 101 },
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
   })
 
   it('prevents actors from changing another recipient notification', async () => {

@@ -6,14 +6,25 @@ import { NotificationCenter } from './NotificationCenter'
 import { createAtlasQueryClient } from '../../app/query-client'
 import { AppProviders } from '../../app/providers/AppProviders'
 import { createAppServices } from '../../app/services'
-import { SimulatedNetwork } from '../../data'
-import { render, screen } from '../../test/render'
+import {
+  createAtlasFixtures,
+  InMemoryDataStore,
+  SimulatedNetwork,
+} from '../../data'
+import { isoDateTime, notificationId } from '../../domain'
+import { render, screen, within } from '../../test/render'
 
-function renderNotificationCenter(simulator = new SimulatedNetwork()) {
+function renderNotificationCenter(
+  simulator = new SimulatedNetwork(),
+  dataStore?: InMemoryDataStore,
+) {
   render(
     <AppProviders
       queryClient={createAtlasQueryClient()}
-      services={createAppServices({ simulator })}
+      services={createAppServices({
+        simulator,
+        ...(dataStore ? { dataStore } : {}),
+      })}
     >
       <MemoryRouter>
         <NotificationCenter />
@@ -72,6 +83,43 @@ describe('NotificationCenter', () => {
     )
     expect(
       screen.getByRole('button', { name: 'Notifications, 1 unread' }),
+    ).toBeVisible()
+  })
+
+  it('loads older notifications through bounded server pages', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const template = fixtures.notifications[0]
+    if (!template) throw new Error('Expected a notification fixture.')
+    const notifications = Array.from({ length: 21 }, (_, index) => ({
+      ...template,
+      id: notificationId(`notification_page_${index.toString().padStart(3, '0')}`),
+      title: `Page notification ${String(index + 1)}`,
+      occurredAt: isoDateTime(
+        `2026-01-${(index + 1).toString().padStart(2, '0')}T09:00:00.000Z`,
+      ),
+    }))
+    const dataStore = new InMemoryDataStore({ ...fixtures, notifications })
+
+    renderNotificationCenter(new SimulatedNetwork(), dataStore)
+    await user.click(
+      await screen.findByRole('button', { name: 'Notifications, 21 unread' }),
+    )
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(20)
+    await user.click(screen.getByRole('button', { name: 'Load older notifications' }))
+    const oldestNotification = await screen.findByText('Page notification 1')
+    expect(oldestNotification).toBeVisible()
+    expect(screen.getAllByRole('listitem')).toHaveLength(21)
+    expect(
+      screen.queryByRole('button', { name: 'Load older notifications' }),
+    ).not.toBeInTheDocument()
+
+    const oldestItem = oldestNotification.closest('li')
+    if (!oldestItem) throw new Error('Expected the oldest notification item.')
+    await user.click(within(oldestItem).getByRole('button', { name: 'Mark as read' }))
+    expect(
+      await screen.findByRole('button', { name: 'Notifications, 20 unread' }),
     ).toBeVisible()
   })
 })

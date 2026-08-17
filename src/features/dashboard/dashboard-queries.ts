@@ -65,7 +65,7 @@ export function useUpdateIssuePriority() {
           queryKey: atlasQueryKeys.dashboardIssues(workspaceId),
         }),
         queryClient.invalidateQueries({
-          queryKey: atlasQueryKeys.notifications(workspaceId),
+          queryKey: atlasQueryKeys.notificationInbox(workspaceId),
         }),
         queryClient.invalidateQueries({
           queryKey: atlasQueryKeys.analytics(workspaceId),

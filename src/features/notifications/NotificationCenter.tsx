@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import {
@@ -17,7 +17,11 @@ export function NotificationCenter() {
   const inbox = useNotificationInbox()
   const markRead = useMarkNotificationRead()
   const markAllRead = useMarkAllNotificationsRead()
-  const unreadCount = inbox.data?.unreadCount ?? 0
+  const items = useMemo(
+    () => inbox.data?.pages.flatMap((page) => page.items) ?? [],
+    [inbox.data],
+  )
+  const unreadCount = inbox.data?.pages[0]?.unreadCount ?? 0
 
   useEffect(() => {
     if (!open) return
@@ -100,56 +104,70 @@ export function NotificationCenter() {
               </button>
             </div>
           ) : null}
-          {inbox.isSuccess && inbox.data.items.length === 0 ? (
+          {inbox.isSuccess && items.length === 0 ? (
             <p className="notification-center__state">You’re all caught up.</p>
           ) : null}
-          {inbox.isSuccess && inbox.data.items.length > 0 ? (
-            <ol className="notification-center__list">
-              {inbox.data.items.map((notification) => (
-                <li
-                  key={notification.id}
-                  data-unread={notification.readAt === null || undefined}
-                >
-                  <Link
-                    to={`/issues/${notification.issueId}`}
-                    onClick={() => {
-                      setOpen(false)
-                      if (notification.readAt === null) {
-                        markRead.mutate({ id: notification.id, read: true })
-                      }
-                    }}
+          {inbox.isSuccess && items.length > 0 ? (
+            <>
+              <ol className="notification-center__list">
+                {items.map((notification) => (
+                  <li
+                    key={notification.id}
+                    data-unread={notification.readAt === null}
                   >
-                    <strong>{notification.title}</strong>
-                    <span>{notification.body}</span>
-                    <time dateTime={notification.occurredAt}>
-                      {formatNotificationTime(notification.occurredAt)}
-                    </time>
-                  </Link>
-                  <button
-                    type="button"
-                    disabled={markRead.isPending}
-                    onClick={() => {
-                      const read = notification.readAt === null
-                      setStatus('')
-                      markRead.mutate(
-                        { id: notification.id, read },
-                        {
-                          onSuccess: () => {
-                            setStatus(
-                              read
-                                ? 'Notification marked as read.'
-                                : 'Notification marked as unread.',
-                            )
+                    <Link
+                      to={`/issues/${notification.issueId}`}
+                      onClick={() => {
+                        setOpen(false)
+                        if (notification.readAt === null) {
+                          markRead.mutate({ id: notification.id, read: true })
+                        }
+                      }}
+                    >
+                      <strong>{notification.title}</strong>
+                      <span>{notification.body}</span>
+                      <time dateTime={notification.occurredAt}>
+                        {formatNotificationTime(notification.occurredAt)}
+                      </time>
+                    </Link>
+                    <button
+                      type="button"
+                      disabled={markRead.isPending}
+                      onClick={() => {
+                        const read = notification.readAt === null
+                        setStatus('')
+                        markRead.mutate(
+                          { id: notification.id, read },
+                          {
+                            onSuccess: () => {
+                              setStatus(
+                                read
+                                  ? 'Notification marked as read.'
+                                  : 'Notification marked as unread.',
+                              )
+                            },
                           },
-                        },
-                      )
-                    }}
-                  >
-                    Mark as {notification.readAt === null ? 'read' : 'unread'}
-                  </button>
-                </li>
-              ))}
-            </ol>
+                        )
+                      }}
+                    >
+                      Mark as {notification.readAt === null ? 'read' : 'unread'}
+                    </button>
+                  </li>
+                ))}
+              </ol>
+              {inbox.hasNextPage ? (
+                <button
+                  className="notification-center__load-more"
+                  type="button"
+                  disabled={inbox.isFetchingNextPage}
+                  onClick={() => void inbox.fetchNextPage()}
+                >
+                  {inbox.isFetchingNextPage
+                    ? 'Loading older notifications…'
+                    : 'Load older notifications'}
+                </button>
+              ) : null}
+            </>
           ) : null}
           {markRead.isError || markAllRead.isError ? (
             <p className="notification-center__state" role="alert">

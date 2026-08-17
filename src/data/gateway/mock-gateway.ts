@@ -12,6 +12,7 @@ import type {
   IssueQuery,
   MarkNotificationReadInput,
   NotificationInbox,
+  NotificationQuery,
   Page,
   RequestOptions,
   UpdateIssueInput,
@@ -29,7 +30,7 @@ import {
   RequestCancelledError,
   SessionExpiredGatewayError,
 } from './errors'
-import { queryIssues } from './query'
+import { paginate, queryIssues, validatePage } from './query'
 import { SimulatedNetwork, type RequestSimulator } from './simulation'
 import {
   noopRequestTracer,
@@ -310,16 +311,17 @@ export class MockAtlasGateway implements AtlasGateway {
   }
 
   listNotifications(
-    workspaceId: WorkspaceId,
+    query: NotificationQuery,
     options?: RequestOptions,
   ): Promise<NotificationInbox> {
     return this.execute('notification.list', options, () => {
-      this.assertPermission('notifications:view-self', workspaceId)
+      this.assertPermission('notifications:view-self', query.workspaceId)
+      const page = validatePage(query.page ?? { number: 1, size: 20 })
       const items = this.store
         .read()
         .data.notifications.filter(
           (notification) =>
-            notification.workspaceId === workspaceId &&
+            notification.workspaceId === query.workspaceId &&
             notification.recipientId === this.actorId,
         )
         .sort(
@@ -329,7 +331,7 @@ export class MockAtlasGateway implements AtlasGateway {
         )
 
       return {
-        items,
+        ...paginate(items, page),
         unreadCount: items.filter(({ readAt }) => readAt === null).length,
       }
     })

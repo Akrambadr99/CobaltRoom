@@ -114,8 +114,12 @@ export interface CreateCommentInput {
   readonly body: string
 }
 
-export interface NotificationInbox {
-  readonly items: readonly Notification[]
+export interface NotificationQuery {
+  readonly workspaceId: WorkspaceId
+  readonly page?: PageRequest
+}
+
+export interface NotificationInbox extends Page<Notification> {
   readonly unreadCount: number
 }
 
@@ -253,7 +257,7 @@ export interface AtlasGateway {
     options?: RequestOptions,
   ): Promise<Comment>
   listNotifications(
-    workspaceId: WorkspaceId,
+    query: NotificationQuery,
     options?: RequestOptions,
   ): Promise<NotificationInbox>
   markNotificationRead(

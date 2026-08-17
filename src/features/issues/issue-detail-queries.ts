@@ -40,7 +40,7 @@ export function useCreateIssueComment(issueId: IssueId) {
           queryKey: atlasQueryKeys.issueActivity(workspaceId, issueId),
         }),
         queryClient.invalidateQueries({
-          queryKey: atlasQueryKeys.notifications(workspaceId),
+          queryKey: atlasQueryKeys.notificationInbox(workspaceId),
         }),
       ])
     },
@@ -91,7 +91,7 @@ export function useOptimisticIssueUpdate(issueId: IssueId) {
           queryKey: atlasQueryKeys.workspaceIssues(workspaceId),
         }),
         queryClient.invalidateQueries({
-          queryKey: atlasQueryKeys.notifications(workspaceId),
+          queryKey: atlasQueryKeys.notificationInbox(workspaceId),
         }),
         queryClient.invalidateQueries({
           queryKey: atlasQueryKeys.analytics(workspaceId),
