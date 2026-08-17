@@ -24,7 +24,6 @@
 }
 
 .page-eyebrow,
-.foundation-card__label,
 .empty-panel__status {
   margin: 0;
   color: var(--color-accent);
@@ -34,14 +33,10 @@
   text-transform: uppercase;
 }
 
-.foundation-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-
-.foundation-card,
 .empty-panel {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 42rem;
   padding: var(--space-6);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -49,22 +44,168 @@
   box-shadow: var(--shadow-sm);
 }
 
-.foundation-card h2 {
-  margin: var(--space-3) 0 var(--space-2);
-  font-size: 1.5rem;
-  letter-spacing: -0.03em;
-}
-
-.foundation-card > p:last-child,
 .empty-panel > p:last-child {
   margin: 0;
   color: var(--color-text-muted);
 }
 
-.empty-panel {
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.metric-card,
+.work-panel,
+.dashboard-state {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.metric-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-5);
+}
+
+.metric-card dt {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.metric-card dd {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+}
+
+.work-panel {
+  overflow: hidden;
+}
+
+.work-panel__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.work-panel__header h2 {
+  margin: var(--space-2) 0 0;
+  font-size: 1.25rem;
+}
+
+.work-panel__header > p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.issue-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.issue-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-6);
+}
+
+.issue-row + .issue-row {
+  border-top: 1px solid var(--color-border);
+}
+
+.issue-row__summary {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.issue-row__summary strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issue-row__identifier {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  text-transform: capitalize;
+}
+
+.priority-field {
+  display: grid;
+  flex: 0 0 9rem;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.priority-field select {
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-bg-surface);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.priority-field select:focus-visible,
+.secondary-button:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.dashboard-state {
   display: grid;
   gap: var(--space-3);
-  max-width: 42rem;
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+}
+
+.dashboard-state--error {
+  border-color: var(--color-danger);
+}
+
+.dashboard-state h2,
+.dashboard-state p {
+  margin: 0;
+}
+
+.secondary-button {
+  width: fit-content;
+  min-height: 2.5rem;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-bg-surface);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mutation-status {
+  padding: var(--space-3) var(--space-6);
+  margin: 0;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
 }
 
 .text-link {
@@ -91,8 +232,18 @@
 }
 
 @media (width < 44rem) {
-  .foundation-grid {
+  .metric-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .work-panel__header,
+  .issue-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .priority-field {
+    flex-basis: auto;
   }
 
   .error-page {
