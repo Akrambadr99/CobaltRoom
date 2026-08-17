@@ -64,8 +64,12 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
   await expect(
     page.getByRole('heading', { level: 1, name: 'Review restart incident clusters' }),
   ).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Edit issue' })).not.toBeVisible()
+  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert', '')
 
-  await page.getByLabel('Add a comment').fill('Confirmed incident owners and next steps.')
+  const commentDraft = page.getByLabel('Add a comment')
+  await commentDraft.fill('Confirmed incident owners and next steps.')
+  await expect(commentDraft).toHaveValue('Confirmed incident owners and next steps.')
   await page.getByRole('button', { name: 'Add comment' }).click()
   await expect(page.getByText('Comment added.')).toBeVisible()
   await expect(page.getByText('Confirmed incident owners and next steps.')).toBeVisible()
@@ -175,4 +179,22 @@ test('restores a private saved view and page-size preference after reload', asyn
 
   await expect(page).toHaveURL(/priority=urgent/)
   await expect(page.getByText('2 matching issues')).toBeVisible()
+})
+
+test('opens a permission-aware command palette and starts issue creation', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Commands' })).toBeVisible()
+
+  await page.keyboard.press('Control+k')
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  await expect(palette).toBeVisible()
+  await expect(page.locator('.app-shell')).toHaveAttribute('inert', '')
+  const commandSearch = palette.getByRole('combobox', { name: 'Search commands' })
+  await commandSearch.fill('create issue')
+  await commandSearch.press('Enter')
+
+  await expect(page).toHaveURL('/issues?create=1')
+  await expect(page.getByRole('dialog', { name: 'Create issue' })).toBeVisible()
 })

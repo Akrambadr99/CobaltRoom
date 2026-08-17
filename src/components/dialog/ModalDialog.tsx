@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 import './modal-dialog.css'
 
@@ -28,12 +29,15 @@ export function ModalDialog({
 
   useEffect(() => {
     const previouslyFocused = document.activeElement
+    const applicationShell = document.querySelector<HTMLElement>('.app-shell')
+    applicationShell?.setAttribute('inert', '')
     const firstFocusable = panelRef.current?.querySelector<HTMLElement>(
       focusableSelector,
     )
     firstFocusable?.focus()
 
     return () => {
+      applicationShell?.removeAttribute('inert')
       if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus()
     }
   }, [])
@@ -70,7 +74,7 @@ export function ModalDialog({
     }
   }, [onRequestClose])
 
-  return (
+  return createPortal(
     <div className="modal-backdrop">
       <div
         ref={panelRef}
@@ -82,6 +86,7 @@ export function ModalDialog({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

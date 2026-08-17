@@ -13,7 +13,7 @@ describe('ModalDialog', () => {
     function Example() {
       const [open, setOpen] = useState(false)
       return (
-        <>
+        <div className="app-shell">
           <button
             type="button"
             onClick={() => {
@@ -35,13 +35,14 @@ describe('ModalDialog', () => {
               <button type="button">Last action</button>
             </ModalDialog>
           ) : null}
-        </>
+        </div>
       )
     }
 
     render(<Example />)
     const trigger = screen.getByRole('button', { name: 'Open editor' })
     await user.click(trigger)
+    expect(trigger.closest('.app-shell')).toHaveAttribute('inert')
     expect(screen.getByLabelText('First field')).toHaveFocus()
 
     screen.getByRole('button', { name: 'Last action' }).focus()
@@ -50,6 +51,7 @@ describe('ModalDialog', () => {
 
     await user.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalledOnce()
+    expect(trigger.closest('.app-shell')).not.toHaveAttribute('inert')
     expect(trigger).toHaveFocus()
   })
 })

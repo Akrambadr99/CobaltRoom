@@ -1,12 +1,27 @@
+import { useState } from 'react'
 import { Link, Outlet } from 'react-router-dom'
 
+import { CommandPalette } from '../../features/commands/CommandPalette'
 import { GlobalSearch } from '../../features/search/GlobalSearch'
+import { useKeyboardShortcuts } from '../../interactions/keyboard-shortcuts'
 import { PrimaryNavigation } from '../navigation/PrimaryNavigation'
 import { useAppServices } from '../providers/app-services-context'
 import './app-shell.css'
 
 export function AppShell() {
   const { session } = useAppServices()
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  useKeyboardShortcuts([
+    {
+      id: 'commands.open',
+      key: 'k',
+      controlOrMeta: true,
+      allowInEditable: true,
+      handler: () => {
+        setCommandPaletteOpen(true)
+      },
+    },
+  ])
 
   return (
     <div className="app-shell">
@@ -23,6 +38,18 @@ export function AppShell() {
         </Link>
 
         <PrimaryNavigation />
+
+        <button
+          className="command-palette-trigger"
+          type="button"
+          aria-haspopup="dialog"
+          onClick={() => {
+            setCommandPaletteOpen(true)
+          }}
+        >
+          <span>Commands</span>
+          <kbd aria-hidden="true">Ctrl K</kbd>
+        </button>
 
         <p className="app-sidebar__environment">
           <span className="status-dot" aria-hidden="true" />
@@ -52,6 +79,13 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      {commandPaletteOpen ? (
+        <CommandPalette
+          onClose={() => {
+            setCommandPaletteOpen(false)
+          }}
+        />
+      ) : null}
     </div>
   )
 }

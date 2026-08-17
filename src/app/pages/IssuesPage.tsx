@@ -44,7 +44,7 @@ export function IssuesPage() {
   )
   const [bulkPriority, setBulkPriority] = useState<IssuePriority>('medium')
   const [bulkStatus, setBulkStatus] = useState('')
-  const [creatingIssue, setCreatingIssue] = useState(false)
+  const creatingIssue = parameters.get('create') === '1'
   const canCreateIssue =
     services.can('issue:create') ||
     services.session.projectMemberships.some(({ projectId }) =>
@@ -127,7 +127,9 @@ export function IssuesPage() {
               className="primary-button"
               type="button"
               onClick={() => {
-                setCreatingIssue(true)
+                const next = new URLSearchParams(parameters)
+                next.set('create', '1')
+                setParameters(next)
               }}
             >
               Create issue
@@ -139,7 +141,9 @@ export function IssuesPage() {
       {creatingIssue ? (
         <IssueCreateDialog
           onClose={() => {
-            setCreatingIssue(false)
+            const next = new URLSearchParams(parameters)
+            next.delete('create')
+            setParameters(next, { replace: true })
           }}
         />
       ) : null}

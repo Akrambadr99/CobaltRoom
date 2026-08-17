@@ -9,6 +9,7 @@ import {
 import { Link } from 'react-router-dom'
 
 import { useGlobalIssueSearch } from './search-queries'
+import { useKeyboardShortcuts } from '../../interactions/keyboard-shortcuts'
 
 const debounceMilliseconds = 250
 
@@ -33,27 +34,15 @@ export function GlobalSearch() {
     }
   }, [normalizedValue])
 
-  useEffect(() => {
-    const handleShortcut = (event: globalThis.KeyboardEvent): void => {
-      if (
-        event.key !== '/' ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.altKey ||
-        isEditableTarget(event.target)
-      ) {
-        return
-      }
-
-      event.preventDefault()
-      inputRef.current?.focus()
-    }
-
-    window.addEventListener('keydown', handleShortcut)
-    return () => {
-      window.removeEventListener('keydown', handleShortcut)
-    }
-  }, [])
+  useKeyboardShortcuts([
+    {
+      id: 'search.focus',
+      key: '/',
+      handler: () => {
+        inputRef.current?.focus()
+      },
+    },
+  ])
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>): void => {
     setValue(event.currentTarget.value)
@@ -144,14 +133,5 @@ export function GlobalSearch() {
         </div>
       ) : null}
     </div>
-  )
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement ||
-    (target instanceof HTMLElement && target.isContentEditable)
   )
 }
