@@ -22,10 +22,13 @@ npm run dev
 
 ```sh
 npm run lint
+npm run test
+npm run test:coverage
+npm run test:e2e
 npm run typecheck
 npm run build
 ```
 
-Automated application tests and end-to-end tests will be added in their planned
-testing milestones. The application is currently a dependency-free foundation
-screen rather than a completed product workflow.
+`npm run test:e2e` starts the Vite development server and requires the Playwright
+Chromium browser installed by `npx playwright install chromium`. The application
+is currently a foundation screen rather than a completed product workflow.
