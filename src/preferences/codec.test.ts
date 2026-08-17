@@ -10,9 +10,9 @@ import { issueWorkspaceDefaults } from '../features/issues/issue-workspace-state
 import { isoDateTime, projectId } from '../domain'
 
 describe('user preference codec', () => {
-  it('round-trips version three preferences with canonical saved-view state', () => {
+  it('round-trips version four preferences with canonical saved-view state', () => {
     const preferences = {
-      schemaVersion: 3 as const,
+      schemaVersion: 4 as const,
       issuePageSize: 10 as const,
       savedIssueViews: [
         {
@@ -30,6 +30,10 @@ describe('user preference codec', () => {
         },
       ],
       dashboardWidgets: ['overdue', 'total-issues'] as const,
+      issueTableLayout: {
+        columns: ['number', 'title', 'priority'] as const,
+        density: 'compact' as const,
+      },
     }
 
     const decoded = decodeUserPreferences(encodeUserPreferences(preferences))
@@ -84,6 +88,7 @@ describe('user preference codec', () => {
       'total-issues',
       'urgent-open',
     ])
+    expect(migrated.issueTableLayout).toEqual(defaultUserPreferences.issueTableLayout)
   })
 
   it('migrates version two and rejects unsupported or empty widget layouts', () => {
@@ -96,15 +101,31 @@ describe('user preference codec', () => {
     )
     expect(migrated.dashboardWidgets).toEqual(defaultUserPreferences.dashboardWidgets)
 
-    const decoded = decodeUserPreferences(
+    const versionThree = decodeUserPreferences(
       JSON.stringify({
         schemaVersion: 3,
         issuePageSize: 5,
         savedIssueViews: [],
+        dashboardWidgets: ['overdue'],
+      }),
+    )
+    expect(versionThree.dashboardWidgets).toEqual(['overdue'])
+    expect(versionThree.issueTableLayout).toEqual(defaultUserPreferences.issueTableLayout)
+
+    const decoded = decodeUserPreferences(
+      JSON.stringify({
+        schemaVersion: 4,
+        issuePageSize: 5,
+        savedIssueViews: [],
         dashboardWidgets: ['overdue', 'overdue', '<script>'],
+        issueTableLayout: {
+          columns: ['number', 'title', 'priority', '<script>'],
+          density: 'compact',
+        },
       }),
     )
     expect(decoded.dashboardWidgets).toEqual(['overdue'])
+    expect(decoded.issueTableLayout).toEqual(defaultUserPreferences.issueTableLayout)
   })
 
   it('fails closed for corrupt, oversized, and unknown-version payloads', () => {

@@ -6,7 +6,10 @@ import {
 import { isoDateTime, type IsoDateTime } from '../domain'
 import {
   defaultUserPreferences,
+  defaultIssueTableLayout,
   dashboardWidgetIds,
+  issueTableColumnIds,
+  issueTableDensities,
   issuePageSizes,
   preferenceSchemaVersion,
   type IssuePageSize,
@@ -26,15 +29,16 @@ interface PersistedSavedView {
   readonly updatedAt: string
 }
 
-interface PersistedPreferencesV3 {
-  readonly schemaVersion: 3
+interface PersistedPreferencesV4 {
+  readonly schemaVersion: 4
   readonly issuePageSize: IssuePageSize
   readonly savedIssueViews: readonly PersistedSavedView[]
   readonly dashboardWidgets: UserPreferences['dashboardWidgets']
+  readonly issueTableLayout: UserPreferences['issueTableLayout']
 }
 
 export function encodeUserPreferences(preferences: UserPreferences): string {
-  const persisted: PersistedPreferencesV3 = {
+  const persisted: PersistedPreferencesV4 = {
     schemaVersion: preferenceSchemaVersion,
     issuePageSize: preferences.issuePageSize,
     savedIssueViews: preferences.savedIssueViews.map((view) => ({
@@ -45,6 +49,7 @@ export function encodeUserPreferences(preferences: UserPreferences): string {
       updatedAt: view.updatedAt,
     })),
     dashboardWidgets: preferences.dashboardWidgets,
+    issueTableLayout: preferences.issueTableLayout,
   }
   return JSON.stringify(persisted)
 }
@@ -62,6 +67,7 @@ export function decodeUserPreferences(serialized: string | null): UserPreference
     if (value['schemaVersion'] === 2) {
       return migrateLegacy(value, 'issuePageSize', 'savedIssueViews')
     }
+    if (value['schemaVersion'] === 3) return migrateVersionThree(value)
     if (value['schemaVersion'] !== preferenceSchemaVersion) {
       return defaultUserPreferences
     }
@@ -71,6 +77,7 @@ export function decodeUserPreferences(serialized: string | null): UserPreference
       issuePageSize: parsePageSize(value['issuePageSize']),
       savedIssueViews: parseSavedViews(value['savedIssueViews']),
       dashboardWidgets: parseDashboardWidgets(value['dashboardWidgets']),
+      issueTableLayout: parseIssueTableLayout(value['issueTableLayout']),
     }
   } catch {
     return defaultUserPreferences
@@ -91,7 +98,46 @@ function migrateLegacy(
     issuePageSize: parsePageSize(value[pageSizeKey]),
     savedIssueViews: parseSavedViews(value[viewsKey]),
     dashboardWidgets: defaultUserPreferences.dashboardWidgets,
+    issueTableLayout: defaultIssueTableLayout,
   }
+}
+
+function migrateVersionThree(value: Record<string, unknown>): UserPreferences {
+  return {
+    schemaVersion: preferenceSchemaVersion,
+    issuePageSize: parsePageSize(value['issuePageSize']),
+    savedIssueViews: parseSavedViews(value['savedIssueViews']),
+    dashboardWidgets: parseDashboardWidgets(value['dashboardWidgets']),
+    issueTableLayout: defaultIssueTableLayout,
+  }
+}
+
+function parseIssueTableLayout(value: unknown): UserPreferences['issueTableLayout'] {
+  if (!isRecord(value) || !Array.isArray(value['columns'])) {
+    return defaultIssueTableLayout
+  }
+  if (!value['columns'].every(isIssueTableColumnId)) return defaultIssueTableLayout
+  const columns = value['columns']
+  const uniqueColumns = [...new Set(columns)]
+  const density = issueTableDensities.find(
+    (candidate) => candidate === value['density'],
+  )
+  if (
+    uniqueColumns.length !== columns.length ||
+    !uniqueColumns.includes('number') ||
+    !uniqueColumns.includes('title') ||
+    !density
+  ) {
+    return defaultIssueTableLayout
+  }
+  return { columns: uniqueColumns, density }
+}
+
+function isIssueTableColumnId(
+  value: unknown,
+): value is UserPreferences['issueTableLayout']['columns'][number] {
+  return typeof value === 'string' &&
+    issueTableColumnIds.some((column) => column === value)
 }
 
 function parseDashboardWidgets(value: unknown): UserPreferences['dashboardWidgets'] {

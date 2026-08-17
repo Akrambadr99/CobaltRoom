@@ -4,8 +4,11 @@ import { decodeUserPreferences, encodeUserPreferences } from './codec'
 import type { PreferenceStorage } from './storage'
 import {
   dashboardWidgetIds,
+  issueTableColumnIds,
+  issueTableDensities,
   type DashboardWidgetId,
   type IssuePageSize,
+  type IssueTableLayout,
   type SavedIssueView,
   type UserPreferences,
 } from './types'
@@ -67,6 +70,27 @@ export class UserPreferenceRepository {
       throw new RangeError('Dashboard widgets must be unique supported values.')
     }
     this.commit({ ...this.current, dashboardWidgets: unique })
+  }
+
+  setIssueTableLayout(layout: IssueTableLayout): void {
+    const uniqueColumns = [...new Set(layout.columns)]
+    if (
+      uniqueColumns.length !== layout.columns.length ||
+      !uniqueColumns.includes('number') ||
+      !uniqueColumns.includes('title') ||
+      uniqueColumns.some(
+        (column) => !issueTableColumnIds.some((candidate) => candidate === column),
+      ) ||
+      !issueTableDensities.some((density) => density === layout.density)
+    ) {
+      throw new RangeError(
+        'Issue table layouts require unique supported columns, including issue and title.',
+      )
+    }
+    this.commit({
+      ...this.current,
+      issueTableLayout: { columns: uniqueColumns, density: layout.density },
+    })
   }
 
   saveIssueView(name: string, state: IssueWorkspaceState): SavedIssueView {

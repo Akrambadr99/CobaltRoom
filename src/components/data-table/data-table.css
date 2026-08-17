@@ -26,6 +26,11 @@
   vertical-align: middle;
 }
 
+.data-table--compact th,
+.data-table--compact td {
+  padding-block: var(--space-2);
+}
+
 .data-table th {
   color: var(--color-text-muted);
   background: var(--color-bg-subtle);

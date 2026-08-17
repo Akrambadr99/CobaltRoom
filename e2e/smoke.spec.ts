@@ -430,6 +430,24 @@ test('restores a private saved view and page-size preference after reload', asyn
   await expect(page.getByText('2 matching issues')).toBeVisible()
 })
 
+test('persists issue table columns and density after reload', async ({ page }) => {
+  await page.goto('/issues')
+  const table = page.getByRole('table', { name: 'Workspace issues' })
+  await expect(table).toBeVisible()
+
+  await page.getByRole('button', { name: 'Customize issue table' }).click()
+  await page.getByRole('checkbox', { name: 'Project column' }).uncheck()
+  await page.getByLabel('Row density').selectOption('compact')
+
+  await expect(table.getByRole('columnheader', { name: 'Project' })).toHaveCount(0)
+  await expect(table).toHaveClass(/data-table--compact/)
+
+  await page.reload()
+  await expect(table).toBeVisible()
+  await expect(table.getByRole('columnheader', { name: 'Project' })).toHaveCount(0)
+  await expect(table).toHaveClass(/data-table--compact/)
+})
+
 test('opens a permission-aware command palette and starts issue creation', async ({
   page,
 }) => {

@@ -1,4 +1,4 @@
-import { useMemo, useState, type SyntheticEvent } from 'react'
+import { useId, useMemo, useState, type SyntheticEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable, type DataTableColumn } from '../../components/data-table/DataTable'
@@ -16,7 +16,14 @@ import {
 } from '../../features/issues/issue-workspace-state'
 import { IssueCreateDialog } from '../../features/issues/IssueCreateDialog'
 import { SavedIssueViews } from '../../features/issues/SavedIssueViews'
-import { useUserPreferences } from '../../preferences'
+import {
+  defaultIssueTableLayout,
+  issueTableColumnIds,
+  useUserPreferences,
+  type IssueTableColumnId,
+  type IssueTableLayout,
+} from '../../preferences'
+import { useAppServices } from '../providers/app-services-context'
 import { useAuthorization } from '../providers/authorization-context'
 import './issues-page.css'
 import './pages.css'
@@ -159,6 +166,8 @@ export function IssuesPage() {
           updateState({ page: 1 })
         }}
       />
+
+      <IssueTableLayoutControls />
 
       <form className="issue-filters" role="search" onSubmit={handleSearch}>
         <label className="issue-filter issue-filter--search">
@@ -318,6 +327,7 @@ export function IssuesPage() {
                   project.status === 'paused'),
             )
           }
+          tableLayout={preferences.issueTableLayout}
         />
       )}
     </section>
@@ -338,6 +348,7 @@ interface IssueResultsProps {
   readonly onToggleIssue: (issue: Issue, selected: boolean) => void
   readonly onTogglePage: (issues: readonly Issue[], selected: boolean) => void
   readonly isIssueSelectable: (issue: Issue) => boolean
+  readonly tableLayout: IssueTableLayout
 }
 
 function IssueResults({
@@ -354,6 +365,7 @@ function IssueResults({
   onToggleIssue,
   onTogglePage,
   isIssueSelectable,
+  tableLayout,
 }: IssueResultsProps) {
   const projectById = new Map(projects.map((project) => [project.id, project]))
   const columns: readonly DataTableColumn<Issue>[] = [
@@ -404,6 +416,11 @@ function IssueResults({
       render: (issue) => issue.dueDate ?? 'No due date',
     },
   ]
+  const columnsById = new Map(columns.map((column) => [column.id, column]))
+  const visibleColumns = tableLayout.columns.flatMap((id) => {
+    const column = columnsById.get(id)
+    return column ? [column] : []
+  })
 
   if (issues.length === 0 && totalItems > 0) {
     return (
@@ -437,7 +454,8 @@ function IssueResults({
       {isRefreshing ? <p className="issue-results__refresh">Refreshing results…</p> : null}
       <DataTable
         caption="Workspace issues"
-        columns={columns}
+        columns={visibleColumns}
+        density={tableLayout.density}
         getRowKey={(issue) => issue.id}
         rows={issues}
         sort={{ field: state.sortField, direction: state.sortDirection }}
@@ -476,6 +494,140 @@ function IssueResults({
         </button>
       </nav>
     </div>
+  )
+}
+
+const issueTableColumnLabels: Readonly<Record<IssueTableColumnId, string>> = {
+  number: 'Issue',
+  title: 'Title',
+  project: 'Project',
+  priority: 'Priority',
+  type: 'Type',
+  dueDate: 'Due date',
+}
+
+function IssueTableLayoutControls() {
+  const { preferences: repository } = useAppServices()
+  const preferences = useUserPreferences()
+  const panelId = useId()
+  const [isOpen, setIsOpen] = useState(false)
+  const [message, setMessage] = useState('')
+  const [isError, setIsError] = useState(false)
+  const layout = preferences.issueTableLayout
+
+  const save = (next: IssueTableLayout, successMessage: string): void => {
+    try {
+      repository.setIssueTableLayout(next)
+      setMessage(successMessage)
+      setIsError(false)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Table layout could not be saved.')
+      setIsError(true)
+    }
+  }
+
+  const move = (id: IssueTableColumnId, offset: -1 | 1): void => {
+    const index = layout.columns.indexOf(id)
+    const target = index + offset
+    if (index < 0 || target < 0 || target >= layout.columns.length) return
+    const columns = [...layout.columns]
+    const [column] = columns.splice(index, 1)
+    if (!column) return
+    columns.splice(target, 0, column)
+    save({ ...layout, columns }, `${issueTableColumnLabels[id]} column moved.`)
+  }
+
+  return (
+    <section className="issue-table-layout" aria-label="Issue table layout">
+      <button
+        className="issue-table-layout__trigger"
+        type="button"
+        aria-expanded={isOpen}
+        aria-controls={panelId}
+        onClick={() => { setIsOpen((current) => !current) }}
+      >
+        Customize issue table
+      </button>
+      {isOpen ? (
+        <div id={panelId} className="issue-table-layout__content">
+          <label>
+            <span>Row density</span>
+            <select
+              value={layout.density}
+              onChange={(event) => {
+                const density = event.currentTarget.value === 'compact'
+                  ? 'compact'
+                  : 'comfortable'
+                save({ ...layout, density }, `Table density set to ${density}.`)
+              }}
+            >
+              <option value="comfortable">Comfortable</option>
+              <option value="compact">Compact</option>
+            </select>
+          </label>
+          <ul aria-label="Issue table columns">
+            {issueTableColumnIds.map((id) => {
+              const visible = layout.columns.includes(id)
+              const index = layout.columns.indexOf(id)
+              const required = id === 'number' || id === 'title'
+              return (
+                <li key={id}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={visible}
+                      disabled={required}
+                      onChange={(event) => {
+                        const columns = event.currentTarget.checked
+                          ? [...layout.columns, id]
+                          : layout.columns.filter((column) => column !== id)
+                        save(
+                          { ...layout, columns },
+                          `${issueTableColumnLabels[id]} column ${event.currentTarget.checked ? 'shown' : 'hidden'}.`,
+                        )
+                      }}
+                    />
+                    {issueTableColumnLabels[id]} column{required ? ' (required)' : ''}
+                  </label>
+                  {visible ? (
+                    <span className="issue-table-layout__order">
+                      <button
+                        className="text-button"
+                        type="button"
+                        disabled={index <= 0}
+                        onClick={() => { move(id, -1) }}
+                      >
+                        Move {issueTableColumnLabels[id]} earlier
+                      </button>
+                      <button
+                        className="text-button"
+                        type="button"
+                        disabled={index >= layout.columns.length - 1}
+                        onClick={() => { move(id, 1) }}
+                      >
+                        Move {issueTableColumnLabels[id]} later
+                      </button>
+                    </span>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ul>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => {
+              save(defaultIssueTableLayout, 'Default table layout restored.')
+            }}
+          >
+            Restore default layout
+          </button>
+          {message ? (
+            <p role={isError ? 'alert' : 'status'}>{message}</p>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   )
 }
 

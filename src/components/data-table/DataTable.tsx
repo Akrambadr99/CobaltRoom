@@ -30,6 +30,7 @@ interface DataTableProps<TRow> {
   readonly sort?: DataTableSort
   readonly onSort?: (field: string) => void
   readonly selection?: DataTableSelection<TRow>
+  readonly density?: 'comfortable' | 'compact'
 }
 
 export function DataTable<TRow>({
@@ -40,6 +41,7 @@ export function DataTable<TRow>({
   sort,
   onSort,
   selection,
+  density = 'comfortable',
 }: DataTableProps<TRow>) {
   const selectableRows = selection
     ? rows.filter((row) => selection.isRowSelectable?.(row) !== false)
@@ -53,7 +55,7 @@ export function DataTable<TRow>({
 
   return (
     <div className="data-table-scroll" role="region" aria-label={caption}>
-      <table className="data-table">
+      <table className={`data-table data-table--${density}`}>
         <caption className="visually-hidden">{caption}</caption>
         <thead>
           <tr>

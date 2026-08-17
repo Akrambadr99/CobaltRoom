@@ -333,6 +333,40 @@ describe('IssuesPage', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('persists accessible column visibility, order, and density preferences', async () => {
+    const user = userEvent.setup()
+    const storage = new MemoryPreferenceStorage()
+    const first = renderIssues(
+      '/issues',
+      new SimulatedNetwork(),
+      undefined,
+      storage,
+    )
+    const table = await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.click(screen.getByText('Customize issue table'))
+
+    expect(screen.getByRole('checkbox', { name: 'Issue column (required)' })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: 'Title column (required)' })).toBeDisabled()
+    await user.click(screen.getByRole('checkbox', { name: 'Project column' }))
+    expect(within(table).queryByRole('columnheader', { name: 'Project' }))
+      .not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Move Due date earlier' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Row density' }), 'compact')
+    expect(table).toHaveClass('data-table--compact')
+    expect(screen.getByText('Table density set to compact.')).toHaveAttribute('role', 'status')
+
+    const firstHeaders = within(table).getAllByRole('columnheader')
+    expect(firstHeaders.indexOf(within(table).getByRole('columnheader', { name: /Due/ })))
+      .toBeLessThan(firstHeaders.indexOf(within(table).getByRole('columnheader', { name: 'Type' })))
+    first.unmount()
+
+    renderIssues('/issues', new SimulatedNetwork(), undefined, storage)
+    const restored = await screen.findByRole('table', { name: 'Workspace issues' })
+    expect(restored).toHaveClass('data-table--compact')
+    expect(within(restored).queryByRole('columnheader', { name: 'Project' }))
+      .not.toBeInTheDocument()
+  })
+
   it('reports durable preference write failures without changing the active view', async () => {
     const user = userEvent.setup()
     const storage: PreferenceStorage = {

@@ -32,6 +32,10 @@ describe('UserPreferenceRepository', () => {
     })
     repository.setIssuePageSize(10)
     repository.setDashboardWidgets(['overdue', 'total-issues'])
+    repository.setIssueTableLayout({
+      columns: ['number', 'title', 'priority'],
+      density: 'compact',
+    })
 
     expect(saved).toMatchObject({
       id: 'view_test_001',
@@ -39,16 +43,20 @@ describe('UserPreferenceRepository', () => {
       state: { priority: 'urgent', page: 1 },
       createdAt: '2026-02-01T08:00:00.000Z',
     })
-    expect(listener).toHaveBeenCalledTimes(3)
+    expect(listener).toHaveBeenCalledTimes(4)
     expect(createRepository(storage).getSnapshot()).toMatchObject({
       issuePageSize: 10,
       savedIssueViews: [{ name: 'Urgent work' }],
       dashboardWidgets: ['overdue', 'total-issues'],
+      issueTableLayout: {
+        columns: ['number', 'title', 'priority'],
+        density: 'compact',
+      },
     })
 
     unsubscribe()
     repository.deleteIssueView(saved.id)
-    expect(listener).toHaveBeenCalledTimes(3)
+    expect(listener).toHaveBeenCalledTimes(4)
     expect(repository.getSnapshot().savedIssueViews).toHaveLength(0)
   })
 
@@ -62,6 +70,22 @@ describe('UserPreferenceRepository', () => {
     }).toThrow(RangeError)
     expect(repository.getSnapshot().dashboardWidgets).toEqual(
       defaultUserPreferences.dashboardWidgets,
+    )
+  })
+
+  it('rejects table layouts that hide identity columns or repeat columns', () => {
+    const repository = createRepository()
+    expect(() => {
+      repository.setIssueTableLayout({ columns: ['title'], density: 'compact' })
+    }).toThrow(RangeError)
+    expect(() => {
+      repository.setIssueTableLayout({
+        columns: ['number', 'title', 'title'],
+        density: 'comfortable',
+      })
+    }).toThrow(RangeError)
+    expect(repository.getSnapshot().issueTableLayout).toEqual(
+      defaultUserPreferences.issueTableLayout,
     )
   })
 
