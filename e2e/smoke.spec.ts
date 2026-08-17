@@ -524,6 +524,57 @@ test('administers revisioned workspace access with suspension confirmation', asy
   ).toContainText('membership.updated')
 })
 
+test('provisions a workspace member through the invitation lifecycle', async ({
+  page,
+}) => {
+  await page.goto('/administration')
+  await expect(
+    page.getByRole('heading', { name: 'Workspace invitations' }),
+  ).toBeVisible()
+
+  await page.getByRole('button', { name: 'Invite member' }).click()
+  let dialog = page.getByRole('dialog', { name: 'Invite workspace member' })
+  const email = dialog.getByLabel('Email address')
+  await expect(email).toBeFocused()
+  await email.fill('release.manager@example.test')
+  await dialog.getByLabel('Invitation role').selectOption('admin')
+  await dialog.getByRole('button', { name: 'Create invitation' }).click()
+
+  const invitations = page.getByRole('table', {
+    name: 'Workspace invitation administration',
+  })
+  const invitation = invitations.getByRole('row', {
+    name: /release.manager@example.test/,
+  })
+  await expect(invitation).toContainText('Pending')
+  await invitation.getByRole('button', { name: 'Activate' }).click()
+  dialog = page.getByRole('dialog', {
+    name: 'Activate release.manager@example.test',
+  })
+  await dialog.getByLabel('Member name').fill('Rina Patel')
+  await dialog.getByRole('button', { name: 'Activate member' }).click()
+
+  await expect(invitation).toContainText('Accepted')
+  await expect(invitation).toContainText('Complete')
+  await expect(
+    page
+      .getByRole('table', { name: 'Workspace membership administration' })
+      .getByRole('row', { name: /Rina Patel/ }),
+  ).toContainText('Admin')
+
+  await page.getByRole('combobox', { name: 'Invitation status' }).selectOption('accepted')
+  await expect(page).toHaveURL(/inviteState=accepted/)
+  await expect(invitation).toBeVisible()
+
+  await page.getByRole('link', { name: 'Governance' }).click()
+  await page
+    .getByRole('combobox', { name: 'Action' })
+    .selectOption('workspace.invitation.activated')
+  await expect(
+    page.getByRole('table', { name: 'Authoritative workspace audit events' }),
+  ).toContainText('workspace.invitation.activated')
+})
+
 test('reviews the protected governance audit report', async ({ page }) => {
   await page.goto('/governance')
   await expect(page.getByRole('heading', { name: 'Governance' })).toBeVisible()

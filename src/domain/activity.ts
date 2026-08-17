@@ -1,7 +1,13 @@
 import type { ActivityEventId, AuditEventId, UserId, WorkspaceId } from './ids'
 import type { IsoDateTime } from './time'
 
-export type EntityKind = 'workspace' | 'project' | 'issue' | 'comment' | 'member'
+export type EntityKind =
+  | 'workspace'
+  | 'project'
+  | 'issue'
+  | 'comment'
+  | 'member'
+  | 'invitation'
 
 export interface ActivityEvent {
   readonly id: ActivityEventId

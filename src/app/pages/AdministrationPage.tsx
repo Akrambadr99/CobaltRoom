@@ -8,6 +8,7 @@ import {
   useUpdateWorkspaceMembership,
   useWorkspaceAdministration,
 } from '../../features/administration/administration-queries'
+import { WorkspaceInvitationPanel } from '../../features/administration/WorkspaceInvitationPanel'
 import { useAppServices } from '../providers/app-services-context'
 import './pages.css'
 
@@ -161,6 +162,7 @@ export function AdministrationPage() {
           </nav>
         </section>
       )}
+      {administration.isSuccess ? <WorkspaceInvitationPanel /> : null}
       {announcement ? <p className="visually-hidden" role="status">{announcement}</p> : null}
       {editing ? (
         <MembershipDialog

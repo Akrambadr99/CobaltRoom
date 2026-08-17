@@ -30,6 +30,10 @@ import type {
   WorkflowStatusId,
   WorkspaceId,
   WorkspaceRole,
+  WorkspaceInvitation,
+  WorkspaceInvitationId,
+  WorkspaceInvitationRole,
+  WorkspaceInvitationState,
 } from '../../domain'
 
 export type SortDirection = 'ascending' | 'descending'
@@ -391,6 +395,55 @@ export interface UpdateWorkspaceMembershipInput {
   readonly status: MembershipStatus
 }
 
+export type WorkspaceInvitationEffectiveState =
+  | WorkspaceInvitationState
+  | 'expired'
+
+export interface WorkspaceInvitationQuery {
+  readonly workspaceId: WorkspaceId
+  readonly search?: string
+  readonly roles?: readonly WorkspaceInvitationRole[]
+  readonly states?: readonly WorkspaceInvitationEffectiveState[]
+  readonly page?: PageRequest
+}
+
+export interface WorkspaceInvitationEntry {
+  readonly invitation: WorkspaceInvitation
+  readonly effectiveState: WorkspaceInvitationEffectiveState
+}
+
+export interface WorkspaceInvitationAdministrationData {
+  readonly invitations: Page<WorkspaceInvitationEntry>
+}
+
+export interface CreateWorkspaceInvitationInput {
+  readonly workspaceId: WorkspaceId
+  readonly email: string
+  readonly role: WorkspaceInvitationRole
+}
+
+export interface ResendWorkspaceInvitationInput {
+  readonly id: WorkspaceInvitationId
+  readonly expectedRevision: number
+}
+
+export interface RevokeWorkspaceInvitationInput {
+  readonly id: WorkspaceInvitationId
+  readonly expectedRevision: number
+}
+
+export interface ActivateWorkspaceInvitationInput {
+  readonly id: WorkspaceInvitationId
+  readonly expectedRevision: number
+  readonly displayName: string
+}
+
+export interface WorkspaceInvitationActivation {
+  readonly invitation: WorkspaceInvitation
+  readonly user: User
+  readonly membership: Membership
+}
+
 export type MutableIssueFields = Pick<
   Issue,
   | 'assigneeId'
@@ -416,6 +469,26 @@ export interface DeleteIssueInput {
 }
 
 export interface AtlasGateway {
+  getWorkspaceInvitations(
+    query: WorkspaceInvitationQuery,
+    options?: RequestOptions,
+  ): Promise<WorkspaceInvitationAdministrationData>
+  createWorkspaceInvitation(
+    input: CreateWorkspaceInvitationInput,
+    options?: RequestOptions,
+  ): Promise<WorkspaceInvitation>
+  resendWorkspaceInvitation(
+    input: ResendWorkspaceInvitationInput,
+    options?: RequestOptions,
+  ): Promise<WorkspaceInvitation>
+  revokeWorkspaceInvitation(
+    input: RevokeWorkspaceInvitationInput,
+    options?: RequestOptions,
+  ): Promise<WorkspaceInvitation>
+  activateWorkspaceInvitation(
+    input: ActivateWorkspaceInvitationInput,
+    options?: RequestOptions,
+  ): Promise<WorkspaceInvitationActivation>
   getWorkspaceAdministration(
     query: WorkspaceAdministrationQuery,
     options?: RequestOptions,

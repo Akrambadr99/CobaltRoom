@@ -7,6 +7,7 @@ type DomainId<TName extends string> = string & {
 export type WorkspaceId = DomainId<'WorkspaceId'>
 export type UserId = DomainId<'UserId'>
 export type MembershipId = DomainId<'MembershipId'>
+export type WorkspaceInvitationId = DomainId<'WorkspaceInvitationId'>
 export type ProjectId = DomainId<'ProjectId'>
 export type ProjectMemberId = DomainId<'ProjectMemberId'>
 export type WorkflowStatusId = DomainId<'WorkflowStatusId'>
@@ -54,6 +55,8 @@ export const userId = (value: string) =>
   createDomainId(value, 'usr', 'UserId')
 export const membershipId = (value: string) =>
   createDomainId(value, 'mem', 'MembershipId')
+export const workspaceInvitationId = (value: string) =>
+  createDomainId(value, 'invite', 'WorkspaceInvitationId')
 export const projectId = (value: string) =>
   createDomainId(value, 'prj', 'ProjectId')
 export const projectMemberId = (value: string) =>

@@ -7,6 +7,7 @@ import type {
   CreateCommentInput,
   CreateIssueInput,
   CreateProjectInput,
+  CreateWorkspaceInvitationInput,
   DeleteCommentInput,
   DeleteIssueInput,
   GovernanceQuery,
@@ -28,6 +29,9 @@ import type {
   ProjectActivityData,
   RequestOptions,
   RemoveProjectMemberInput,
+  ResendWorkspaceInvitationInput,
+  RevokeWorkspaceInvitationInput,
+  ActivateWorkspaceInvitationInput,
   TransferProjectLeadInput,
   UpdateIssueInput,
   UpdateCommentInput,
@@ -39,6 +43,10 @@ import type {
   WorkspaceAdministrationData,
   WorkspaceAdministrationQuery,
   WorkspaceAnalytics,
+  WorkspaceInvitationActivation,
+  WorkspaceInvitationAdministrationData,
+  WorkspaceInvitationEffectiveState,
+  WorkspaceInvitationQuery,
 } from './contracts'
 import { buildWorkspaceAnalytics } from './analytics'
 import { buildGovernanceReport } from './governance'
@@ -86,8 +94,11 @@ import {
   type WorkflowStatusId,
   type UserId,
   type WorkspaceId,
+  type WorkspaceInvitation,
+  type WorkspaceInvitationRole,
   type WorkspaceRole,
   isoDate,
+  isoDateTime,
 } from '../../domain'
 
 const openProjectStatuses: ReadonlySet<Project['status']> = new Set([
@@ -123,6 +134,13 @@ const membershipStatuses: ReadonlySet<MembershipStatus> = new Set([
   'active',
   'suspended',
 ])
+const workspaceInvitationRoles: ReadonlySet<WorkspaceInvitationRole> = new Set([
+  'admin',
+  'member',
+  'viewer',
+])
+const invitationEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const invitationLifetimeMilliseconds = 7 * 24 * 60 * 60 * 1_000
 const assignableProjectRoles = new Set<ProjectMember['role']>([
   'contributor',
   'viewer',
@@ -2497,4 +2515,454 @@ export class MockAtlasGateway implements AtlasGateway {
     this.requestSequence += 1
     return `req_${this.requestSequence.toString().padStart(6, '0')}`
   }
+
+  getWorkspaceInvitations(
+    query: WorkspaceInvitationQuery,
+    options?: RequestOptions,
+  ): Promise<WorkspaceInvitationAdministrationData> {
+    return this.execute('administration.invitations.get', options, () => {
+      this.assertPermission('members:manage', query.workspaceId)
+      const now = this.clock.now()
+      const search = query.search?.trim().toLocaleLowerCase() ?? ''
+      const roles = query.roles ? new Set(query.roles) : null
+      const states = query.states ? new Set(query.states) : null
+      const invitations = this.store.read().data.workspaceInvitations
+        .filter(({ workspaceId }) => workspaceId === query.workspaceId)
+        .map((invitation) => ({
+          invitation,
+          effectiveState: invitationEffectiveState(invitation, now),
+        }))
+        .filter(({ invitation, effectiveState }) =>
+          (!search || invitation.email.includes(search)) &&
+          (!roles || roles.has(invitation.role)) &&
+          (!states || states.has(effectiveState)),
+        )
+        .sort(
+          (left, right) =>
+            right.invitation.lastSentAt.localeCompare(left.invitation.lastSentAt) ||
+            right.invitation.id.localeCompare(left.invitation.id),
+        )
+      return {
+        invitations: paginate(
+          invitations,
+          validatePage(query.page ?? { number: 1, size: 20 }),
+        ),
+      }
+    })
+  }
+
+  createWorkspaceInvitation(
+    input: CreateWorkspaceInvitationInput,
+    options?: RequestOptions,
+  ): Promise<WorkspaceInvitation> {
+    return this.execute(
+      'administration.invitations.create',
+      options,
+      (requestId) => {
+        const current = this.store.read()
+        this.assertPermission('members:manage', input.workspaceId)
+        const email = normalizeInvitationEmail(input.email)
+        this.assertWorkspaceInvitationRole(input.role)
+        if (!current.data.workspaces.some(({ id }) => id === input.workspaceId)) {
+          throw new EntityNotFoundError('Workspace')
+        }
+        const existingUser = current.data.users.find(
+          (user) => user.email.toLocaleLowerCase() === email,
+        )
+        if (
+          existingUser &&
+          current.data.memberships.some(
+            ({ workspaceId, userId }) =>
+              workspaceId === input.workspaceId && userId === existingUser.id,
+          )
+        ) {
+          throw new GatewayConflictError(
+            'This email already belongs to a workspace member.',
+          )
+        }
+        if (
+          current.data.workspaceInvitations.some(
+            (invitation) =>
+              invitation.workspaceId === input.workspaceId &&
+              invitation.email === email &&
+              invitation.state === 'pending',
+          )
+        ) {
+          throw new GatewayConflictError(
+            'A pending invitation already exists for this email. Resend or revoke it instead.',
+          )
+        }
+
+        const occurredAt = this.clock.now()
+        const invitation: WorkspaceInvitation = {
+          id: this.ids.workspaceInvitation('workspace_member'),
+          workspaceId: input.workspaceId,
+          email,
+          role: input.role,
+          state: 'pending',
+          invitedById: this.actorId,
+          createdAt: occurredAt,
+          expiresAt: invitationExpiry(occurredAt),
+          lastSentAt: occurredAt,
+          acceptedAt: null,
+          revokedAt: null,
+          revision: 1,
+        }
+        this.commit(current.version, {
+          ...current.data,
+          workspaceInvitations: [...current.data.workspaceInvitations, invitation],
+          activityEvents: [
+            ...current.data.activityEvents,
+            this.workspaceInvitationActivity(
+              invitation,
+              occurredAt,
+              'workspace.invitation.created',
+              `Invited ${email} as ${input.role}.`,
+            ),
+          ],
+          auditEvents: [
+            ...current.data.auditEvents,
+            this.workspaceInvitationAudit(
+              requestId,
+              invitation,
+              occurredAt,
+              'workspace.invitation.created',
+              { email, role: input.role, revision: invitation.revision },
+            ),
+          ],
+        })
+        return invitation
+      },
+    )
+  }
+
+  resendWorkspaceInvitation(
+    input: ResendWorkspaceInvitationInput,
+    options?: RequestOptions,
+  ): Promise<WorkspaceInvitation> {
+    return this.execute(
+      'administration.invitations.resend',
+      options,
+      (requestId) => {
+        const current = this.store.read()
+        const index = current.data.workspaceInvitations.findIndex(
+          ({ id }) => id === input.id,
+        )
+        const invitation = current.data.workspaceInvitations[index]
+        if (!invitation) throw new EntityNotFoundError('Workspace invitation')
+        this.assertPermission('members:manage', invitation.workspaceId)
+        this.assertInvitationRevision(invitation, input.expectedRevision)
+        if (invitation.state !== 'pending') {
+          throw new GatewayConflictError(
+            'Only pending or expired invitations can be resent.',
+          )
+        }
+        const occurredAt = this.clock.now()
+        const updated: WorkspaceInvitation = {
+          ...invitation,
+          lastSentAt: occurredAt,
+          expiresAt: invitationExpiry(occurredAt),
+          revision: invitation.revision + 1,
+        }
+        const workspaceInvitations = [...current.data.workspaceInvitations]
+        workspaceInvitations[index] = updated
+        this.commit(current.version, {
+          ...current.data,
+          workspaceInvitations,
+          activityEvents: [
+            ...current.data.activityEvents,
+            this.workspaceInvitationActivity(
+              updated,
+              occurredAt,
+              'workspace.invitation.resent',
+              `Resent the invitation to ${updated.email}.`,
+            ),
+          ],
+          auditEvents: [
+            ...current.data.auditEvents,
+            this.workspaceInvitationAudit(
+              requestId,
+              updated,
+              occurredAt,
+              'workspace.invitation.resent',
+              {
+                email: updated.email,
+                fromRevision: invitation.revision,
+                toRevision: updated.revision,
+              },
+            ),
+          ],
+        })
+        return updated
+      },
+    )
+  }
+
+  revokeWorkspaceInvitation(
+    input: RevokeWorkspaceInvitationInput,
+    options?: RequestOptions,
+  ): Promise<WorkspaceInvitation> {
+    return this.execute(
+      'administration.invitations.revoke',
+      options,
+      (requestId) => {
+        const current = this.store.read()
+        const index = current.data.workspaceInvitations.findIndex(
+          ({ id }) => id === input.id,
+        )
+        const invitation = current.data.workspaceInvitations[index]
+        if (!invitation) throw new EntityNotFoundError('Workspace invitation')
+        this.assertPermission('members:manage', invitation.workspaceId)
+        this.assertInvitationRevision(invitation, input.expectedRevision)
+        if (invitation.state !== 'pending') {
+          throw new GatewayConflictError('Only pending invitations can be revoked.')
+        }
+        const occurredAt = this.clock.now()
+        const updated: WorkspaceInvitation = {
+          ...invitation,
+          state: 'revoked',
+          revokedAt: occurredAt,
+          revision: invitation.revision + 1,
+        }
+        const workspaceInvitations = [...current.data.workspaceInvitations]
+        workspaceInvitations[index] = updated
+        this.commit(current.version, {
+          ...current.data,
+          workspaceInvitations,
+          activityEvents: [
+            ...current.data.activityEvents,
+            this.workspaceInvitationActivity(
+              updated,
+              occurredAt,
+              'workspace.invitation.revoked',
+              `Revoked the invitation to ${updated.email}.`,
+            ),
+          ],
+          auditEvents: [
+            ...current.data.auditEvents,
+            this.workspaceInvitationAudit(
+              requestId,
+              updated,
+              occurredAt,
+              'workspace.invitation.revoked',
+              { email: updated.email, toRevision: updated.revision },
+            ),
+          ],
+        })
+        return updated
+      },
+    )
+  }
+
+  activateWorkspaceInvitation(
+    input: ActivateWorkspaceInvitationInput,
+    options?: RequestOptions,
+  ): Promise<WorkspaceInvitationActivation> {
+    return this.execute(
+      'administration.invitations.activate',
+      options,
+      (requestId) => {
+        const current = this.store.read()
+        const index = current.data.workspaceInvitations.findIndex(
+          ({ id }) => id === input.id,
+        )
+        const invitation = current.data.workspaceInvitations[index]
+        if (!invitation) throw new EntityNotFoundError('Workspace invitation')
+        this.assertPermission('members:manage', invitation.workspaceId)
+        this.assertInvitationRevision(invitation, input.expectedRevision)
+        if (invitation.state !== 'pending') {
+          throw new GatewayConflictError('Only pending invitations can be activated.')
+        }
+        const occurredAt = this.clock.now()
+        if (invitation.expiresAt <= occurredAt) {
+          throw new GatewayConflictError(
+            'This invitation expired. Resend it before activation.',
+          )
+        }
+        const displayName = input.displayName.trim()
+        if (displayName.length === 0 || displayName.length > 120) {
+          throw new InvalidGatewayRequestError(
+            'Member names must contain 1 to 120 characters.',
+          )
+        }
+        const existingUser = current.data.users.find(
+          (candidate) =>
+            candidate.email.toLocaleLowerCase() === invitation.email,
+        )
+        if (
+          existingUser &&
+          current.data.memberships.some(
+            ({ workspaceId, userId }) =>
+              workspaceId === invitation.workspaceId && userId === existingUser.id,
+          )
+        ) {
+          throw new GatewayConflictError(
+            'This invitation recipient is already a workspace member.',
+          )
+        }
+        const user = existingUser ?? {
+          id: this.ids.user('invited_member'),
+          displayName,
+          email: invitation.email,
+          initials: userInitials(displayName),
+        }
+        const membership: Membership = {
+          id: this.ids.membership('invited_member'),
+          workspaceId: invitation.workspaceId,
+          userId: user.id,
+          role: invitation.role,
+          status: 'active',
+          joinedAt: occurredAt,
+          revision: 1,
+        }
+        const updated: WorkspaceInvitation = {
+          ...invitation,
+          state: 'accepted',
+          acceptedAt: occurredAt,
+          revision: invitation.revision + 1,
+        }
+        const workspaceInvitations = [...current.data.workspaceInvitations]
+        workspaceInvitations[index] = updated
+        const hasNotificationPreferences = current.data.notificationPreferences.some(
+          (preferences) =>
+            preferences.workspaceId === invitation.workspaceId &&
+            preferences.userId === user.id,
+        )
+        this.commit(current.version, {
+          ...current.data,
+          users: existingUser ? current.data.users : [...current.data.users, user],
+          memberships: [...current.data.memberships, membership],
+          workspaceInvitations,
+          notificationPreferences: hasNotificationPreferences
+            ? current.data.notificationPreferences
+            : [
+                ...current.data.notificationPreferences,
+                {
+                  id: this.ids.notificationPreference('invited_member'),
+                  workspaceId: invitation.workspaceId,
+                  userId: user.id,
+                  assignments: true,
+                  comments: true,
+                  issueUpdates: true,
+                  revision: 1,
+                },
+              ],
+          activityEvents: [
+            ...current.data.activityEvents,
+            this.workspaceInvitationActivity(
+              updated,
+              occurredAt,
+              'workspace.invitation.activated',
+              `Activated ${user.displayName} as ${membership.role}.`,
+            ),
+          ],
+          auditEvents: [
+            ...current.data.auditEvents,
+            this.workspaceInvitationAudit(
+              requestId,
+              updated,
+              occurredAt,
+              'workspace.invitation.activated',
+              {
+                email: updated.email,
+                userId: user.id,
+                membershipId: membership.id,
+                role: membership.role,
+                toRevision: updated.revision,
+              },
+            ),
+          ],
+        })
+        return { invitation: updated, user, membership }
+      },
+    )
+  }
+
+  private assertWorkspaceInvitationRole(role: WorkspaceInvitationRole): void {
+    if (!workspaceInvitationRoles.has(role)) {
+      throw new InvalidGatewayRequestError(
+        'Invitation roles must be admin, member, or viewer.',
+      )
+    }
+  }
+
+  private assertInvitationRevision(
+    invitation: WorkspaceInvitation,
+    expectedRevision: number,
+  ): void {
+    if (invitation.revision !== expectedRevision) {
+      throw new GatewayConflictError(
+        'This invitation changed after it was loaded. Refresh and try again.',
+      )
+    }
+  }
+
+  private workspaceInvitationActivity(
+    invitation: WorkspaceInvitation,
+    occurredAt: ActivityEvent['occurredAt'],
+    action: string,
+    summary: string,
+  ): ActivityEvent {
+    return {
+      id: this.ids.activity('workspace_invitation'),
+      workspaceId: invitation.workspaceId,
+      actorId: this.actorId,
+      entityKind: 'invitation',
+      entityId: invitation.id,
+      action,
+      occurredAt,
+      summary,
+    }
+  }
+
+  private workspaceInvitationAudit(
+    requestId: string,
+    invitation: WorkspaceInvitation,
+    occurredAt: AuditEvent['occurredAt'],
+    action: string,
+    metadata: AuditEvent['metadata'],
+  ): AuditEvent {
+    return {
+      id: this.ids.audit('workspace_invitation'),
+      workspaceId: invitation.workspaceId,
+      actorId: this.actorId,
+      requestId,
+      action,
+      outcome: 'succeeded',
+      occurredAt,
+      metadata: { invitationId: invitation.id, ...metadata },
+    }
+  }
+}
+
+function normalizeInvitationEmail(value: string): string {
+  const email = value.trim().toLocaleLowerCase()
+  if (email.length > 254 || !invitationEmailPattern.test(email)) {
+    throw new InvalidGatewayRequestError('Enter a valid invitation email address.')
+  }
+  return email
+}
+
+function invitationExpiry(value: ActivityEvent['occurredAt']): ActivityEvent['occurredAt'] {
+  return isoDateTime(
+    new Date(Date.parse(value) + invitationLifetimeMilliseconds).toISOString(),
+  )
+}
+
+function invitationEffectiveState(
+  invitation: WorkspaceInvitation,
+  now: ActivityEvent['occurredAt'],
+): WorkspaceInvitationEffectiveState {
+  return invitation.state === 'pending' && invitation.expiresAt <= now
+    ? 'expired'
+    : invitation.state
+}
+
+function userInitials(displayName: string): string {
+  return displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toLocaleUpperCase() ?? '')
+    .join('')
 }

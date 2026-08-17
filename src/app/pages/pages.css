@@ -485,6 +485,28 @@
   color: var(--color-danger-text);
 }
 
+.membership-status--pending,
+.membership-status--accepted {
+  background: var(--color-success-subtle);
+  color: var(--color-success-text);
+}
+
+.membership-status--expired,
+.membership-status--revoked {
+  background: var(--color-danger-subtle);
+  color: var(--color-danger-text);
+}
+
+.invitation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.invitation-actions button {
+  min-height: 2.5rem;
+}
+
 .membership-form {
   display: grid;
   gap: var(--space-5);

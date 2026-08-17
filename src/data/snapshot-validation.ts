@@ -47,6 +47,41 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
     }
   }
 
+  const pendingInvitationEmails = new Set<string>()
+  for (const invitation of snapshot.workspaceInvitations) {
+    const pendingKey = `${invitation.workspaceId}:${invitation.email}`
+    const timestampsAreConsistent =
+      invitation.createdAt <= invitation.lastSentAt &&
+      invitation.lastSentAt < invitation.expiresAt
+    const stateIsConsistent =
+      (invitation.state === 'pending' &&
+        invitation.acceptedAt === null &&
+        invitation.revokedAt === null) ||
+      (invitation.state === 'accepted' &&
+        invitation.acceptedAt !== null &&
+        invitation.revokedAt === null) ||
+      (invitation.state === 'revoked' &&
+        invitation.acceptedAt === null &&
+        invitation.revokedAt !== null)
+    if (
+      !workspaces.has(invitation.workspaceId) ||
+      !users.has(invitation.invitedById) ||
+      invitation.email !== invitation.email.trim().toLocaleLowerCase() ||
+      invitation.email.length === 0 ||
+      !Number.isSafeInteger(invitation.revision) ||
+      invitation.revision < 1 ||
+      !timestampsAreConsistent ||
+      !stateIsConsistent ||
+      (invitation.state === 'pending' && pendingInvitationEmails.has(pendingKey))
+    ) {
+      throw new DataIntegrityError(
+        'workspaceInvitations',
+        'Invitations require valid references, normalized email, lifecycle timestamps, revision, and a unique pending recipient.',
+      )
+    }
+    if (invitation.state === 'pending') pendingInvitationEmails.add(pendingKey)
+  }
+
   for (const project of snapshot.projects) {
     assertProjectKey(project.key)
     const key = `${project.workspaceId}:${project.key}`
@@ -203,6 +238,7 @@ const collectionNames = [
   'workspaces',
   'users',
   'memberships',
+  'workspaceInvitations',
   'projects',
   'projectMembers',
   'workflowStatuses',

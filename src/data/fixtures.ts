@@ -282,6 +282,7 @@ export function createAtlasFixtures(
         revision: 1,
       },
     ],
+    workspaceInvitations: [],
     projects: [launchProject, reliabilityProject],
     projectMembers: [
       {

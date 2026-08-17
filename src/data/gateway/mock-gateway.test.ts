@@ -14,6 +14,7 @@ import { SimulatedNetwork } from './simulation'
 import { InMemoryRequestTracer } from './tracing'
 import { FixedClock } from '../clock'
 import { createAtlasFixtures } from '../fixtures'
+import { DeterministicIdGenerator } from '../id-generator'
 import { InMemoryDataStore } from '../store'
 import { isoDateTime, issueId, type UserId } from '../../domain'
 
@@ -38,15 +39,17 @@ function createGateway(
   const store = new InMemoryDataStore(fixtures)
   const tracer = new InMemoryRequestTracer()
   const clock = new FixedClock(isoDateTime('2026-02-01T08:00:00.000Z'))
+  const idGenerator = new DeterministicIdGenerator('gateway')
   const gateway = new MockAtlasGateway({
     actorId,
     store,
     tracer,
     clock,
     simulator,
+    idGenerator,
   })
 
-  return { fixtures, gateway, store, tracer }
+  return { fixtures, gateway, idGenerator, store, tracer }
 }
 
 describe('MockAtlasGateway', () => {
@@ -621,6 +624,232 @@ describe('MockAtlasGateway', () => {
     await expect(
       gateway.getWorkspaceAdministration({ workspaceId }),
     ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+  })
+
+  it('creates, filters, and audits normalized workspace invitations', async () => {
+    const { fixtures, gateway, store, tracer } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    const existingMember = fixtures.users[0]
+    if (!workspaceId || !existingMember) {
+      throw new Error('Expected workspace invitation fixtures.')
+    }
+
+    const invitation = await gateway.createWorkspaceInvitation({
+      workspaceId,
+      email: '  New.Member@Example.Test ',
+      role: 'viewer',
+    })
+
+    expect(invitation).toMatchObject({
+      id: 'invite_gateway_workspace_member_001',
+      email: 'new.member@example.test',
+      role: 'viewer',
+      state: 'pending',
+      expiresAt: '2026-02-08T08:00:00.000Z',
+      revision: 1,
+    })
+    const directory = await gateway.getWorkspaceInvitations({
+      workspaceId,
+      search: 'NEW.MEMBER',
+      roles: ['viewer'],
+      states: ['pending'],
+      page: { number: 1, size: 1 },
+    })
+    expect(directory.invitations).toMatchObject({ totalItems: 1, pageCount: 1 })
+    expect(directory.invitations.items[0]).toMatchObject({
+      invitation: { id: invitation.id },
+      effectiveState: 'pending',
+    })
+    expect(store.read().data.activityEvents.at(-1)).toMatchObject({
+      entityKind: 'invitation',
+      entityId: invitation.id,
+      action: 'workspace.invitation.created',
+    })
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'workspace.invitation.created',
+      metadata: { email: invitation.email, role: 'viewer', revision: 1 },
+    })
+    expect(tracer.read().slice(-2)).toMatchObject([
+      { operation: 'administration.invitations.get', phase: 'started' },
+      { operation: 'administration.invitations.get', phase: 'succeeded' },
+    ])
+
+    await expect(
+      gateway.createWorkspaceInvitation({
+        workspaceId,
+        email: invitation.email,
+        role: 'member',
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+    await expect(
+      gateway.createWorkspaceInvitation({
+        workspaceId,
+        email: existingMember.email,
+        role: 'member',
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+    await expect(
+      gateway.createWorkspaceInvitation({
+        workspaceId,
+        email: 'not-an-email',
+        role: 'member',
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+  })
+
+  it('derives expiry and revision-protects resend and revocation', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    if (!workspaceId) throw new Error('Expected a fixture workspace.')
+    const invitation = await gateway.createWorkspaceInvitation({
+      workspaceId,
+      email: 'expiring.member@example.test',
+      role: 'member',
+    })
+    const current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      workspaceInvitations: current.data.workspaceInvitations.map((candidate) =>
+        candidate.id === invitation.id
+          ? {
+              ...candidate,
+              createdAt: isoDateTime('2026-01-01T08:00:00.000Z'),
+              lastSentAt: isoDateTime('2026-01-02T08:00:00.000Z'),
+              expiresAt: isoDateTime('2026-01-09T08:00:00.000Z'),
+            }
+          : candidate,
+      ),
+    })
+
+    const expired = await gateway.getWorkspaceInvitations({
+      workspaceId,
+      states: ['expired'],
+    })
+    expect(expired.invitations.items[0]?.effectiveState).toBe('expired')
+    await expect(
+      gateway.activateWorkspaceInvitation({
+        id: invitation.id,
+        expectedRevision: 1,
+        displayName: 'Expired Member',
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+
+    const renewed = await gateway.resendWorkspaceInvitation({
+      id: invitation.id,
+      expectedRevision: 1,
+    })
+    expect(renewed).toMatchObject({
+      lastSentAt: '2026-02-01T08:00:00.000Z',
+      expiresAt: '2026-02-08T08:00:00.000Z',
+      revision: 2,
+    })
+    await expect(
+      gateway.revokeWorkspaceInvitation({
+        id: invitation.id,
+        expectedRevision: 1,
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+    const revoked = await gateway.revokeWorkspaceInvitation({
+      id: invitation.id,
+      expectedRevision: renewed.revision,
+    })
+    expect(revoked).toMatchObject({
+      state: 'revoked',
+      revokedAt: '2026-02-01T08:00:00.000Z',
+      revision: 3,
+    })
+    await expect(
+      gateway.resendWorkspaceInvitation({
+        id: invitation.id,
+        expectedRevision: revoked.revision,
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+  })
+
+  it('atomically activates invitations and preserves data on simulated failure', async () => {
+    const simulator = new SimulatedNetwork({
+      failure: (operation) =>
+        operation === 'administration.invitations.activate'
+          ? 'Activation transport failed.'
+          : null,
+    })
+    const { fixtures, gateway, idGenerator, store, tracer } = createGateway(simulator)
+    const workspaceId = fixtures.workspaces[0]?.id
+    if (!workspaceId) throw new Error('Expected a fixture workspace.')
+    const invitation = await gateway.createWorkspaceInvitation({
+      workspaceId,
+      email: 'provisioned.member@example.test',
+      role: 'admin',
+    })
+    const beforeFailure = store.read()
+    await expect(
+      gateway.activateWorkspaceInvitation({
+        id: invitation.id,
+        expectedRevision: invitation.revision,
+        displayName: 'Provisioned Member',
+      }),
+    ).rejects.toBeInstanceOf(SimulatedGatewayError)
+    expect(store.read()).toEqual(beforeFailure)
+    expect(tracer.read().at(-1)).toMatchObject({
+      operation: 'administration.invitations.activate',
+      phase: 'failed',
+      errorCode: 'simulated-failure',
+    })
+
+    const reliableGateway = new MockAtlasGateway({
+      actorId: invitation.invitedById,
+      store,
+      clock: new FixedClock(isoDateTime('2026-02-01T08:00:00.000Z')),
+      idGenerator,
+    })
+    const activation = await reliableGateway.activateWorkspaceInvitation({
+      id: invitation.id,
+      expectedRevision: invitation.revision,
+      displayName: '  Provisioned Member  ',
+    })
+    expect(activation).toMatchObject({
+      invitation: { state: 'accepted', revision: 2 },
+      user: {
+        id: 'usr_gateway_invited_member_001',
+        displayName: 'Provisioned Member',
+        initials: 'PM',
+      },
+      membership: {
+        id: 'mem_gateway_invited_member_001',
+        role: 'admin',
+        status: 'active',
+        revision: 1,
+      },
+    })
+    const snapshot = store.read().data
+    expect(snapshot.notificationPreferences).toContainEqual(
+      expect.objectContaining({
+        workspaceId,
+        userId: activation.user.id,
+        assignments: true,
+        comments: true,
+        issueUpdates: true,
+      }),
+    )
+    expect(snapshot.activityEvents.at(-1)).toMatchObject({
+      action: 'workspace.invitation.activated',
+      entityId: invitation.id,
+    })
+    expect(snapshot.auditEvents.at(-1)).toMatchObject({
+      action: 'workspace.invitation.activated',
+      metadata: {
+        userId: activation.user.id,
+        membershipId: activation.membership.id,
+        role: 'admin',
+      },
+    })
+    await expect(
+      reliableGateway.activateWorkspaceInvitation({
+        id: invitation.id,
+        expectedRevision: activation.invitation.revision,
+        displayName: 'Provisioned Member',
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
   })
 
   it('adds and changes project members through the project revision boundary', async () => {

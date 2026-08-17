@@ -13,12 +13,14 @@ import type {
   User,
   WorkflowStatus,
   Workspace,
+  WorkspaceInvitation,
 } from '../domain'
 
 export interface AtlasDataSnapshot {
   readonly workspaces: readonly Workspace[]
   readonly users: readonly User[]
   readonly memberships: readonly Membership[]
+  readonly workspaceInvitations: readonly WorkspaceInvitation[]
   readonly projects: readonly Project[]
   readonly projectMembers: readonly ProjectMember[]
   readonly workflowStatuses: readonly WorkflowStatus[]

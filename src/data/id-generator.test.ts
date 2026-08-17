@@ -14,6 +14,9 @@ describe('DeterministicIdGenerator', () => {
     expect(ids.notificationPreference('launch')).toBe(
       'notification_pref_atlas_launch_001',
     )
+    expect(ids.workspaceInvitation('member')).toBe(
+      'invite_atlas_member_001',
+    )
   })
 
   it.each(['Atlas', 'atlas-ops', '', '_atlas'])(

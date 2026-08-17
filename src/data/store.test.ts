@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createAtlasFixtures } from './fixtures'
 import { DataIntegrityError } from './snapshot-validation'
 import { InMemoryDataStore, StaleSnapshotError } from './store'
-import { userId } from '../domain'
+import { isoDateTime, userId, workspaceInvitationId } from '../domain'
 
 describe('InMemoryDataStore', () => {
   it('isolates stored state from caller-owned snapshots', () => {
@@ -145,6 +145,50 @@ describe('InMemoryDataStore', () => {
               ? { ...membership, role: 'contributor' as const }
               : membership,
           ),
+        }),
+    ).toThrow(DataIntegrityError)
+  })
+
+  it('rejects malformed and duplicate pending workspace invitations', () => {
+    const seed = createAtlasFixtures()
+    const workspace = seed.workspaces[0]
+    const actor = seed.memberships.find(({ role }) => role === 'admin')
+    if (!workspace || !actor) throw new Error('Expected invitation fixtures.')
+    const invitation = {
+      id: workspaceInvitationId('invite_store_member_001'),
+      workspaceId: workspace.id,
+      email: 'new.member@example.test',
+      role: 'member' as const,
+      state: 'pending' as const,
+      invitedById: actor.userId,
+      createdAt: isoDateTime('2026-02-01T08:00:00.000Z'),
+      lastSentAt: isoDateTime('2026-02-01T08:00:00.000Z'),
+      expiresAt: isoDateTime('2026-02-08T08:00:00.000Z'),
+      acceptedAt: null,
+      revokedAt: null,
+      revision: 1,
+    }
+
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          workspaceInvitations: [
+            invitation,
+            { ...invitation, id: workspaceInvitationId('invite_store_member_002') },
+          ],
+        }),
+    ).toThrow(DataIntegrityError)
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          workspaceInvitations: [
+            {
+              ...invitation,
+              email: 'New.Member@example.test',
+            },
+          ],
         }),
     ).toThrow(DataIntegrityError)
   })
