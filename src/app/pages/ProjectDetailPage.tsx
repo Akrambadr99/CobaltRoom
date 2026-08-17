@@ -3,7 +3,6 @@ import { Link, useParams } from 'react-router-dom'
 
 import { ModalDialog } from '../../components/dialog/ModalDialog'
 import type { MutableProjectFields } from '../../data/gateway/contracts'
-import { GatewayError } from '../../data/gateway/errors'
 import {
   projectId,
   type Project,
@@ -19,6 +18,7 @@ import {
 import { ProjectMembershipPanel } from '../../features/projects/ProjectMembershipPanel'
 import { ProjectLeadTransferDialog } from '../../features/projects/ProjectLeadTransferDialog'
 import { ProjectWorkflowPanel } from '../../features/projects/ProjectWorkflowPanel'
+import { hasAppErrorKind } from '../errors/classify-app-error'
 import { useAuthorization } from '../providers/authorization-context'
 import './pages.css'
 
@@ -54,10 +54,7 @@ function LoadedProject({
   const activity = useProjectActivity(requestedId, activityPage)
 
   if (metadata.isPending || issues.isPending) return <ProjectLoading />
-  if (
-    metadata.error instanceof GatewayError &&
-    metadata.error.code === 'not-found'
-  ) {
+  if (hasAppErrorKind(metadata.error, 'not-found')) {
     return <ProjectNotFound />
   }
   if (metadata.isError || issues.isError) {
@@ -509,7 +506,7 @@ function ProjectDetailHeader({ title }: Readonly<{ title: string }>) {
 
 function gatewayMessage(error: Error | null): string | null {
   if (!error) return null
-  if (error instanceof GatewayError && error.code === 'conflict') {
+  if (hasAppErrorKind(error, 'conflict')) {
     return `${error.message} Your draft is preserved.`
   }
   return error.message

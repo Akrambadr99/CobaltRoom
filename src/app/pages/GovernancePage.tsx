@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import type { GovernanceExportRow } from '../../data'
 import { isoDateTime, userId, type AuditEvent, type UserId } from '../../domain'
 import { useGovernanceReport } from '../../features/governance/governance-queries'
+import { hasAppErrorKind } from '../errors/classify-app-error'
 import { useAppServices } from '../providers/app-services-context'
 import './pages.css'
 
@@ -89,7 +90,7 @@ export function GovernancePage() {
   }
 
   if (report.isError) {
-    const forbidden = 'code' in report.error && report.error.code === 'forbidden'
+    const forbidden = hasAppErrorKind(report.error, 'forbidden')
     return (
       <section className="page" aria-labelledby="governance-title">
         <GovernanceHeader />

@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { workspaceActivityEntityKinds } from '../../data'
 import { isoDateTime, userId, type EntityKind, type UserId } from '../../domain'
 import { useWorkspaceActivity } from '../../features/activity/activity-queries'
+import { hasAppErrorKind } from '../errors/classify-app-error'
 import { useAppServices } from '../providers/app-services-context'
 import './pages.css'
 
@@ -84,7 +85,7 @@ export function ActivityPage() {
   }
 
   if (activity.isError) {
-    const forbidden = 'code' in activity.error && activity.error.code === 'forbidden'
+    const forbidden = hasAppErrorKind(activity.error, 'forbidden')
     return (
       <section className="page" aria-labelledby="activity-title">
         <ActivityHeader />

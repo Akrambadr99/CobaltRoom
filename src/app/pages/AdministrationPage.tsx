@@ -9,6 +9,7 @@ import {
   useWorkspaceAdministration,
 } from '../../features/administration/administration-queries'
 import { WorkspaceInvitationPanel } from '../../features/administration/WorkspaceInvitationPanel'
+import { hasAppErrorKind } from '../errors/classify-app-error'
 import { useAppServices } from '../providers/app-services-context'
 import './pages.css'
 
@@ -109,7 +110,7 @@ export function AdministrationPage() {
         <div className="dashboard-state dashboard-state--error" role="alert">
           <h2>Administration access is unavailable</h2>
           <p>
-            {'code' in administration.error && administration.error.code === 'forbidden'
+            {hasAppErrorKind(administration.error, 'forbidden')
               ? 'Your current role cannot manage workspace members.'
               : 'The authoritative membership request did not complete.'}
           </p>

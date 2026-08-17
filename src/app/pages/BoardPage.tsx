@@ -13,8 +13,8 @@ import {
   useBoardMetadata,
   useMoveBoardIssue,
 } from '../../features/board/board-queries'
-import { GatewayError } from '../../data'
 import type { Issue, WorkflowStatusId } from '../../domain'
+import { hasAppErrorKind } from '../errors/classify-app-error'
 import { useAuthorization } from '../providers/authorization-context'
 import './board-page.css'
 import './pages.css'
@@ -416,7 +416,7 @@ function parseStatusId(
 }
 
 function formatMoveError(error: Error, issueTitle: string): string {
-  if (error instanceof GatewayError && error.code === 'conflict') {
+  if (hasAppErrorKind(error, 'conflict')) {
     return `${issueTitle} changed elsewhere. The latest board state has been restored.`
   }
 

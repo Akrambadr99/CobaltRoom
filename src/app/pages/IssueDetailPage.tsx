@@ -31,6 +31,7 @@ import {
   validateIssueEditDraft,
   type IssueEditDraft,
 } from '../../features/issues/issue-form'
+import { hasAppErrorKind } from '../errors/classify-app-error'
 import { useAuthorization } from '../providers/authorization-context'
 import './issues-page.css'
 import './pages.css'
@@ -65,9 +66,7 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
   }
 
   if (issue.isError || projects.isError) {
-    const issueError = issue.error
-    const notFound =
-      issueError !== null && 'code' in issueError && issueError.code === 'not-found'
+    const notFound = hasAppErrorKind(issue.error, 'not-found')
     if (notFound) return <IssueNotFound />
 
     return (

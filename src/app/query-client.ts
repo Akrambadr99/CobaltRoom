@@ -1,13 +1,10 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
 
-import { GatewayError } from '../data'
+import { hasAppErrorKind } from './errors/classify-app-error'
 
 export function createAtlasQueryClient(): QueryClient {
   const refreshAuthorization = (error: Error): void => {
-    if (
-      error instanceof GatewayError &&
-      (error.code === 'forbidden' || error.code === 'session-expired')
-    ) {
+    if (hasAppErrorKind(error, 'forbidden', 'session-expired')) {
       void queryClient.invalidateQueries({ queryKey: ['authorization'] })
     }
   }

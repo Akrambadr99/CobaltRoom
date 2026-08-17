@@ -10,6 +10,7 @@ import {
   useUserPreferences,
   type IssuePageSize,
 } from '../../preferences'
+import { hasAppErrorKind } from '../errors/classify-app-error'
 import { useAppServices } from '../providers/app-services-context'
 import './pages.css'
 
@@ -42,7 +43,7 @@ export function SettingsPage() {
         },
         onError: (error) => {
           setStatus(
-            'code' in error && error.code === 'conflict'
+            hasAppErrorKind(error, 'conflict')
               ? 'Preferences changed elsewhere. Current settings were restored; try again.'
               : 'Notification preferences could not be saved.',
           )

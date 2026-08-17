@@ -7,8 +7,8 @@ import {
   type ReactNode,
 } from 'react'
 
-import { GatewayError } from '../../data'
 import { can as canPerform, type Permission, type ProjectId } from '../../domain'
+import { hasAppErrorKind } from '../errors/classify-app-error'
 import { atlasQueryKeys } from '../query/keys'
 import {
   AuthorizationContext,
@@ -62,9 +62,10 @@ export function AuthorizationProvider({ children }: Readonly<{ children: ReactNo
     },
     [authorization.data, authorization.isError],
   )
-  const isSessionExpired =
-    authorization.error instanceof GatewayError &&
-    authorization.error.code === 'session-expired'
+  const isSessionExpired = hasAppErrorKind(
+    authorization.error,
+    'session-expired',
+  )
   useEffect(() => {
     if (!authorization.isError) return
     queryClient.removeQueries({
