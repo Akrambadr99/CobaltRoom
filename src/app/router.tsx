@@ -3,6 +3,7 @@ import { createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { RouteErrorBoundary } from './errors/RouteErrorBoundary'
 import { AppShell } from './layout/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
+import { BoardPage } from './pages/BoardPage'
 import { IssuesPage } from './pages/IssuesPage'
 import { IssueDetailPage } from './pages/IssueDetailPage'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -35,12 +36,7 @@ export const appRoutes: RouteObject[] = [
       },
       {
         path: 'board',
-        element: (
-          <PlaceholderPage
-            title="Board"
-            description="Follow work through each stage of the delivery workflow."
-          />
-        ),
+        element: <BoardPage />,
       },
       {
         path: 'analytics',

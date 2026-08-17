@@ -187,6 +187,33 @@ describe('MockAtlasGateway', () => {
     expect(metadata.labels).toHaveLength(2)
   })
 
+  it('returns ordered board workflows to read-only workspace members', async () => {
+    const fixtures = createAtlasFixtures()
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    const workspaceId = fixtures.workspaces[0]?.id
+
+    if (!viewerId || !workspaceId) {
+      throw new Error('Expected viewer and workspace fixtures.')
+    }
+
+    const { gateway, tracer } = createGateway(new SimulatedNetwork(), viewerId)
+    const metadata = await gateway.getBoardMetadata(workspaceId)
+
+    expect(metadata.projects.map(({ project }) => project.name)).toEqual([
+      'Field reliability',
+      'Launch readiness',
+    ])
+    expect(
+      metadata.projects.every(({ statuses }) =>
+        statuses.every((status, index) => status.order === index),
+      ),
+    ).toBe(true)
+    expect(tracer.read().at(-1)).toMatchObject({
+      operation: 'board.metadata',
+      phase: 'succeeded',
+    })
+  })
+
   it('rejects invalid creation references before committing data', async () => {
     const { fixtures, gateway, store } = createGateway()
     const project = fixtures.projects[0]
@@ -290,7 +317,7 @@ describe('MockAtlasGateway', () => {
   })
 
   it('updates with revision checks and rejects stale mutations', async () => {
-    const { fixtures, gateway } = createGateway()
+    const { fixtures, gateway, store } = createGateway()
     const issue = fixtures.issues[0]
 
     if (!issue) {
@@ -308,6 +335,15 @@ describe('MockAtlasGateway', () => {
       priority: 'high',
       revision: issue.revision + 1,
     })
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'issue.updated',
+      requestId: 'req_000001',
+      metadata: {
+        issueId: issue.id,
+        fromRevision: issue.revision,
+        toRevision: issue.revision + 1,
+      },
+    })
     await expect(
       gateway.updateIssue({
         id: issue.id,
@@ -315,6 +351,47 @@ describe('MockAtlasGateway', () => {
         changes: { priority: 'low' },
       }),
     ).rejects.toBeInstanceOf(GatewayConflictError)
+  })
+
+  it('moves issues only within their project workflow and records activity', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const issue = fixtures.issues[0]
+    const projectStatuses = fixtures.workflowStatuses.filter(
+      ({ projectId }) => projectId === issue?.projectId,
+    )
+    const targetStatus = projectStatuses.find(({ id }) => id !== issue?.statusId)
+    const foreignStatus = fixtures.workflowStatuses.find(
+      ({ projectId }) => projectId !== issue?.projectId,
+    )
+
+    if (!issue || !targetStatus || !foreignStatus) {
+      throw new Error('Expected issue and workflow fixtures.')
+    }
+
+    const moved = await gateway.updateIssue({
+      id: issue.id,
+      expectedRevision: issue.revision,
+      changes: { statusId: targetStatus.id },
+    })
+
+    expect(moved.statusId).toBe(targetStatus.id)
+    expect(store.read().data.activityEvents.at(-1)).toMatchObject({
+      action: 'issue.status_changed',
+      entityId: issue.id,
+    })
+    expect(store.read().data.activityEvents.at(-1)?.summary).toContain(
+      targetStatus.name,
+    )
+    await expect(
+      gateway.updateIssue({
+        id: issue.id,
+        expectedRevision: moved.revision,
+        changes: { statusId: foreignStatus.id },
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+    expect(store.read().data.issues.find(({ id }) => id === issue.id)?.statusId).toBe(
+      targetStatus.id,
+    )
   })
 
   it('creates a comment with deterministic activity and audit records', async () => {

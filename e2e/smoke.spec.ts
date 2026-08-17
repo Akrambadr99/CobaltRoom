@@ -101,3 +101,30 @@ test('creates a permission-aware issue with workflow metadata', async ({ page })
   await expect(page.getByText('Story')).toBeVisible()
   await expect(page.getByText('2026-03-04')).toBeVisible()
 })
+
+test('moves work across the accessible project board', async ({ page }) => {
+  await page.goto('/board')
+
+  await expect(page).toHaveURL(/\/board\?project=prj_/)
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Board' }),
+  ).toBeVisible()
+  await expect(
+    page.getByText(/use each issue’s status menu to move it without drag and drop/i),
+  ).toBeVisible()
+
+  const moveControl = page.getByRole('combobox', {
+    name: 'Move Review intermittent restart incidents',
+  })
+  await expect(moveControl).toHaveValue(/status_/)
+  await moveControl.selectOption({ label: 'Investigating' })
+
+  await expect(
+    page.getByText('Review intermittent restart incidents moved to Investigating.'),
+  ).toBeVisible()
+  await expect(moveControl).toHaveValue(/status_/)
+  await page.getByRole('link', { name: 'Review intermittent restart incidents' }).click()
+  await expect(page).toHaveURL(/\/issues\/issue_/)
+  await expect(page.getByText('Investigating')).toBeVisible()
+  await expect(page.getByText('Moved from Triage to Investigating.')).toBeVisible()
+})

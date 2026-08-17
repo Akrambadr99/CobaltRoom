@@ -1,0 +1,200 @@
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { describe, expect, it } from 'vitest'
+
+import { BoardPage } from './BoardPage'
+import { AppProviders } from '../providers/AppProviders'
+import { createAtlasQueryClient } from '../query-client'
+import { createAppServices } from '../services'
+import { createAtlasFixtures, SimulatedNetwork } from '../../data'
+import type { UserId } from '../../domain'
+import { render, screen, waitFor, within } from '../../test/render'
+
+function LocationProbe() {
+  const location = useLocation()
+  return <output data-testid="location">{location.search}</output>
+}
+
+function renderBoard(
+  path = '/board',
+  simulator = new SimulatedNetwork(),
+  actorId?: UserId,
+) {
+  const services = createAppServices({
+    simulator,
+    ...(actorId ? { actorId } : {}),
+  })
+
+  return {
+    services,
+    ...render(
+      <AppProviders
+        queryClient={createAtlasQueryClient()}
+        services={services}
+      >
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route
+              path="/board"
+              element={
+                <>
+                  <BoardPage />
+                  <LocationProbe />
+                </>
+              }
+            />
+            <Route path="/issues/:issueId" element={<LocationProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </AppProviders>,
+    ),
+  }
+}
+
+function getColumn(name: string): HTMLElement {
+  const column = screen.getByRole('heading', { level: 2, name }).closest('section')
+  if (!column) throw new Error(`Expected the ${name} board column.`)
+  return column
+}
+
+describe('BoardPage', () => {
+  it('canonicalizes project selection in the URL and renders configured columns', async () => {
+    const user = userEvent.setup()
+    renderBoard()
+
+    expect(screen.getByText('Loading project workflows…')).toBeVisible()
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Investigating' }),
+    ).toBeVisible()
+    expect(screen.getByRole('combobox', { name: 'Project' })).toHaveValue(
+      screen.getByRole('option', { name: 'Field reliability' }).getAttribute('value'),
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent('project=prj_')
+    })
+    expect(
+      within(getColumn('Investigating')).getByText(
+        'Close the device telemetry coverage gap',
+      ),
+    ).toBeVisible()
+    expect(within(getColumn('Triage')).getByLabelText('1 issues')).toBeVisible()
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Project' }),
+      screen.getByRole('option', { name: 'Launch readiness' }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'In progress' }),
+    ).toBeVisible()
+    expect(screen.getByTestId('location')).toHaveTextContent('project=prj_')
+    expect(
+      within(getColumn('In progress')).getByText('Publish the launch readiness brief'),
+    ).toBeVisible()
+  })
+
+  it('moves an issue with a keyboard-native control and records activity', async () => {
+    const user = userEvent.setup()
+    const { services } = renderBoard()
+    const moveControl = await screen.findByRole('combobox', {
+      name: 'Move Close the device telemetry coverage gap',
+    })
+    const issue = createAtlasFixtures().issues.find(
+      ({ title }) => title === 'Close the device telemetry coverage gap',
+    )
+
+    await user.selectOptions(
+      moveControl,
+      within(moveControl).getByRole('option', { name: 'Resolved' }),
+    )
+
+    expect(
+      await screen.findByText(
+        'Close the device telemetry coverage gap moved to Resolved.',
+      ),
+    ).toBeVisible()
+    expect(
+      within(getColumn('Resolved')).getByText(
+        'Close the device telemetry coverage gap',
+      ),
+    ).toBeVisible()
+
+    if (!issue) throw new Error('Expected reliability issue fixture.')
+    const activity = await services.gateway.getIssueActivity(issue.id)
+    expect(activity.activityEvents[0]).toMatchObject({
+      action: 'issue.status_changed',
+      summary: 'Moved from Investigating to Resolved.',
+    })
+  })
+
+  it('rolls back an optimistic move when the gateway fails', async () => {
+    const user = userEvent.setup()
+    const simulator = new SimulatedNetwork({
+      latency: (operation) => (operation === 'issue.update' ? 25 : 0),
+      failure: (operation) =>
+        operation === 'issue.update' ? 'The move could not be saved.' : null,
+    })
+    renderBoard('/board', simulator)
+    const moveControl = await screen.findByRole('combobox', {
+      name: 'Move Close the device telemetry coverage gap',
+    })
+
+    await user.selectOptions(
+      moveControl,
+      within(moveControl).getByRole('option', { name: 'Resolved' }),
+    )
+
+    expect(
+      await screen.findByText(
+        'Close the device telemetry coverage gap could not be moved. Its previous status has been restored.',
+      ),
+    ).toBeVisible()
+    expect(
+      within(getColumn('Investigating')).getByText(
+        'Close the device telemetry coverage gap',
+      ),
+    ).toBeVisible()
+    expect(moveControl).toHaveValue(
+      within(moveControl)
+        .getByRole('option', { name: 'Investigating' })
+        .getAttribute('value'),
+    )
+  })
+
+  it('keeps workflow context visible while disabling moves for viewers', async () => {
+    const fixtures = createAtlasFixtures()
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    if (!viewerId) throw new Error('Expected viewer fixture.')
+
+    renderBoard('/board', new SimulatedNetwork(), viewerId)
+
+    expect(
+      await screen.findByText('Close the device telemetry coverage gap'),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('combobox', {
+        name: 'Move Close the device telemetry coverage gap',
+      }),
+    ).toBeDisabled()
+    expect(
+      screen.getByText(/use each issue’s status menu to move it without drag and drop/i),
+    ).toBeVisible()
+  })
+
+  it('offers recovery when workflow metadata fails to load', async () => {
+    const user = userEvent.setup()
+    const simulator = new SimulatedNetwork({
+      failure: (operation, requestId) =>
+        operation === 'board.metadata' && requestId === 'req_000001'
+          ? 'Temporary metadata failure.'
+          : null,
+    })
+    renderBoard('/board', simulator)
+
+    expect(await screen.findByText('Project workflows are unavailable.')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Retry board' }))
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Investigating' }),
+    ).toBeVisible()
+  })
+})

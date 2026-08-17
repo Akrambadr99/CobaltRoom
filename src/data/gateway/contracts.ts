@@ -87,6 +87,15 @@ export interface IssueCreationMetadata {
   readonly labels: readonly Label[]
 }
 
+export interface BoardProjectMetadata {
+  readonly project: Project
+  readonly statuses: readonly WorkflowStatus[]
+}
+
+export interface BoardMetadata {
+  readonly projects: readonly BoardProjectMetadata[]
+}
+
 export interface IssueActivityData {
   readonly comments: readonly Comment[]
   readonly activityEvents: readonly ActivityEvent[]
@@ -133,6 +142,10 @@ export interface AtlasGateway {
     workspaceId: WorkspaceId,
     options?: RequestOptions,
   ): Promise<IssueCreationMetadata>
+  getBoardMetadata(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<BoardMetadata>
   getIssueActivity(
     issueId: IssueId,
     options?: RequestOptions,

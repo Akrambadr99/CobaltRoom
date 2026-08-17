@@ -1,5 +1,6 @@
 import type {
   AtlasGateway,
+  BoardMetadata,
   CreateCommentInput,
   CreateIssueInput,
   DeleteIssueInput,
@@ -176,6 +177,32 @@ export class MockAtlasGateway implements AtlasGateway {
     })
   }
 
+  getBoardMetadata(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<BoardMetadata> {
+    return this.execute('board.metadata', options, () => {
+      this.assertPermission('project:view', workspaceId)
+      const data = this.store.read().data
+
+      return {
+        projects: data.projects
+          .filter(
+            (project) =>
+              project.workspaceId === workspaceId &&
+              openProjectStatuses.has(project.status),
+          )
+          .sort((left, right) => left.name.localeCompare(right.name))
+          .map((project) => ({
+            project,
+            statuses: data.workflowStatuses
+              .filter(({ projectId }) => projectId === project.id)
+              .sort((left, right) => left.order - right.order),
+          })),
+      }
+    })
+  }
+
   getIssueActivity(
     issueId: IssueId,
     options?: RequestOptions,
@@ -326,7 +353,7 @@ export class MockAtlasGateway implements AtlasGateway {
     input: UpdateIssueInput,
     options?: RequestOptions,
   ): Promise<Issue> {
-    return this.execute('issue.update', options, () => {
+    return this.execute('issue.update', options, (requestId) => {
       const current = this.store.read()
       const issueIndex = current.data.issues.findIndex(({ id }) => id === input.id)
       const issue = current.data.issues[issueIndex]
@@ -348,17 +375,65 @@ export class MockAtlasGateway implements AtlasGateway {
         throw new InvalidGatewayRequestError('Issue titles may not be empty.')
       }
 
+      const nextStatusId = input.changes.statusId ?? issue.statusId
+      const nextStatus = current.data.workflowStatuses.find(
+        ({ id }) => id === nextStatusId,
+      )
+      if (nextStatus?.projectId !== issue.projectId) {
+        throw new InvalidGatewayRequestError(
+          'Issues must use a status from their project workflow.',
+        )
+      }
+
+      const occurredAt = this.clock.now()
       const updatedIssue: Issue = {
         ...issue,
         ...input.changes,
         title,
         revision: issue.revision + 1,
-        updatedAt: this.clock.now(),
+        updatedAt: occurredAt,
       }
       const issues = [...current.data.issues]
       issues[issueIndex] = updatedIssue
+      const statusChanged = updatedIssue.statusId !== issue.statusId
+      const nextData: AtlasDataSnapshot = {
+        ...current.data,
+        issues,
+        activityEvents: statusChanged
+          ? [
+              ...current.data.activityEvents,
+              {
+                id: this.ids.activity('issue_status_changed'),
+                workspaceId: issue.workspaceId,
+                actorId: this.actorId,
+                entityKind: 'issue',
+                entityId: issue.id,
+                action: 'issue.status_changed',
+                occurredAt,
+                summary: `Moved from ${this.statusName(current.data, issue.statusId)} to ${nextStatus.name}.`,
+              },
+            ]
+          : current.data.activityEvents,
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit('issue_updated'),
+            workspaceId: issue.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action: 'issue.updated',
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: {
+              issueId: issue.id,
+              fromRevision: issue.revision,
+              toRevision: updatedIssue.revision,
+            },
+          },
+        ],
+      }
 
-      this.commit(current.version, { ...current.data, issues })
+      this.commit(current.version, nextData)
       return updatedIssue
     })
   }
@@ -547,6 +622,16 @@ export class MockAtlasGateway implements AtlasGateway {
     }
 
     return { title, description }
+  }
+
+  private statusName(
+    data: AtlasDataSnapshot,
+    statusId: Issue['statusId'],
+  ): string {
+    return (
+      data.workflowStatuses.find(({ id }) => id === statusId)?.name ??
+      'Unknown status'
+    )
   }
 
   private commit(version: number, data: AtlasDataSnapshot): void {
