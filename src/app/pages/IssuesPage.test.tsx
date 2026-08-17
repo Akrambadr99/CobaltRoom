@@ -14,11 +14,14 @@ function LocationProbe() {
   return <output data-testid="location">{location.search}</output>
 }
 
-function renderIssues(path = '/issues') {
+function renderIssues(
+  path = '/issues',
+  simulator = new SimulatedNetwork(),
+) {
   return render(
     <AppProviders
       queryClient={createAtlasQueryClient()}
-      services={createAppServices({ simulator: new SimulatedNetwork() })}
+      services={createAppServices({ simulator })}
     >
       <MemoryRouter initialEntries={[path]}>
         <Routes>
@@ -100,5 +103,69 @@ describe('IssuesPage', () => {
 
     expect(await screen.findByRole('table', { name: 'Workspace issues' })).toBeVisible()
     expect(screen.getByTestId('location')).toHaveTextContent(/^$/)
+  })
+
+  it('retains selections across pages and applies a bulk priority update', async () => {
+    const user = userEvent.setup()
+    renderIssues()
+
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: 'Select Publish the launch readiness brief',
+      }),
+    )
+    expect(screen.getByLabelText('Bulk issue actions')).toHaveTextContent(
+      '1 issue selected',
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Page 2 of 2')
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select Tune restart anomaly alerts' }),
+    )
+    expect(screen.getByLabelText('Bulk issue actions')).toHaveTextContent(
+      '2 issues selected',
+    )
+
+    await user.selectOptions(screen.getByLabelText('Set priority'), 'medium')
+    await user.click(screen.getByRole('button', { name: 'Apply priority' }))
+
+    expect(await screen.findByText('2 issues updated.')).toBeVisible()
+    expect(screen.queryByLabelText('Bulk issue actions')).not.toBeInTheDocument()
+  })
+
+  it('keeps a failed bulk item selected and retries it with refreshed data', async () => {
+    const user = userEvent.setup()
+    let shouldFail = true
+    const simulator = new SimulatedNetwork({
+      failure: (operation) => {
+        if (operation === 'issue.update' && shouldFail) {
+          shouldFail = false
+          return 'Temporary write outage.'
+        }
+        return null
+      },
+    })
+    renderIssues('/issues', simulator)
+
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: 'Select Publish the launch readiness brief',
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Apply priority' }))
+
+    expect(
+      await screen.findByText(/1 issue failed and remains selected.*Temporary write outage/),
+    ).toBeVisible()
+    expect(screen.getByLabelText('Bulk issue actions')).toHaveTextContent(
+      '1 issue selected',
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Apply priority' }))
+    expect(await screen.findByText('1 issue updated.')).toBeVisible()
+    expect(screen.queryByLabelText('Bulk issue actions')).not.toBeInTheDocument()
   })
 })

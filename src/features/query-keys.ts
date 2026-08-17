@@ -2,6 +2,8 @@ import type { IssueQuery } from '../data'
 import type { WorkspaceId } from '../domain'
 
 export const atlasQueryKeys = {
+  workspaceIssues: (workspaceId: WorkspaceId) =>
+    ['workspaces', workspaceId, 'issues'] as const,
   projects: (workspaceId: WorkspaceId) =>
     ['workspaces', workspaceId, 'projects'] as const,
   dashboardIssues: (workspaceId: WorkspaceId) =>

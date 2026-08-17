@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 
 import './data-table.css'
 
@@ -14,6 +14,13 @@ export interface DataTableSort {
   readonly direction: 'ascending' | 'descending'
 }
 
+export interface DataTableSelection<TRow> {
+  readonly getLabel: (row: TRow) => string
+  readonly isSelected: (row: TRow) => boolean
+  readonly onToggleRow: (row: TRow, selected: boolean) => void
+  readonly onToggleAllRows: (rows: readonly TRow[], selected: boolean) => void
+}
+
 interface DataTableProps<TRow> {
   readonly caption: string
   readonly columns: readonly DataTableColumn<TRow>[]
@@ -21,6 +28,7 @@ interface DataTableProps<TRow> {
   readonly rows: readonly TRow[]
   readonly sort?: DataTableSort
   readonly onSort?: (field: string) => void
+  readonly selection?: DataTableSelection<TRow>
 }
 
 export function DataTable<TRow>({
@@ -30,13 +38,32 @@ export function DataTable<TRow>({
   rows,
   sort,
   onSort,
+  selection,
 }: DataTableProps<TRow>) {
+  const selectedRowCount = selection
+    ? rows.filter((row) => selection.isSelected(row)).length
+    : 0
+  const allRowsSelected = rows.length > 0 && selectedRowCount === rows.length
+  const someRowsSelected = selectedRowCount > 0 && !allRowsSelected
+
   return (
     <div className="data-table-scroll" role="region" aria-label={caption}>
       <table className="data-table">
         <caption className="visually-hidden">{caption}</caption>
         <thead>
           <tr>
+            {selection ? (
+              <th className="data-table__selection" scope="col">
+                <IndeterminateCheckbox
+                  aria-label="Select all rows on this page"
+                  checked={allRowsSelected}
+                  indeterminate={someRowsSelected}
+                  onChange={(selected) => {
+                    selection.onToggleAllRows(rows, selected)
+                  }}
+                />
+              </th>
+            ) : null}
             {columns.map((column) => {
               const sortField = column.sortField
               const isSorted = sort?.field === column.sortField
@@ -72,6 +99,18 @@ export function DataTable<TRow>({
         <tbody>
           {rows.map((row) => (
             <tr key={getRowKey(row)}>
+              {selection ? (
+                <td className="data-table__selection">
+                  <IndeterminateCheckbox
+                    aria-label={selection.getLabel(row)}
+                    checked={selection.isSelected(row)}
+                    indeterminate={false}
+                    onChange={(selected) => {
+                      selection.onToggleRow(row, selected)
+                    }}
+                  />
+                </td>
+              ) : null}
               {columns.map((column) => (
                 <td key={column.id}>{column.render(row)}</td>
               ))}
@@ -80,5 +119,39 @@ export function DataTable<TRow>({
         </tbody>
       </table>
     </div>
+  )
+}
+
+interface IndeterminateCheckboxProps {
+  readonly 'aria-label': string
+  readonly checked: boolean
+  readonly indeterminate: boolean
+  readonly onChange: (checked: boolean) => void
+}
+
+function IndeterminateCheckbox({
+  'aria-label': ariaLabel,
+  checked,
+  indeterminate,
+  onChange,
+}: IndeterminateCheckboxProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.indeterminate = indeterminate
+    }
+  }, [indeterminate])
+
+  return (
+    <input
+      ref={inputRef}
+      aria-label={ariaLabel}
+      type="checkbox"
+      checked={checked}
+      onChange={(event) => {
+        onChange(event.currentTarget.checked)
+      }}
+    />
   )
 }

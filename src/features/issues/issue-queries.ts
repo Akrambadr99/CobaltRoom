@@ -1,8 +1,15 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import { useAppServices } from '../../app/providers/app-services-context'
 import { atlasQueryKeys } from '../query-keys'
 import { toIssueQuery, type IssueWorkspaceState } from './issue-workspace-state'
+import type { AtlasGateway } from '../../data'
+import type { Issue, IssuePriority } from '../../domain'
 
 export function useIssueWorkspaceData(state: IssueWorkspaceState) {
   const { gateway, workspaceId } = useAppServices()
@@ -18,4 +25,78 @@ export function useIssueWorkspaceData(state: IssueWorkspaceState) {
   })
 
   return { issues, projects }
+}
+
+export interface BulkIssueUpdateResult {
+  readonly updated: readonly Issue[]
+  readonly failed: readonly BulkIssueUpdateFailure[]
+}
+
+export interface BulkIssueUpdateFailure {
+  readonly issue: Issue
+  readonly message: string
+}
+
+export function useBulkUpdateIssuePriority() {
+  const { gateway, workspaceId } = useAppServices()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      issues,
+      priority,
+    }: {
+      issues: readonly Issue[]
+      priority: IssuePriority
+    }) => updateIssuePriorities(gateway, issues, priority),
+    onSettled: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: atlasQueryKeys.workspaceIssues(workspaceId),
+      })
+    },
+  })
+}
+
+export async function updateIssuePriorities(
+  gateway: AtlasGateway,
+  issues: readonly Issue[],
+  priority: IssuePriority,
+): Promise<BulkIssueUpdateResult> {
+  const outcomes = await Promise.all(
+    issues.map(async (issue) => {
+      try {
+        const updated = await gateway.updateIssue({
+          id: issue.id,
+          expectedRevision: issue.revision,
+          changes: { priority },
+        })
+        return { status: 'updated' as const, issue: updated }
+      } catch (error) {
+        let currentIssue = issue
+
+        try {
+          currentIssue = await gateway.getIssue(issue.id)
+        } catch {
+          // Retain the submitted snapshot when recovery data is unavailable.
+        }
+
+        return {
+          status: 'failed' as const,
+          issue: currentIssue,
+          message: error instanceof Error ? error.message : 'The update failed.',
+        }
+      }
+    }),
+  )
+
+  return {
+    updated: outcomes.flatMap((outcome) =>
+      outcome.status === 'updated' ? [outcome.issue] : [],
+    ),
+    failed: outcomes.flatMap((outcome) =>
+      outcome.status === 'failed'
+        ? [{ issue: outcome.issue, message: outcome.message }]
+        : [],
+    ),
+  }
 }

@@ -43,4 +43,40 @@ describe('DataTable', () => {
     await user.click(screen.getByRole('button', { name: /Title/ }))
     expect(onSort).toHaveBeenCalledWith('title')
   })
+
+  it('supports page-level and row-level selection with an indeterminate state', async () => {
+    const user = userEvent.setup()
+    const onToggleRow = vi.fn()
+    const onToggleAllRows = vi.fn()
+    const rows = [
+      { id: 'one', title: 'First record' },
+      { id: 'two', title: 'Second record' },
+    ]
+
+    render(
+      <DataTable
+        caption="Selectable records"
+        columns={columns}
+        getRowKey={(row) => row.id}
+        rows={rows}
+        selection={{
+          getLabel: (row) => `Select ${row.title}`,
+          isSelected: (row) => row.id === 'one',
+          onToggleRow,
+          onToggleAllRows,
+        }}
+      />,
+    )
+
+    const selectAll = screen.getByRole('checkbox', {
+      name: 'Select all rows on this page',
+    })
+    expect(selectAll).toHaveProperty('indeterminate', true)
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select Second record' }))
+    expect(onToggleRow).toHaveBeenCalledWith(rows[1], true)
+
+    await user.click(selectAll)
+    expect(onToggleAllRows).toHaveBeenCalledWith(rows, true)
+  })
 })

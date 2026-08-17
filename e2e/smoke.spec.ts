@@ -48,4 +48,11 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
   await page.getByRole('button', { name: 'Search' }).click()
   await expect(page).toHaveURL('/issues?q=restart')
   await expect(page.getByText('Review intermittent restart incidents')).toBeVisible()
+
+  await page
+    .getByRole('checkbox', { name: 'Select Review intermittent restart incidents' })
+    .check()
+  await page.getByLabel('Set priority').selectOption('urgent')
+  await page.getByRole('button', { name: 'Apply priority' }).click()
+  await expect(page.getByText('1 issue updated.')).toBeVisible()
 })

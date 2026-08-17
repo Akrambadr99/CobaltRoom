@@ -1,10 +1,14 @@
-import { useMemo, type SyntheticEvent } from 'react'
+import { useMemo, useState, type SyntheticEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable, type DataTableColumn } from '../../components/data-table/DataTable'
 import type { IssueSortField } from '../../data'
-import type { Issue, IssuePriority, Project } from '../../domain'
-import { useIssueWorkspaceData } from '../../features/issues/issue-queries'
+import type { Issue, IssueId, IssuePriority, Project } from '../../domain'
+import {
+  useBulkUpdateIssuePriority,
+  useIssueWorkspaceData,
+  type BulkIssueUpdateResult,
+} from '../../features/issues/issue-queries'
 import {
   parseIssueWorkspaceState,
   serializeIssueWorkspaceState,
@@ -25,6 +29,12 @@ export function IssuesPage() {
   const [parameters, setParameters] = useSearchParams()
   const state = useMemo(() => parseIssueWorkspaceState(parameters), [parameters])
   const { issues, projects } = useIssueWorkspaceData(state)
+  const bulkUpdate = useBulkUpdateIssuePriority()
+  const [selectedIssues, setSelectedIssues] = useState<ReadonlyMap<IssueId, Issue>>(
+    () => new Map(),
+  )
+  const [bulkPriority, setBulkPriority] = useState<IssuePriority>('medium')
+  const [bulkStatus, setBulkStatus] = useState('')
 
   const updateState = (changes: Partial<IssueWorkspaceState>) => {
     setParameters(
@@ -49,6 +59,35 @@ export function IssuesPage() {
           ? 'descending'
           : 'ascending',
     })
+  }
+
+  const toggleIssue = (issue: Issue, selected: boolean) => {
+    setSelectedIssues((current) => {
+      const next = new Map(current)
+      if (selected) next.set(issue.id, issue)
+      else next.delete(issue.id)
+      return next
+    })
+    setBulkStatus('')
+  }
+
+  const togglePage = (pageIssues: readonly Issue[], selected: boolean) => {
+    setSelectedIssues((current) => {
+      const next = new Map(current)
+      for (const issue of pageIssues) {
+        if (selected) next.set(issue.id, issue)
+        else next.delete(issue.id)
+      }
+      return next
+    })
+    setBulkStatus('')
+  }
+
+  const handleBulkResult = (result: BulkIssueUpdateResult) => {
+    setSelectedIssues(
+      new Map(result.failed.map(({ issue }) => [issue.id, issue] as const)),
+    )
+    setBulkStatus(formatBulkResult(result))
   }
 
   const isInitialLoading = issues.isPending || projects.isPending
@@ -127,6 +166,64 @@ export function IssuesPage() {
         </button>
       </form>
 
+      {selectedIssues.size > 0 ? (
+        <section className="bulk-actions" aria-label="Bulk issue actions">
+          <p aria-live="polite">
+            <strong>{selectedIssues.size}</strong>{' '}
+            {selectedIssues.size === 1 ? 'issue' : 'issues'} selected
+          </p>
+          <label className="issue-filter">
+            <span>Set priority</span>
+            <select
+              value={bulkPriority}
+              disabled={bulkUpdate.isPending}
+              onChange={(event) => {
+                const priority = priorityOptions.find(
+                  (candidate) => candidate === event.currentTarget.value,
+                )
+                if (priority) setBulkPriority(priority)
+              }}
+            >
+              {priorityOptions.map((priority) => (
+                <option key={priority} value={priority}>
+                  {capitalize(priority)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={bulkUpdate.isPending}
+            onClick={() => {
+              bulkUpdate.mutate(
+                { issues: [...selectedIssues.values()], priority: bulkPriority },
+                { onSuccess: handleBulkResult },
+              )
+            }}
+          >
+            {bulkUpdate.isPending ? 'Updating…' : 'Apply priority'}
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={bulkUpdate.isPending}
+            onClick={() => {
+              setSelectedIssues(new Map())
+              setBulkStatus('Selection cleared.')
+            }}
+          >
+            Clear selection
+          </button>
+        </section>
+      ) : null}
+
+      {bulkStatus ? (
+        <p className="bulk-status" role="status">
+          {bulkStatus}
+        </p>
+      ) : null}
+
       {isInitialLoading ? (
         <div className="dashboard-state" role="status" aria-live="polite">
           Loading issues…
@@ -152,10 +249,13 @@ export function IssuesPage() {
           totalItems={issues.data.totalItems}
           state={state}
           isRefreshing={issues.isFetching}
+          selectedIssues={selectedIssues}
           onPageChange={(page) => {
             updateState({ page })
           }}
           onSort={handleSort}
+          onToggleIssue={toggleIssue}
+          onTogglePage={togglePage}
         />
       )}
     </section>
@@ -170,8 +270,11 @@ interface IssueResultsProps {
   readonly totalItems: number
   readonly state: IssueWorkspaceState
   readonly isRefreshing: boolean
+  readonly selectedIssues: ReadonlyMap<IssueId, Issue>
   readonly onPageChange: (page: number) => void
   readonly onSort: (field: string) => void
+  readonly onToggleIssue: (issue: Issue, selected: boolean) => void
+  readonly onTogglePage: (issues: readonly Issue[], selected: boolean) => void
 }
 
 function IssueResults({
@@ -182,8 +285,11 @@ function IssueResults({
   totalItems,
   state,
   isRefreshing,
+  selectedIssues,
   onPageChange,
   onSort,
+  onToggleIssue,
+  onTogglePage,
 }: IssueResultsProps) {
   const projectById = new Map(projects.map((project) => [project.id, project]))
   const columns: readonly DataTableColumn<Issue>[] = [
@@ -268,6 +374,12 @@ function IssueResults({
         rows={issues}
         sort={{ field: state.sortField, direction: state.sortDirection }}
         onSort={onSort}
+        selection={{
+          getLabel: (issue) => `Select ${issue.title}`,
+          isSelected: (issue) => selectedIssues.has(issue.id),
+          onToggleRow: onToggleIssue,
+          onToggleAllRows: onTogglePage,
+        }}
       />
       <nav className="pagination" aria-label="Issues pagination">
         <button
@@ -300,4 +412,12 @@ function IssueResults({
 
 function capitalize(value: string): string {
   return value.charAt(0).toLocaleUpperCase() + value.slice(1)
+}
+
+function formatBulkResult(result: BulkIssueUpdateResult): string {
+  const updated = `${result.updated.length.toString()} ${result.updated.length === 1 ? 'issue' : 'issues'} updated.`
+  if (result.failed.length === 0) return updated
+
+  const failed = `${result.failed.length.toString()} ${result.failed.length === 1 ? 'issue failed and remains' : 'issues failed and remain'} selected.`
+  return `${updated} ${failed} ${result.failed[0]?.message ?? ''}`.trim()
 }
