@@ -29,16 +29,16 @@ describe('application router', () => {
     renderRouter(router)
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Projects' }),
+      await screen.findByRole('heading', { level: 1, name: 'Projects' }),
     ).toBeVisible()
     await user.click(screen.getByRole('link', { name: 'Issues' }))
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Issues' }),
+      await screen.findByRole('heading', { level: 1, name: 'Issues' }),
     ).toBeVisible()
     expect(router.state.location.pathname).toBe('/issues')
   })
 
-  it('renders an explicit not-found view for unknown routes', () => {
+  it('renders an explicit not-found view for unknown routes', async () => {
     const router = createMemoryRouter(appRoutes, {
       initialEntries: ['/does-not-exist'],
     })
@@ -46,7 +46,7 @@ describe('application router', () => {
     renderRouter(router)
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Page not found' }),
+      await screen.findByRole('heading', { level: 1, name: 'Page not found' }),
     ).toBeVisible()
     expect(screen.getByRole('link', { name: 'Return to dashboard' })).toHaveAttribute(
       'href',

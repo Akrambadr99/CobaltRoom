@@ -8,7 +8,7 @@ describe('App', () => {
     render(<App />)
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Dashboard' }),
+      await screen.findByRole('heading', { level: 1, name: 'Dashboard' }),
     ).toBeVisible()
     expect(
       screen.getByRole('navigation', { name: 'Primary navigation' }),

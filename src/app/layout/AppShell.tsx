@@ -1,13 +1,17 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Link, Outlet } from 'react-router-dom'
 
-import { CommandPalette } from '../../features/commands/CommandPalette'
 import { NotificationCenter } from '../../features/notifications/NotificationCenter'
 import { GlobalSearch } from '../../features/search/GlobalSearch'
 import { useKeyboardShortcuts } from '../../interactions/keyboard-shortcuts'
 import { PrimaryNavigation } from '../navigation/PrimaryNavigation'
 import { useAuthorization } from '../providers/authorization-context'
 import './app-shell.css'
+
+const CommandPalette = lazy(async () => {
+  const module = await import('../../features/commands/CommandPalette')
+  return { default: module.CommandPalette }
+})
 
 export function AppShell() {
   const authorization = useAuthorization()
@@ -111,11 +115,19 @@ export function AppShell() {
         </main>
       </div>
       {commandPaletteOpen ? (
-        <CommandPalette
-          onClose={() => {
-            setCommandPaletteOpen(false)
-          }}
-        />
+        <Suspense
+          fallback={
+            <p className="command-palette-loading" role="status">
+              Opening command palette…
+            </p>
+          }
+        >
+          <CommandPalette
+            onClose={() => {
+              setCommandPaletteOpen(false)
+            }}
+          />
+        </Suspense>
       ) : null}
     </div>
   )

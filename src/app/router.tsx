@@ -2,57 +2,85 @@ import { createBrowserRouter, type RouteObject } from 'react-router-dom'
 
 import { RouteErrorBoundary } from './errors/RouteErrorBoundary'
 import { AppShell } from './layout/AppShell'
-import { DashboardPage } from './pages/DashboardPage'
-import { AnalyticsPage } from './pages/AnalyticsPage'
-import { BoardPage } from './pages/BoardPage'
-import { IssuesPage } from './pages/IssuesPage'
-import { IssueDetailPage } from './pages/IssueDetailPage'
-import { NotFoundPage } from './pages/NotFoundPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { GovernancePage } from './pages/GovernancePage'
-import { ProjectDetailPage } from './pages/ProjectDetailPage'
-import { ProjectsPage } from './pages/ProjectsPage'
+import { RouteLoadingState } from './layout/RouteLoadingState'
 
 export const appRoutes: RouteObject[] = [
   {
     path: '/',
     element: <AppShell />,
+    HydrateFallback: RouteLoadingState,
     errorElement: <RouteErrorBoundary />,
     children: [
-      { index: true, element: <DashboardPage /> },
+      {
+        index: true,
+        lazy: async () => {
+          const { DashboardPage } = await import('./pages/DashboardPage')
+          return { Component: DashboardPage }
+        },
+      },
       {
         path: 'projects',
-        element: <ProjectsPage />,
+        lazy: async () => {
+          const { ProjectsPage } = await import('./pages/ProjectsPage')
+          return { Component: ProjectsPage }
+        },
       },
       {
         path: 'projects/:projectId',
-        element: <ProjectDetailPage />,
+        lazy: async () => {
+          const { ProjectDetailPage } = await import('./pages/ProjectDetailPage')
+          return { Component: ProjectDetailPage }
+        },
       },
       {
         path: 'issues',
-        element: <IssuesPage />,
+        lazy: async () => {
+          const { IssuesPage } = await import('./pages/IssuesPage')
+          return { Component: IssuesPage }
+        },
       },
       {
         path: 'issues/:issueId',
-        element: <IssueDetailPage />,
+        lazy: async () => {
+          const { IssueDetailPage } = await import('./pages/IssueDetailPage')
+          return { Component: IssueDetailPage }
+        },
       },
       {
         path: 'board',
-        element: <BoardPage />,
+        lazy: async () => {
+          const { BoardPage } = await import('./pages/BoardPage')
+          return { Component: BoardPage }
+        },
       },
       {
         path: 'analytics',
-        element: <AnalyticsPage />,
+        lazy: async () => {
+          const { AnalyticsPage } = await import('./pages/AnalyticsPage')
+          return { Component: AnalyticsPage }
+        },
       },
       {
         path: 'settings',
-        element: <SettingsPage />,
+        lazy: async () => {
+          const { SettingsPage } = await import('./pages/SettingsPage')
+          return { Component: SettingsPage }
+        },
       },
       {
         path: 'governance',
-        element: <GovernancePage />,
+        lazy: async () => {
+          const { GovernancePage } = await import('./pages/GovernancePage')
+          return { Component: GovernancePage }
+        },
       },
-      { path: '*', element: <NotFoundPage /> },
+      {
+        path: '*',
+        lazy: async () => {
+          const { NotFoundPage } = await import('./pages/NotFoundPage')
+          return { Component: NotFoundPage }
+        },
+      },
     ],
   },
 ]

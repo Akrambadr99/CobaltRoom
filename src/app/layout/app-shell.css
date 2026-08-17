@@ -289,6 +289,20 @@
   font-size: 0.8125rem;
 }
 
+.command-palette-loading {
+  position: fixed;
+  right: var(--space-6);
+  bottom: var(--space-6);
+  z-index: 30;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text-muted);
+}
+
 .session-state {
   display: grid;
   align-content: center;
@@ -297,6 +311,14 @@
   max-width: 42rem;
   margin: 0 auto;
   padding: var(--space-8);
+}
+
+.route-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: var(--space-8);
+  color: var(--color-text-muted);
 }
 
 .session-state h1 {
