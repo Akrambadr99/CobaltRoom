@@ -8,7 +8,7 @@ import {
 import { useAppServices } from '../../app/providers/app-services-context'
 import { atlasQueryKeys } from '../query-keys'
 import { toIssueQuery, type IssueWorkspaceState } from './issue-workspace-state'
-import type { AtlasGateway } from '../../data'
+import type { AtlasGateway, CreateIssueInput } from '../../data'
 import type { Issue, IssuePriority } from '../../domain'
 
 export function useIssueWorkspaceData(state: IssueWorkspaceState) {
@@ -25,6 +25,37 @@ export function useIssueWorkspaceData(state: IssueWorkspaceState) {
   })
 
   return { issues, projects }
+}
+
+export function useIssueCreationMetadata(enabled: boolean) {
+  const { gateway, workspaceId } = useAppServices()
+
+  return useQuery({
+    queryKey: atlasQueryKeys.issueCreationMetadata(workspaceId),
+    queryFn: ({ signal }) =>
+      gateway.getIssueCreationMetadata(workspaceId, { signal }),
+    enabled,
+  })
+}
+
+export function useCreateIssue() {
+  const { gateway, workspaceId } = useAppServices()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (input: CreateIssueInput) => gateway.createIssue(input),
+    onSuccess: (issue) => {
+      queryClient.setQueryData(
+        atlasQueryKeys.issue(workspaceId, issue.id),
+        issue,
+      )
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: atlasQueryKeys.workspaceIssues(workspaceId),
+      })
+    },
+  })
 }
 
 export interface BulkIssueUpdateResult {

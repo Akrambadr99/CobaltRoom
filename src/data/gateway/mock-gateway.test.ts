@@ -4,6 +4,7 @@ import {
   EntityNotFoundError,
   ForbiddenGatewayError,
   GatewayConflictError,
+  InvalidGatewayRequestError,
   RequestCancelledError,
   SimulatedGatewayError,
 } from './errors'
@@ -158,6 +159,134 @@ describe('MockAtlasGateway', () => {
       createdAt: '2026-02-01T08:00:00.000Z',
     })
     expect(store.read().data.issues).toContainEqual(created)
+  })
+
+  it('returns creation metadata only for projects the actor can contribute to', async () => {
+    const fixtures = createAtlasFixtures()
+    const memberId = fixtures.memberships.find(({ role }) => role === 'member')?.userId
+    const expectedProjectId = fixtures.projectMembers.find(
+      ({ userId }) => userId === memberId,
+    )?.projectId
+    const workspaceId = fixtures.workspaces[0]?.id
+
+    if (!memberId || !expectedProjectId || !workspaceId) {
+      throw new Error('Expected project-scoped member fixtures.')
+    }
+
+    const { gateway } = createGateway(new SimulatedNetwork(), memberId)
+    const metadata = await gateway.getIssueCreationMetadata(workspaceId)
+
+    expect(metadata.projects).toHaveLength(1)
+    expect(metadata.projects[0]?.project.id).toBe(expectedProjectId)
+    expect(metadata.projects[0]?.statuses.map(({ order }) => order)).toEqual([
+      0, 1, 2,
+    ])
+    expect(metadata.projects[0]?.assignees.map(({ displayName }) => displayName)).toEqual([
+      'Lena Ortiz',
+    ])
+    expect(metadata.labels).toHaveLength(2)
+  })
+
+  it('rejects invalid creation references before committing data', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const project = fixtures.projects[0]
+    const otherProjectStatus = fixtures.workflowStatuses.find(
+      ({ projectId }) => projectId !== project?.id,
+    )
+
+    if (!project || !otherProjectStatus) {
+      throw new Error('Expected multiple project workflows.')
+    }
+
+    const issueCount = store.read().data.issues.length
+    await expect(
+      gateway.createIssue({
+        workspaceId: project.workspaceId,
+        projectId: project.id,
+        type: 'task',
+        title: 'Invalid workflow issue',
+        description: '',
+        statusId: otherProjectStatus.id,
+        priority: 'medium',
+        assigneeId: null,
+        parentIssueId: null,
+        dueDate: null,
+        labelIds: [],
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+    expect(store.read().data.issues).toHaveLength(issueCount)
+  })
+
+  it('rejects direct issue creation attempts from a read-only actor', async () => {
+    const fixtures = createAtlasFixtures()
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    const template = fixtures.issues[0]
+
+    if (!viewerId || !template) {
+      throw new Error('Expected read-only actor and issue fixtures.')
+    }
+
+    const { gateway } = createGateway(new SimulatedNetwork(), viewerId)
+
+    await expect(
+      gateway.createIssue({
+        workspaceId: template.workspaceId,
+        projectId: template.projectId,
+        type: template.type,
+        title: 'Unauthorized issue',
+        description: '',
+        statusId: template.statusId,
+        priority: template.priority,
+        assigneeId: null,
+        parentIssueId: null,
+        dueDate: null,
+        labelIds: [],
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+  })
+
+  it('excludes closed projects and rejects creation into them', async () => {
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects[0]
+    const template = fixtures.issues[0]
+    const adminId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+
+    if (!project || !template || !adminId) {
+      throw new Error('Expected project, issue, and administrator fixtures.')
+    }
+
+    const closedFixtures = {
+      ...fixtures,
+      projects: fixtures.projects.map((candidate) =>
+        candidate.id === project.id
+          ? { ...candidate, status: 'completed' as const }
+          : candidate,
+      ),
+    }
+    const gateway = new MockAtlasGateway({
+      actorId: adminId,
+      store: new InMemoryDataStore(closedFixtures),
+    })
+    const metadata = await gateway.getIssueCreationMetadata(project.workspaceId)
+
+    expect(metadata.projects.some(({ project: item }) => item.id === project.id)).toBe(
+      false,
+    )
+    await expect(
+      gateway.createIssue({
+        workspaceId: template.workspaceId,
+        projectId: template.projectId,
+        type: template.type,
+        title: 'Closed project work',
+        description: '',
+        statusId: template.statusId,
+        priority: template.priority,
+        assigneeId: null,
+        parentIssueId: null,
+        dueDate: null,
+        labelIds: [],
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
   })
 
   it('updates with revision checks and rejects stale mutations', async () => {

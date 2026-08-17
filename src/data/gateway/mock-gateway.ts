@@ -2,6 +2,7 @@ import type {
   AtlasGateway,
   CreateIssueInput,
   DeleteIssueInput,
+  IssueCreationMetadata,
   IssueQuery,
   Page,
   RequestOptions,
@@ -35,7 +36,14 @@ import {
   type ProjectId,
   type UserId,
   type WorkspaceId,
+  isoDate,
 } from '../../domain'
+
+const openProjectStatuses: ReadonlySet<Project['status']> = new Set([
+  'planned',
+  'active',
+  'paused',
+])
 
 export interface MockAtlasGatewayOptions {
   readonly store: InMemoryDataStore
@@ -97,6 +105,61 @@ export class MockAtlasGateway implements AtlasGateway {
     })
   }
 
+  getIssueCreationMetadata(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<IssueCreationMetadata> {
+    return this.execute('issue.creation-metadata', options, () => {
+      this.assertPermission('issue:view', workspaceId)
+      const data = this.store.read().data
+      const projects = data.projects
+        .filter(
+          (project) =>
+            project.workspaceId === workspaceId &&
+            openProjectStatuses.has(project.status) &&
+            this.hasPermission('issue:create', workspaceId, project.id),
+        )
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((project) => {
+          const assignableUserIds = new Set(
+            data.projectMembers
+              .filter(({ projectId }) => projectId === project.id)
+              .map(({ userId }) => userId),
+          )
+          const activeUserIds = new Set(
+            data.memberships
+              .filter(
+                (membership) =>
+                  membership.workspaceId === workspaceId &&
+                  membership.status === 'active',
+              )
+              .map(({ userId }) => userId),
+          )
+
+          return {
+            project,
+            statuses: data.workflowStatuses
+              .filter(({ projectId }) => projectId === project.id)
+              .sort((left, right) => left.order - right.order),
+            assignees: data.users
+              .filter(
+                ({ id }) => assignableUserIds.has(id) && activeUserIds.has(id),
+              )
+              .sort((left, right) =>
+                left.displayName.localeCompare(right.displayName),
+              ),
+          }
+        })
+
+      return {
+        projects,
+        labels: data.labels
+          .filter((label) => label.workspaceId === workspaceId)
+          .sort((left, right) => left.name.localeCompare(right.name)),
+      }
+    })
+  }
+
   createIssue(
     input: CreateIssueInput,
     options?: RequestOptions,
@@ -111,12 +174,14 @@ export class MockAtlasGateway implements AtlasGateway {
         )
       }
 
-      this.assertPermission('issue:create', input.workspaceId, project.id)
-
-      const title = input.title.trim()
-      if (title.length === 0) {
-        throw new InvalidGatewayRequestError('Issue titles may not be empty.')
+      if (!openProjectStatuses.has(project.status)) {
+        throw new InvalidGatewayRequestError(
+          'New issues require a project that is open for work.',
+        )
       }
+
+      this.assertPermission('issue:create', input.workspaceId, project.id)
+      const { title, description } = this.validateNewIssue(current.data, input)
 
       const projectIssues = current.data.issues.filter(
         ({ projectId }) => projectId === project.id,
@@ -125,6 +190,7 @@ export class MockAtlasGateway implements AtlasGateway {
         ...input,
         id: this.ids.issue(project.key.toLocaleLowerCase()),
         title,
+        description,
         number:
           projectIssues.reduce(
             (highest, candidate) => Math.max(highest, candidate.number),
@@ -260,6 +326,16 @@ export class MockAtlasGateway implements AtlasGateway {
     workspaceId: WorkspaceId,
     projectId?: ProjectId,
   ): void {
+    if (!this.hasPermission(permission, workspaceId, projectId)) {
+      throw new ForbiddenGatewayError()
+    }
+  }
+
+  private hasPermission(
+    permission: Permission,
+    workspaceId: WorkspaceId,
+    projectId?: ProjectId,
+  ): boolean {
     const data = this.store.read().data
     const workspaceMembership = data.memberships.find(
       (membership) =>
@@ -267,7 +343,7 @@ export class MockAtlasGateway implements AtlasGateway {
     )
 
     if (!workspaceMembership) {
-      throw new ForbiddenGatewayError()
+      return false
     }
 
     const projectMembership = projectId
@@ -277,9 +353,84 @@ export class MockAtlasGateway implements AtlasGateway {
         ) ?? null)
       : null
 
-    if (!can({ workspaceMembership, projectMembership }, permission, projectId)) {
-      throw new ForbiddenGatewayError()
+    return can({ workspaceMembership, projectMembership }, permission, projectId)
+  }
+
+  private validateNewIssue(
+    data: AtlasDataSnapshot,
+    input: CreateIssueInput,
+  ): { readonly title: string; readonly description: string } {
+    const title = input.title.trim()
+    const description = input.description.trim()
+    const status = data.workflowStatuses.find(({ id }) => id === input.statusId)
+    const parent = input.parentIssueId
+      ? data.issues.find(({ id }) => id === input.parentIssueId)
+      : null
+    const labelIds = new Set(input.labelIds)
+    const labelsAreValid = input.labelIds.every(
+      (labelId) =>
+        data.labels.find(({ id }) => id === labelId)?.workspaceId === input.workspaceId,
+    )
+    const assigneeIsValid =
+      input.assigneeId === null ||
+      (data.memberships.some(
+        (membership) =>
+          membership.workspaceId === input.workspaceId &&
+          membership.userId === input.assigneeId &&
+          membership.status === 'active',
+      ) &&
+        data.projectMembers.some(
+          (membership) =>
+            membership.projectId === input.projectId &&
+            membership.userId === input.assigneeId,
+        ))
+
+    if (!['task', 'bug', 'story'].includes(input.type)) {
+      throw new InvalidGatewayRequestError('Issue types are not valid.')
     }
+    if (!['urgent', 'high', 'medium', 'low', 'none'].includes(input.priority)) {
+      throw new InvalidGatewayRequestError('Issue priorities are not valid.')
+    }
+
+    if (title.length === 0 || title.length > 160) {
+      throw new InvalidGatewayRequestError(
+        'Issue titles must contain 1 to 160 characters.',
+      )
+    }
+    if (description.length > 5_000) {
+      throw new InvalidGatewayRequestError(
+        'Issue descriptions may not exceed 5,000 characters.',
+      )
+    }
+    if (status?.projectId !== input.projectId) {
+      throw new InvalidGatewayRequestError(
+        'New issues must use a status from their project workflow.',
+      )
+    }
+    if (!assigneeIsValid) {
+      throw new InvalidGatewayRequestError(
+        'Issue assignees must be active members of the selected project.',
+      )
+    }
+    if (!labelsAreValid || labelIds.size !== input.labelIds.length) {
+      throw new InvalidGatewayRequestError(
+        'Issue labels must be unique and belong to the issue workspace.',
+      )
+    }
+    if (input.parentIssueId !== null && parent?.projectId !== input.projectId) {
+      throw new InvalidGatewayRequestError(
+        'Parent issues must belong to the selected project.',
+      )
+    }
+    if (input.dueDate !== null) {
+      try {
+        isoDate(input.dueDate)
+      } catch {
+        throw new InvalidGatewayRequestError('Issue due dates must be valid dates.')
+      }
+    }
+
+    return { title, description }
   }
 
   private commit(version: number, data: AtlasDataSnapshot): void {

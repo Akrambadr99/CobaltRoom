@@ -14,6 +14,7 @@ import {
   serializeIssueWorkspaceState,
   type IssueWorkspaceState,
 } from '../../features/issues/issue-workspace-state'
+import { IssueCreateDialog } from '../../features/issues/IssueCreateDialog'
 import { useAppServices } from '../providers/app-services-context'
 import './issues-page.css'
 import './pages.css'
@@ -37,6 +38,12 @@ export function IssuesPage() {
   )
   const [bulkPriority, setBulkPriority] = useState<IssuePriority>('medium')
   const [bulkStatus, setBulkStatus] = useState('')
+  const [creatingIssue, setCreatingIssue] = useState(false)
+  const canCreateIssue =
+    services.can('issue:create') ||
+    services.session.projectMemberships.some(({ projectId }) =>
+      services.can('issue:create', projectId),
+    )
 
   const updateState = (changes: Partial<IssueWorkspaceState>) => {
     setParameters(
@@ -102,13 +109,34 @@ export function IssuesPage() {
           <h1 id="issues-title">Issues</h1>
           <p>Find, prioritize, and review work across every active project.</p>
         </div>
-        {issues.data ? (
-          <p className="issues-header__count" aria-live="polite">
-            {issues.data.totalItems} matching{' '}
-            {issues.data.totalItems === 1 ? 'issue' : 'issues'}
-          </p>
-        ) : null}
+        <div className="issues-header__actions">
+          {issues.data ? (
+            <p className="issues-header__count" aria-live="polite">
+              {issues.data.totalItems} matching{' '}
+              {issues.data.totalItems === 1 ? 'issue' : 'issues'}
+            </p>
+          ) : null}
+          {canCreateIssue ? (
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                setCreatingIssue(true)
+              }}
+            >
+              Create issue
+            </button>
+          ) : null}
+        </div>
       </header>
+
+      {creatingIssue ? (
+        <IssueCreateDialog
+          onClose={() => {
+            setCreatingIssue(false)
+          }}
+        />
+      ) : null}
 
       <form className="issue-filters" role="search" onSubmit={handleSearch}>
         <label className="issue-filter issue-filter--search">

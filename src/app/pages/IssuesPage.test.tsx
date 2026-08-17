@@ -8,11 +8,16 @@ import { createAtlasQueryClient } from '../query-client'
 import { createAppServices } from '../services'
 import { createAtlasFixtures, SimulatedNetwork } from '../../data'
 import type { UserId } from '../../domain'
-import { render, screen, within } from '../../test/render'
+import { render, screen, waitFor, within } from '../../test/render'
 
 function LocationProbe() {
   const location = useLocation()
-  return <output data-testid="location">{location.search}</output>
+  return (
+    <output data-testid="location">
+      {location.pathname}
+      {location.search}
+    </output>
+  )
 }
 
 function renderIssues(
@@ -20,29 +25,35 @@ function renderIssues(
   simulator = new SimulatedNetwork(),
   actorId?: UserId,
 ) {
-  return render(
-    <AppProviders
-      queryClient={createAtlasQueryClient()}
-      services={createAppServices({
-        simulator,
-        ...(actorId ? { actorId } : {}),
-      })}
-    >
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route
-            path="/issues"
-            element={
-              <>
-                <IssuesPage />
-                <LocationProbe />
-              </>
-            }
-          />
-        </Routes>
-      </MemoryRouter>
-    </AppProviders>,
-  )
+  const services = createAppServices({
+    simulator,
+    ...(actorId ? { actorId } : {}),
+  })
+
+  return {
+    services,
+    ...render(
+      <AppProviders
+        queryClient={createAtlasQueryClient()}
+        services={services}
+      >
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route
+              path="/issues"
+              element={
+                <>
+                  <IssuesPage />
+                  <LocationProbe />
+                </>
+              }
+            />
+            <Route path="/issues/:issueId" element={<LocationProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </AppProviders>,
+    ),
+  }
 }
 
 describe('IssuesPage', () => {
@@ -86,6 +97,139 @@ describe('IssuesPage', () => {
     for (const checkbox of within(table).getAllByRole('checkbox')) {
       expect(checkbox).toBeDisabled()
     }
+    expect(
+      screen.queryByRole('button', { name: 'Create issue' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it(
+    'creates a fully classified issue and navigates to its detail route',
+    async () => {
+      const user = userEvent.setup()
+      const { services } = renderIssues()
+
+      await screen.findByRole('table', { name: 'Workspace issues' })
+      await user.click(screen.getByRole('button', { name: 'Create issue' }))
+      const dialog = screen.getByRole('dialog', { name: 'Create issue' })
+      const title = await within(dialog).findByLabelText('Title')
+      expect(within(dialog).getByLabelText('Project')).toHaveFocus()
+
+      await user.click(
+        within(dialog).getByRole('button', { name: 'Create issue' }),
+      )
+      expect(within(dialog).getByText('Enter an issue title.')).toBeVisible()
+
+      await user.selectOptions(
+        within(dialog).getByLabelText('Project'),
+        within(dialog).getByRole('option', { name: 'Launch readiness' }),
+      )
+      expect(within(dialog).getByLabelText('Status')).toHaveDisplayValue('Backlog')
+      await user.type(title, 'Coordinate the launch decision review')
+      await user.type(
+        within(dialog).getByLabelText('Description'),
+        'Confirm decisions, owners, and escalation paths.',
+      )
+      await user.selectOptions(within(dialog).getByLabelText('Type'), 'story')
+      await user.selectOptions(within(dialog).getByLabelText('Priority'), 'high')
+      await user.selectOptions(
+        within(dialog).getByLabelText('Assignee'),
+        within(dialog).getByRole('option', { name: 'Omar Haddad' }),
+      )
+      await user.type(within(dialog).getByLabelText('Due date'), '2026-03-04')
+      await user.click(within(dialog).getByLabelText('Customer impact'))
+      await user.click(
+        within(dialog).getByRole('button', { name: 'Create issue' }),
+      )
+
+      await waitFor(() => {
+        expect(screen.getByTestId('location')).toHaveTextContent(
+          /^\/issues\/issue_/,
+        )
+      })
+      const created = await services.gateway.listIssues({
+        filters: {
+          workspaceId: services.workspaceId,
+          search: 'launch decision review',
+        },
+      })
+      const createdIssue = created.items[0]
+      expect(createdIssue).toMatchObject({
+        type: 'story',
+        priority: 'high',
+        title: 'Coordinate the launch decision review',
+        dueDate: '2026-03-04',
+      })
+      expect(createdIssue?.assigneeId).not.toBeNull()
+      expect(createdIssue?.labelIds).toHaveLength(1)
+    },
+    10_000,
+  )
+
+  it('prevents dismissal while a creation request is in flight', async () => {
+    const user = userEvent.setup()
+    renderIssues(
+      '/issues',
+      new SimulatedNetwork({
+        latency: (operation) => (operation === 'issue.create' ? 150 : 0),
+      }),
+    )
+
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.click(screen.getByRole('button', { name: 'Create issue' }))
+    const dialog = screen.getByRole('dialog', { name: 'Create issue' })
+    await user.type(await within(dialog).findByLabelText('Title'), 'Durable request')
+    await user.click(within(dialog).getByRole('button', { name: 'Create issue' }))
+
+    expect(within(dialog).getByRole('button', { name: 'Creating…' })).toBeDisabled()
+    await user.keyboard('{Escape}')
+    expect(dialog).toBeVisible()
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        /^\/issues\/issue_/,
+      )
+    })
+  })
+
+  it('limits the creation project selector to the actor project scope', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const memberId = fixtures.memberships.find(({ role }) => role === 'member')?.userId
+
+    if (!memberId) throw new Error('Expected a project-scoped member fixture.')
+
+    renderIssues('/issues', new SimulatedNetwork(), memberId)
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.click(screen.getByRole('button', { name: 'Create issue' }))
+    const dialog = screen.getByRole('dialog', { name: 'Create issue' })
+    const project = await within(dialog).findByLabelText('Project')
+
+    expect(project).toHaveDisplayValue('Field reliability')
+    expect(within(project).getAllByRole('option')).toHaveLength(1)
+    expect(
+      within(project).queryByRole('option', { name: 'Launch readiness' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers recovery when issue creation metadata fails to load', async () => {
+    const user = userEvent.setup()
+    renderIssues(
+      '/issues',
+      new SimulatedNetwork({
+        failure: (operation) =>
+          operation === 'issue.creation-metadata'
+            ? 'Scripted metadata failure.'
+            : null,
+      }),
+    )
+
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.click(screen.getByRole('button', { name: 'Create issue' }))
+
+    expect(
+      await screen.findByText('Issue fields could not be loaded.'),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Retry fields' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled()
   })
 
   it('writes filters and sorting to the URL', async () => {
@@ -126,7 +270,7 @@ describe('IssuesPage', () => {
     await user.click(screen.getByRole('button', { name: 'Return to first page' }))
 
     expect(await screen.findByRole('table', { name: 'Workspace issues' })).toBeVisible()
-    expect(screen.getByTestId('location')).toHaveTextContent(/^$/)
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/issues$/)
   })
 
   it('retains selections across pages and applies a bulk priority update', async () => {

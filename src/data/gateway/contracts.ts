@@ -4,10 +4,13 @@ import type {
   IssuePriority,
   IssueType,
   IsoDate,
+  Label,
   LabelId,
   Project,
   ProjectId,
   UserId,
+  User,
+  WorkflowStatus,
   WorkflowStatusId,
   WorkspaceId,
 } from '../../domain'
@@ -71,6 +74,17 @@ export interface CreateIssueInput {
   readonly labelIds: readonly LabelId[]
 }
 
+export interface IssueCreationProjectMetadata {
+  readonly project: Project
+  readonly statuses: readonly WorkflowStatus[]
+  readonly assignees: readonly User[]
+}
+
+export interface IssueCreationMetadata {
+  readonly projects: readonly IssueCreationProjectMetadata[]
+  readonly labels: readonly Label[]
+}
+
 export type MutableIssueFields = Pick<
   Issue,
   | 'assigneeId'
@@ -102,6 +116,10 @@ export interface AtlasGateway {
   ): Promise<readonly Project[]>
   listIssues(query: IssueQuery, options?: RequestOptions): Promise<Page<Issue>>
   getIssue(id: IssueId, options?: RequestOptions): Promise<Issue>
+  getIssueCreationMetadata(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<IssueCreationMetadata>
   createIssue(input: CreateIssueInput, options?: RequestOptions): Promise<Issue>
   updateIssue(input: UpdateIssueInput, options?: RequestOptions): Promise<Issue>
   deleteIssue(input: DeleteIssueInput, options?: RequestOptions): Promise<void>

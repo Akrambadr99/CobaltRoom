@@ -5,6 +5,7 @@ export type GatewayOperation =
   | 'issue.create'
   | 'issue.delete'
   | 'issue.get'
+  | 'issue.creation-metadata'
   | 'issue.list'
   | 'issue.update'
   | 'project.list'

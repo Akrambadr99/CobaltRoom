@@ -14,4 +14,6 @@ export const atlasQueryKeys = {
     ['workspaces', workspaceId, 'issues', 'index', query] as const,
   issue: (workspaceId: WorkspaceId, issueId: IssueId) =>
     ['workspaces', workspaceId, 'issues', 'detail', issueId] as const,
+  issueCreationMetadata: (workspaceId: WorkspaceId) =>
+    ['workspaces', workspaceId, 'issues', 'creation-metadata'] as const,
 }

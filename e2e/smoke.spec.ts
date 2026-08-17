@@ -65,3 +65,34 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
     page.getByRole('heading', { level: 1, name: 'Review restart incident clusters' }),
   ).toBeVisible()
 })
+
+test('creates a permission-aware issue with workflow metadata', async ({ page }) => {
+  await page.goto('/issues')
+  await expect(page.getByRole('table', { name: 'Workspace issues' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Create issue' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Create issue' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByLabel('Project').selectOption({ label: 'Launch readiness' })
+  await dialog.getByLabel('Title').fill('Coordinate launch decision review')
+  await dialog
+    .getByLabel('Description')
+    .fill('Confirm decisions, owners, and escalation paths.')
+  await dialog.getByLabel('Type').selectOption('story')
+  await dialog.getByLabel('Priority').selectOption('high')
+  await dialog.getByLabel('Assignee').selectOption({ label: 'Omar Haddad' })
+  await dialog.getByLabel('Due date').fill('2026-03-04')
+  await dialog.getByLabel('Customer impact').check()
+  await dialog.getByRole('button', { name: 'Create issue' }).click()
+
+  await expect(page).toHaveURL(/\/issues\/issue_/)
+  await expect(
+    page.getByRole('heading', {
+      level: 1,
+      name: 'Coordinate launch decision review',
+    }),
+  ).toBeVisible()
+  await expect(page.getByText('High')).toBeVisible()
+  await expect(page.getByText('Story')).toBeVisible()
+  await expect(page.getByText('2026-03-04')).toBeVisible()
+})

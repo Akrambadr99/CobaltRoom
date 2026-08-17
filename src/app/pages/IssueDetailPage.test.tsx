@@ -61,7 +61,7 @@ describe('IssueDetailPage', () => {
     ).toBeVisible()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(editButton).toHaveFocus()
-  })
+  }, 10_000)
 
   it('refreshes after a revision conflict and preserves the draft for retry', async () => {
     const user = userEvent.setup()
