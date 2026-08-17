@@ -17,6 +17,9 @@ export function buildGovernanceReport(
 ): GovernanceReport {
   const page = validateGovernancePage(query.page ?? defaultPage)
   const action = normalizeAction(query.action)
+  const entityId = normalizeExactFilter(query.entityId, 'Entity identifiers')
+  const requestId = normalizeExactFilter(query.requestId, 'Request identifiers')
+  validateDateRange(query.occurredFrom, query.occurredTo)
   const workspaceEvents = data.auditEvents.filter(
     (event) => event.workspaceId === query.workspaceId,
   )
@@ -24,7 +27,15 @@ export function buildGovernanceReport(
     .filter(
       (event) =>
         (action === undefined || event.action === action) &&
-        (query.outcome === undefined || event.outcome === query.outcome),
+        (query.outcome === undefined || event.outcome === query.outcome) &&
+        (query.actor === undefined ||
+          (query.actor === 'system'
+            ? event.actorId === null
+            : event.actorId === query.actor)) &&
+        (entityId === undefined || eventEntityId(event) === entityId) &&
+        (requestId === undefined || event.requestId === requestId) &&
+        (query.occurredFrom === undefined || event.occurredAt >= query.occurredFrom) &&
+        (query.occurredTo === undefined || event.occurredAt <= query.occurredTo),
     )
     .sort(
       (left, right) =>
@@ -35,13 +46,7 @@ export function buildGovernanceReport(
   const offset = (page.number - 1) * page.size
   const entries: GovernanceAuditEntry[] = filteredEvents
     .slice(offset, offset + page.size)
-    .map((event) => ({
-      event,
-      actorName:
-        event.actorId === null
-          ? 'System'
-          : (usersById.get(event.actorId) ?? 'Unknown member'),
-    }))
+    .map((event) => toGovernanceEntry(event, usersById))
 
   return {
     generatedAt,
@@ -52,6 +57,7 @@ export function buildGovernanceReport(
     actions: [...countActions(workspaceEvents)].sort(
       (left, right) => right.count - left.count || left.value.localeCompare(right.value),
     ),
+    actors: countActors(workspaceEvents, usersById),
     events: {
       items: entries,
       pageNumber: page.number,
@@ -59,7 +65,36 @@ export function buildGovernanceReport(
       pageCount: Math.ceil(filteredEvents.length / page.size),
       totalItems: filteredEvents.length,
     },
+    exportRows: entries.map(({ event, actorName, entityId }) => ({
+      occurredAt: event.occurredAt,
+      action: event.action,
+      actor: actorName,
+      outcome: event.outcome,
+      entityId: entityId ?? '',
+      requestId: event.requestId,
+    })),
   }
+}
+
+function toGovernanceEntry(
+  event: AtlasDataSnapshot['auditEvents'][number],
+  usersById: ReadonlyMap<string, string>,
+): GovernanceAuditEntry {
+  return {
+    event,
+    actorName:
+      event.actorId === null
+        ? 'System'
+        : (usersById.get(event.actorId) ?? 'Unknown member'),
+    entityId: eventEntityId(event),
+  }
+}
+
+function eventEntityId(event: AtlasDataSnapshot['auditEvents'][number]): string | null {
+  const entry = Object.entries(event.metadata).find(
+    ([key, value]) => key.endsWith('Id') && typeof value === 'string',
+  )
+  return typeof entry?.[1] === 'string' ? entry[1] : null
 }
 
 function validateGovernancePage(page: PageRequest): PageRequest {
@@ -86,6 +121,27 @@ function normalizeAction(action: string | undefined): string | undefined {
   return normalized
 }
 
+function normalizeExactFilter(
+  value: string | undefined,
+  label: string,
+): string | undefined {
+  if (value === undefined) return undefined
+  if (value.length === 0 || value.trim() !== value || value.length > 200) {
+    throw new InvalidGatewayRequestError(
+      `${label} must be exact non-empty values no longer than 200 characters.`,
+    )
+  }
+  return value
+}
+
+function validateDateRange(from: IsoDateTime | undefined, to: IsoDateTime | undefined): void {
+  if (from !== undefined && to !== undefined && from > to) {
+    throw new InvalidGatewayRequestError(
+      'Audit date ranges require the start to be on or before the end.',
+    )
+  }
+}
+
 function countOutcome(
   events: AtlasDataSnapshot['auditEvents'],
   outcome: AtlasDataSnapshot['auditEvents'][number]['outcome'],
@@ -99,4 +155,22 @@ function countActions(events: AtlasDataSnapshot['auditEvents']) {
     counts.set(event.action, (counts.get(event.action) ?? 0) + 1)
   }
   return [...counts].map(([value, count]) => ({ value, count }))
+}
+
+function countActors(
+  events: AtlasDataSnapshot['auditEvents'],
+  usersById: ReadonlyMap<string, string>,
+) {
+  const counts = new Map<string, number>()
+  for (const event of events) {
+    const value = event.actorId ?? 'system'
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  }
+  return [...counts]
+    .map(([value, count]) => ({
+      value: value as GovernanceReport['actors'][number]['value'],
+      label: value === 'system' ? 'System' : (usersById.get(value) ?? 'Unknown member'),
+      count,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label))
 }

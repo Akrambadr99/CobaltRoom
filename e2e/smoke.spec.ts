@@ -587,4 +587,18 @@ test('reviews the protected governance audit report', async ({ page }) => {
   await expect(page.getByText('1 matching events')).toBeVisible()
   await expect(auditLog).toContainText('fixture-access-check-001')
   await expect(auditLog).not.toContainText('fixture-bootstrap-001')
+
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(page.getByText('4 matching events')).toBeVisible()
+  await page.getByRole('combobox', { name: 'Actor' }).selectOption('system')
+  await expect(page.getByText('1 matching events')).toBeVisible()
+  await page.getByRole('link', { name: 'fixture-bootstrap-001' }).click()
+  await expect(page).toHaveURL(/request=fixture-bootstrap-001/)
+  await expect(page.getByLabel('Request or correlation ID')).toHaveValue(
+    'fixture-bootstrap-001',
+  )
+  await expect(page.getByRole('link', { name: 'Export this page' })).toHaveAttribute(
+    'download',
+    'atlas-ops-audit-page-1.csv',
+  )
 })

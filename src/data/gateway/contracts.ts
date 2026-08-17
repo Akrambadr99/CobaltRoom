@@ -343,12 +343,33 @@ export interface GovernanceQuery {
   readonly workspaceId: WorkspaceId
   readonly action?: string
   readonly outcome?: AuditEvent['outcome']
+  readonly actor?: UserId | 'system'
+  readonly entityId?: string
+  readonly requestId?: string
+  readonly occurredFrom?: IsoDateTime
+  readonly occurredTo?: IsoDateTime
   readonly page?: PageRequest
 }
 
 export interface GovernanceAuditEntry {
   readonly event: AuditEvent
   readonly actorName: string
+  readonly entityId: string | null
+}
+
+export interface GovernanceActorFacet {
+  readonly value: UserId | 'system'
+  readonly label: string
+  readonly count: number
+}
+
+export interface GovernanceExportRow {
+  readonly occurredAt: IsoDateTime
+  readonly action: string
+  readonly actor: string
+  readonly outcome: AuditEvent['outcome']
+  readonly entityId: string
+  readonly requestId: string
 }
 
 export interface GovernanceReport {
@@ -358,7 +379,9 @@ export interface GovernanceReport {
   readonly rejectedEvents: number
   readonly failedEvents: number
   readonly actions: readonly AnalyticsBreakdown<string>[]
+  readonly actors: readonly GovernanceActorFacet[]
   readonly events: Page<GovernanceAuditEntry>
+  readonly exportRows: readonly GovernanceExportRow[]
 }
 
 export interface AuthorizationSession {

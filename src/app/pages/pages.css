@@ -665,7 +665,8 @@
   font-weight: 750;
 }
 
-.governance-filters select {
+.governance-filters select,
+.governance-filters input {
   min-height: 2.5rem;
   padding: 0 var(--space-3);
   border: 1px solid var(--color-border-strong);
@@ -673,6 +674,27 @@
   background: var(--color-bg-surface);
   color: var(--color-text);
   font: inherit;
+}
+
+.governance-filters--advanced {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.governance-filter-actions,
+.governance-export {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.governance-filter-actions {
+  align-self: end;
+}
+
+.governance-request-link {
+  color: var(--color-link);
 }
 
 .governance-table code {
@@ -1153,6 +1175,10 @@
   }
 
   .administration-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .governance-filters--advanced {
     grid-template-columns: minmax(0, 1fr);
   }
 
