@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useAppServices } from '../../app/providers/app-services-context'
-import type { Page } from '../../data'
+import type { AnalyticsRange, Page } from '../../data'
 import type { Issue, IssuePriority } from '../../domain'
 import { atlasQueryKeys } from '../query-keys'
 import { cancelIssueDerivedReads, reconcileIssueCaches } from '../issues/issue-cache'
@@ -9,8 +9,9 @@ import { cancelIssueDerivedReads, reconcileIssueCaches } from '../issues/issue-c
 export function useDashboardData() {
   const { gateway, workspaceId } = useAppServices()
   const analytics = useQuery({
-    queryKey: atlasQueryKeys.analytics(workspaceId),
-    queryFn: ({ signal }) => gateway.getWorkspaceAnalytics(workspaceId, { signal }),
+    queryKey: atlasQueryKeys.analytics(workspaceId, 'all-time'),
+    queryFn: ({ signal }) =>
+      gateway.getWorkspaceAnalytics({ workspaceId, range: 'all-time' }, { signal }),
   })
   const issues = useQuery({
     queryKey: atlasQueryKeys.dashboardIssues(workspaceId),
@@ -32,11 +33,12 @@ export function useDashboardData() {
   return { analytics, issues, projects }
 }
 
-export function useWorkspaceAnalytics() {
+export function useWorkspaceAnalytics(range: AnalyticsRange) {
   const { gateway, workspaceId } = useAppServices()
   return useQuery({
-    queryKey: atlasQueryKeys.analytics(workspaceId),
-    queryFn: ({ signal }) => gateway.getWorkspaceAnalytics(workspaceId, { signal }),
+    queryKey: atlasQueryKeys.analytics(workspaceId, range),
+    queryFn: ({ signal }) =>
+      gateway.getWorkspaceAnalytics({ workspaceId, range }, { signal }),
   })
 }
 

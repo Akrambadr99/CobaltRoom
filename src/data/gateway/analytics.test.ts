@@ -12,11 +12,15 @@ describe('buildWorkspaceAnalytics', () => {
 
     const analytics = buildWorkspaceAnalytics(
       fixtures,
-      workspaceId,
+      { workspaceId, range: 'all-time' },
       isoDateTime('2026-02-10T12:00:00.000Z'),
     )
 
     expect(analytics).toMatchObject({
+      range: 'all-time',
+      rangeStart: '2026-01-01',
+      createdInRange: 6,
+      updatedInRange: 6,
       activeProjects: 2,
       totalIssues: 6,
       openIssues: 4,
@@ -39,5 +43,9 @@ describe('buildWorkspaceAnalytics', () => {
       completedIssues: 1,
       completionPercent: 33,
     })
+    expect(analytics.issueFlow).toEqual([
+      { periodStart: '2026-01-01', createdIssues: 6, updatedIssues: 6 },
+      { periodStart: '2026-02-01', createdIssues: 0, updatedIssues: 0 },
+    ])
   })
 })

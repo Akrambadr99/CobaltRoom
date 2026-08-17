@@ -46,6 +46,7 @@ import type {
   WorkspaceAdministrationData,
   WorkspaceAdministrationQuery,
   WorkspaceAnalytics,
+  WorkspaceAnalyticsQuery,
   WorkspaceInvitationActivation,
   WorkspaceInvitationAdministrationData,
   WorkspaceInvitationEffectiveState,
@@ -1568,12 +1569,12 @@ export class MockAtlasGateway implements AtlasGateway {
   }
 
   getWorkspaceAnalytics(
-    workspaceId: WorkspaceId,
+    query: WorkspaceAnalyticsQuery,
     options?: RequestOptions,
   ): Promise<WorkspaceAnalytics> {
     return this.execute('analytics.get', options, () => {
-      this.assertPermission('analytics:view', workspaceId)
-      return buildWorkspaceAnalytics(this.store.read().data, workspaceId, this.clock.now())
+      this.assertPermission('analytics:view', query.workspaceId)
+      return buildWorkspaceAnalytics(this.store.read().data, query, this.clock.now())
     })
   }
 

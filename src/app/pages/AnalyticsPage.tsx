@@ -1,8 +1,13 @@
+import { Link, useSearchParams } from 'react-router-dom'
+
+import type { AnalyticsRange } from '../../data'
 import { useWorkspaceAnalytics } from '../../features/dashboard/dashboard-queries'
 import './pages.css'
 
 export function AnalyticsPage() {
-  const analytics = useWorkspaceAnalytics()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const range = parseAnalyticsRange(searchParams.get('range'))
+  const analytics = useWorkspaceAnalytics(range)
 
   if (analytics.isPending) {
     return (
@@ -35,6 +40,23 @@ export function AnalyticsPage() {
   return (
     <section className="page" aria-labelledby="analytics-title">
       <AnalyticsHeader />
+      <label className="analytics-range">
+        <span>Time range</span>
+        <select
+          value={range}
+          onChange={(event) => {
+            const next = new URLSearchParams(searchParams)
+            const value = parseAnalyticsRange(event.currentTarget.value)
+            if (value === '30-days') next.delete('range')
+            else next.set('range', value)
+            setSearchParams(next)
+          }}
+        >
+          <option value="30-days">Last 30 days</option>
+          <option value="90-days">Last 90 days</option>
+          <option value="all-time">All time</option>
+        </select>
+      </label>
       <p className="analytics-generated">
         Snapshot generated{' '}
         <time dateTime={analytics.data.generatedAt}>
@@ -43,10 +65,37 @@ export function AnalyticsPage() {
       </p>
 
       <dl className="metric-grid" aria-label="Delivery metrics">
-        <Metric label="Open issues" value={analytics.data.openIssues} />
-        <Metric label="Completed issues" value={analytics.data.completedIssues} />
-        <Metric label="Overdue issues" value={analytics.data.overdueIssues} />
+        <Metric label="Open issues" value={analytics.data.openIssues} href="/issues" />
+        <Metric label="Created in range" value={analytics.data.createdInRange} href="/issues?sort=createdAt&direction=descending" />
+        <Metric label="Updated in range" value={analytics.data.updatedInRange} href="/issues?sort=updatedAt&direction=descending" />
       </dl>
+
+      <section className="work-panel" aria-labelledby="issue-flow-title">
+        <div className="work-panel__header">
+          <div>
+            <p className="page-eyebrow">Trend</p>
+            <h2 id="issue-flow-title">Issue flow over time</h2>
+            <p>Created and last-updated issue volume in deterministic reporting periods.</p>
+          </div>
+        </div>
+        <div className="analytics-table-scroll">
+          <table className="analytics-table">
+            <caption className="visually-hidden">
+              Created and updated issue counts by reporting period
+            </caption>
+            <thead><tr><th scope="col">Period starting</th><th scope="col">Created</th><th scope="col">Updated</th></tr></thead>
+            <tbody>
+              {analytics.data.issueFlow.map((point) => (
+                <tr key={point.periodStart}>
+                  <th scope="row"><time dateTime={point.periodStart}>{formatDate(point.periodStart)}</time></th>
+                  <td>{point.createdIssues}</td>
+                  <td>{point.updatedIssues}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <div className="analytics-grid">
         <section className="work-panel" aria-labelledby="priority-distribution-title">
@@ -59,7 +108,7 @@ export function AnalyticsPage() {
           <dl className="analytics-breakdown">
             {analytics.data.priorities.map(({ value, count }) => (
               <div key={value}>
-                <dt>{formatLabel(value)}</dt>
+                <dt><Link to={`/issues?priority=${value}`}>{formatLabel(value)}</Link></dt>
                 <dd>{count}</dd>
               </div>
             ))}
@@ -111,7 +160,7 @@ export function AnalyticsPage() {
                 <tr key={project.projectId}>
                   <th scope="row">
                     <span>{project.projectKey}</span>
-                    {project.projectName}
+                    <Link to={`/projects/${project.projectId}`}>{project.projectName}</Link>
                   </th>
                   <td>{project.openIssues}</td>
                   <td>{project.completedIssues}</td>
@@ -138,8 +187,13 @@ function AnalyticsHeader() {
   )
 }
 
-function Metric({ label, value }: Readonly<{ label: string; value: number }>) {
-  return <div className="metric-card"><dt>{label}</dt><dd>{value}</dd></div>
+function Metric({ label, value, href }: Readonly<{ label: string; value: number; href: string }>) {
+  return <div className="metric-card"><dt>{label}</dt><dd>{value}</dd><Link to={href}>View issues</Link></div>
+}
+
+function parseAnalyticsRange(value: string | null): AnalyticsRange {
+  if (value === '90-days' || value === 'all-time') return value
+  return '30-days'
 }
 
 function formatLabel(value: string): string {
@@ -152,4 +206,11 @@ function formatTimestamp(value: string): string {
     timeStyle: 'short',
     timeZone: 'UTC',
   }).format(new Date(value))
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat('en', {
+    dateStyle: 'medium',
+    timeZone: 'UTC',
+  }).format(new Date(`${value}T00:00:00.000Z`))
 }

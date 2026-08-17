@@ -1,4 +1,5 @@
 import type {
+  AnalyticsRange,
   GovernanceQuery,
   IssueQuery,
   ProjectSummaryQuery,
@@ -14,8 +15,10 @@ export const atlasQueryKeys = {
     [...atlasQueryKeys.workspaceActivityReports(query.workspaceId), query] as const,
   authorization: (workspaceId: WorkspaceId) =>
     ['authorization', workspaceId] as const,
-  analytics: (workspaceId: WorkspaceId) =>
-    ['workspaces', workspaceId, 'analytics'] as const,
+  analytics: (workspaceId: WorkspaceId, range?: AnalyticsRange) =>
+    range
+      ? ['workspaces', workspaceId, 'analytics', range] as const
+      : ['workspaces', workspaceId, 'analytics'] as const,
   administration: (workspaceId: WorkspaceId) =>
     ['workspaces', workspaceId, 'administration'] as const,
   workspaceInvitations: (query: WorkspaceInvitationQuery) =>

@@ -400,8 +400,26 @@ export interface ProjectHealthAggregate {
   readonly completionPercent: number
 }
 
+export type AnalyticsRange = '30-days' | '90-days' | 'all-time'
+
+export interface WorkspaceAnalyticsQuery {
+  readonly workspaceId: WorkspaceId
+  readonly range: AnalyticsRange
+}
+
+export interface IssueFlowTrendPoint {
+  readonly periodStart: IsoDate
+  readonly createdIssues: number
+  readonly updatedIssues: number
+}
+
 export interface WorkspaceAnalytics {
   readonly generatedAt: IsoDateTime
+  readonly range: AnalyticsRange
+  readonly rangeStart: IsoDate
+  readonly createdInRange: number
+  readonly updatedInRange: number
+  readonly issueFlow: readonly IssueFlowTrendPoint[]
   readonly activeProjects: number
   readonly totalIssues: number
   readonly openIssues: number
@@ -679,7 +697,7 @@ export interface AtlasGateway {
     options?: RequestOptions,
   ): Promise<BoardMetadata>
   getWorkspaceAnalytics(
-    workspaceId: WorkspaceId,
+    query: WorkspaceAnalyticsQuery,
     options?: RequestOptions,
   ): Promise<WorkspaceAnalytics>
   getGovernanceReport(

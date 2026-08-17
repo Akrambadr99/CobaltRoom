@@ -81,7 +81,10 @@ describe('MockAtlasGateway', () => {
     const workspaceId = fixtures.workspaces[0]?.id
     if (!workspaceId) throw new Error('Expected a fixture workspace.')
 
-    const analytics = await gateway.getWorkspaceAnalytics(workspaceId)
+    const analytics = await gateway.getWorkspaceAnalytics({
+      workspaceId,
+      range: 'all-time',
+    })
     expect(analytics).toMatchObject({
       generatedAt: '2026-02-01T08:00:00.000Z',
       totalIssues: 6,
@@ -1141,7 +1144,10 @@ describe('MockAtlasGateway', () => {
     expect((await gateway.getBoardMetadata(project.workspaceId)).projects
       .find(({ project: candidate }) => candidate.id === project.id)?.statuses
       .map(({ name }) => name)).toEqual(['In verification', backlog.name, 'Verified'])
-    expect((await gateway.getWorkspaceAnalytics(project.workspaceId)).statusCategories)
+    expect((await gateway.getWorkspaceAnalytics({
+      workspaceId: project.workspaceId,
+      range: 'all-time',
+    })).statusCategories)
       .toEqual(expect.arrayContaining([
         expect.objectContaining({ value: 'completed', count: 1 }),
         expect.objectContaining({ value: 'started', count: 3 }),
