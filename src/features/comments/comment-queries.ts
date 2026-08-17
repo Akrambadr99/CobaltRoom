@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { IssueActivityData } from '../../data'
-import type { Comment, IssueId, UserId } from '../../domain'
+import type { Comment, CommentId, IssueId, UserId } from '../../domain'
 import { atlasQueryKeys } from '../query-keys'
 
 interface UpdateCommentVariables {
@@ -16,15 +16,17 @@ interface DeleteCommentVariables {
 }
 
 interface CommentMutationContext {
-  readonly previous: IssueActivityData | undefined
+  readonly previousComment: Comment
+  readonly optimisticRevision: number
 }
 
-export function useUpdateComment(issueId: IssueId) {
+export function useUpdateComment(issueId: IssueId, commentId: CommentId) {
   const { gateway, workspaceId } = useAppServices()
   const queryClient = useQueryClient()
   const activityKey = atlasQueryKeys.issueActivity(workspaceId, issueId)
 
   return useMutation<Comment, Error, UpdateCommentVariables, CommentMutationContext>({
+    scope: { id: `comment:${commentId}` },
     mutationFn: ({ comment, body }) =>
       gateway.updateComment({
         id: comment.id,
@@ -34,15 +36,25 @@ export function useUpdateComment(issueId: IssueId) {
     onMutate: async ({ comment, body }) => {
       await queryClient.cancelQueries({ queryKey: activityKey })
       const previous = queryClient.getQueryData<IssueActivityData>(activityKey)
+      const previousComment =
+        previous?.comments.find(({ id }) => id === comment.id) ?? comment
+      const optimisticRevision = previousComment.revision + 1
       replaceComment(queryClient, activityKey, {
-        ...comment,
+        ...previousComment,
         body,
-        revision: comment.revision + 1,
+        revision: optimisticRevision,
       })
-      return { previous }
+      return { previousComment, optimisticRevision }
     },
     onError: (_error, _variables, context) => {
-      if (context?.previous) queryClient.setQueryData(activityKey, context.previous)
+      if (context) {
+        rollbackComment(
+          queryClient,
+          activityKey,
+          context.previousComment,
+          context.optimisticRevision,
+        )
+      }
     },
     onSuccess: (comment) => {
       replaceComment(queryClient, activityKey, comment)
@@ -53,12 +65,13 @@ export function useUpdateComment(issueId: IssueId) {
   })
 }
 
-export function useDeleteComment(issueId: IssueId) {
+export function useDeleteComment(issueId: IssueId, commentId: CommentId) {
   const { gateway, workspaceId } = useAppServices()
   const queryClient = useQueryClient()
   const activityKey = atlasQueryKeys.issueActivity(workspaceId, issueId)
 
   return useMutation<Comment, Error, DeleteCommentVariables, CommentMutationContext>({
+    scope: { id: `comment:${commentId}` },
     mutationFn: ({ comment }) =>
       gateway.deleteComment({
         id: comment.id,
@@ -67,17 +80,27 @@ export function useDeleteComment(issueId: IssueId) {
     onMutate: async ({ comment, deletedById }) => {
       await queryClient.cancelQueries({ queryKey: activityKey })
       const previous = queryClient.getQueryData<IssueActivityData>(activityKey)
+      const previousComment =
+        previous?.comments.find(({ id }) => id === comment.id) ?? comment
+      const optimisticRevision = previousComment.revision + 1
       replaceComment(queryClient, activityKey, {
-        ...comment,
+        ...previousComment,
         body: '',
-        revision: comment.revision + 1,
-        deletedAt: comment.createdAt,
+        revision: optimisticRevision,
+        deletedAt: previousComment.createdAt,
         deletedById,
       })
-      return { previous }
+      return { previousComment, optimisticRevision }
     },
     onError: (_error, _variables, context) => {
-      if (context?.previous) queryClient.setQueryData(activityKey, context.previous)
+      if (context) {
+        rollbackComment(
+          queryClient,
+          activityKey,
+          context.previousComment,
+          context.optimisticRevision,
+        )
+      }
     },
     onSuccess: (comment) => {
       replaceComment(queryClient, activityKey, comment)
@@ -98,7 +121,29 @@ function replaceComment(
       ? {
           ...current,
           comments: current.comments.map((comment) =>
-            comment.id === updated.id ? updated : comment,
+            comment.id === updated.id && comment.revision <= updated.revision
+              ? updated
+              : comment,
+          ),
+        }
+      : current,
+  )
+}
+
+function rollbackComment(
+  queryClient: ReturnType<typeof useQueryClient>,
+  queryKey: readonly unknown[],
+  previous: Comment,
+  optimisticRevision: number,
+): void {
+  queryClient.setQueryData<IssueActivityData>(queryKey, (current) =>
+    current
+      ? {
+          ...current,
+          comments: current.comments.map((comment) =>
+            comment.id === previous.id && comment.revision === optimisticRevision
+              ? previous
+              : comment,
           ),
         }
       : current,

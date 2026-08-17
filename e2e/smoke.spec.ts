@@ -129,8 +129,18 @@ test('moves work across the accessible project board', async ({ page }) => {
   await expect(moveControl).toHaveValue(/status_/)
   await page.getByRole('link', { name: 'Review intermittent restart incidents' }).click()
   await expect(page).toHaveURL(/\/issues\/issue_/)
-  await expect(page.getByText('Investigating')).toBeVisible()
-  await expect(page.getByText('Moved from Triage to Investigating.')).toBeVisible()
+  await expect(
+    page.getByRole('heading', {
+      level: 1,
+      name: 'Review intermittent restart incidents',
+    }),
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole('region', { name: 'Issue collaboration' })
+      .getByRole('listitem')
+      .filter({ hasText: 'Moved from Triage to Investigating.' }),
+  ).toBeVisible()
 })
 
 test('moves board work with a pointer while preserving the keyboard alternative', async ({

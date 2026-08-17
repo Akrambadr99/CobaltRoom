@@ -14,7 +14,7 @@ import {
   type RequestSimulator,
 } from '../../data'
 import { isoDateTime, type UserId } from '../../domain'
-import { render, screen, within } from '../../test/render'
+import { fireEvent, render, screen, within } from '../../test/render'
 
 function getFixtureIssue() {
   const issue = createAtlasFixtures().issues[0]
@@ -177,6 +177,30 @@ describe('IssueDetailPage', () => {
     if (!activityColumn) throw new Error('Expected the activity column.')
     expect(within(activityColumn).getByText('Added a comment.')).toBeVisible()
     expect(screen.getAllByText('Mar 1, 2026, 10:30 AM')).toHaveLength(2)
+  })
+
+  it('coalesces duplicate comment submissions before React can rerender', async () => {
+    const user = userEvent.setup()
+    const issue = getFixtureIssue()
+    const services = renderIssueDetail(
+      `/issues/${issue.id}`,
+      undefined,
+      new SimulatedNetwork({
+        latency: (operation) => (operation === 'comment.create' ? 75 : 0),
+      }),
+    )
+
+    await screen.findByText(/include explicit rollback owners/i)
+    await user.type(screen.getByLabelText('Add a comment'), 'One durable comment.')
+    const form = screen.getByRole('form', { name: 'Add comment' })
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+
+    expect(await screen.findByText('Comment added.')).toBeVisible()
+    const activity = await services.gateway.getIssueActivity(issue.id)
+    expect(
+      activity.comments.filter(({ body }) => body === 'One durable comment.'),
+    ).toHaveLength(1)
   })
 
   it('offers independent recovery when collaboration history fails', async () => {

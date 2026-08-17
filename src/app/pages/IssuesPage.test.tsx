@@ -9,7 +9,7 @@ import { createAppServices } from '../services'
 import { createAtlasFixtures, SimulatedNetwork } from '../../data'
 import type { UserId } from '../../domain'
 import { MemoryPreferenceStorage, type PreferenceStorage } from '../../preferences'
-import { render, screen, waitFor, within } from '../../test/render'
+import { fireEvent, render, screen, waitFor, within } from '../../test/render'
 
 function LocationProbe() {
   const location = useLocation()
@@ -191,6 +191,42 @@ describe('IssuesPage', () => {
         /^\/issues\/issue_/,
       )
     })
+  })
+
+  it('coalesces duplicate issue submissions before pending state renders', async () => {
+    const user = userEvent.setup()
+    const { services } = renderIssues(
+      '/issues',
+      new SimulatedNetwork({
+        latency: (operation) => (operation === 'issue.create' ? 75 : 0),
+      }),
+    )
+
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.click(screen.getByRole('button', { name: 'Create issue' }))
+    const dialog = screen.getByRole('dialog', { name: 'Create issue' })
+    await user.type(
+      await within(dialog).findByLabelText('Title'),
+      'Exactly once launch review',
+    )
+    const form = within(dialog).getByRole<HTMLButtonElement>('button', {
+      name: 'Create issue',
+    }).form
+    if (!form) throw new Error('Expected the create issue form.')
+
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/issues\/issue_/)
+    })
+    const matches = await services.gateway.listIssues({
+      filters: {
+        workspaceId: services.workspaceId,
+        search: 'Exactly once launch review',
+      },
+    })
+    expect(matches.items).toHaveLength(1)
   })
 
   it('limits the creation project selector to the actor project scope', async () => {

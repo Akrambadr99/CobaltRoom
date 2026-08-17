@@ -4,6 +4,7 @@ import { useAppServices } from '../../app/providers/app-services-context'
 import type { Page } from '../../data'
 import type { Issue, IssuePriority } from '../../domain'
 import { atlasQueryKeys } from '../query-keys'
+import { cancelIssueDerivedReads, reconcileIssueCaches } from '../issues/issue-cache'
 
 export function useDashboardData() {
   const { gateway, workspaceId } = useAppServices()
@@ -40,12 +41,16 @@ export function useUpdateIssuePriority() {
   const queryClient = useQueryClient()
 
   return useMutation({
+    scope: { id: `dashboard-issue-priority:${workspaceId}` },
     mutationFn: ({ issue, priority }: { issue: Issue; priority: IssuePriority }) =>
       gateway.updateIssue({
         id: issue.id,
         expectedRevision: issue.revision,
         changes: { priority },
       }),
+    onMutate: async () => {
+      await cancelIssueDerivedReads(queryClient, workspaceId)
+    },
     onSuccess: async (updatedIssue) => {
       queryClient.setQueryData<Page<Issue>>(
         atlasQueryKeys.dashboardIssues(workspaceId),
@@ -59,6 +64,7 @@ export function useUpdateIssuePriority() {
               }
             : current,
       )
+      reconcileIssueCaches(queryClient, workspaceId, updatedIssue)
 
       await Promise.all([
         queryClient.invalidateQueries({

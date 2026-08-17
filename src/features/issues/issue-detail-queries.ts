@@ -4,6 +4,11 @@ import { useAppServices } from '../../app/providers/app-services-context'
 import type { MutableIssueFields } from '../../data'
 import type { Issue, IssueId } from '../../domain'
 import { atlasQueryKeys } from '../query-keys'
+import {
+  cancelIssueDerivedReads,
+  reconcileIssueCaches,
+  rollbackIssueCaches,
+} from './issue-cache'
 
 export function useIssueDetailData(issueId: IssueId) {
   const { gateway, workspaceId } = useAppServices()
@@ -33,7 +38,21 @@ export function useCreateIssueComment(issueId: IssueId) {
   const queryClient = useQueryClient()
 
   return useMutation({
+    scope: { id: `comment-create:${issueId}` },
     mutationFn: (body: string) => gateway.createComment({ issueId, body }),
+    onMutate: async () => {
+      await Promise.all([
+        queryClient.cancelQueries({
+          queryKey: atlasQueryKeys.issueActivity(workspaceId, issueId),
+        }),
+        queryClient.cancelQueries({
+          queryKey: atlasQueryKeys.notificationInbox(workspaceId),
+        }),
+        queryClient.cancelQueries({
+          queryKey: atlasQueryKeys.governanceReports(workspaceId),
+        }),
+      ])
+    },
     onSettled: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
@@ -57,6 +76,7 @@ interface UpdateIssueVariables {
 
 interface UpdateIssueContext {
   readonly previous: Issue | undefined
+  readonly optimisticRevision: number
 }
 
 export function useOptimisticIssueUpdate(issueId: IssueId) {
@@ -65,6 +85,7 @@ export function useOptimisticIssueUpdate(issueId: IssueId) {
   const detailKey = atlasQueryKeys.issue(workspaceId, issueId)
 
   return useMutation<Issue, Error, UpdateIssueVariables, UpdateIssueContext>({
+    scope: { id: `issue:${issueId}` },
     mutationFn: ({ issue, changes }) =>
       gateway.updateIssue({
         id: issue.id,
@@ -72,20 +93,28 @@ export function useOptimisticIssueUpdate(issueId: IssueId) {
         changes,
       }),
     onMutate: async ({ issue, changes }) => {
-      await queryClient.cancelQueries({ queryKey: detailKey })
+      await cancelIssueDerivedReads(queryClient, workspaceId)
       const previous = queryClient.getQueryData<Issue>(detailKey)
+      const optimisticRevision = (previous ?? issue).revision + 1
       queryClient.setQueryData<Issue>(detailKey, {
         ...(previous ?? issue),
         ...changes,
-        revision: issue.revision + 1,
+        revision: optimisticRevision,
       })
-      return { previous }
+      return { previous, optimisticRevision }
     },
     onError: (_error, _variables, context) => {
-      if (context?.previous) queryClient.setQueryData(detailKey, context.previous)
+      if (context?.previous) {
+        rollbackIssueCaches(
+          queryClient,
+          workspaceId,
+          context.previous,
+          context.optimisticRevision,
+        )
+      }
     },
     onSuccess: (updated) => {
-      queryClient.setQueryData(detailKey, updated)
+      reconcileIssueCaches(queryClient, workspaceId, updated)
     },
     onSettled: async () => {
       await Promise.all([

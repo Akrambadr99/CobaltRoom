@@ -264,12 +264,14 @@ function IssueCollaboration({
 function CommentForm({ issueId }: Readonly<{ issueId: IssueId }>) {
   const createComment = useCreateIssueComment(issueId)
   const textAreaRef = useRef<HTMLTextAreaElement>(null)
+  const submissionPendingRef = useRef(false)
   const [body, setBody] = useState('')
   const [validationError, setValidationError] = useState('')
   const [status, setStatus] = useState('')
 
   const handleSubmit = (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (submissionPendingRef.current) return
     const normalized = body.trim()
     setStatus('')
     if (normalized.length === 0 || normalized.length > 5_000) {
@@ -278,11 +280,15 @@ function CommentForm({ issueId }: Readonly<{ issueId: IssueId }>) {
     }
 
     setValidationError('')
+    submissionPendingRef.current = true
     createComment.mutate(normalized, {
       onSuccess: () => {
         setBody('')
         setStatus('Comment added.')
         textAreaRef.current?.focus()
+      },
+      onSettled: () => {
+        submissionPendingRef.current = false
       },
     })
   }

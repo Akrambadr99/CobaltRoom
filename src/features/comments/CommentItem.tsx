@@ -21,8 +21,8 @@ export function CommentItem({
   projectId,
 }: CommentItemProps) {
   const authorization = useAuthorization()
-  const updateComment = useUpdateComment(issueId)
-  const deleteComment = useDeleteComment(issueId)
+  const updateComment = useUpdateComment(issueId, comment.id)
+  const deleteComment = useDeleteComment(issueId, comment.id)
   const editButtonRef = useRef<HTMLButtonElement>(null)
   const editTextAreaRef = useRef<HTMLTextAreaElement>(null)
   const deleteButtonRef = useRef<HTMLButtonElement>(null)

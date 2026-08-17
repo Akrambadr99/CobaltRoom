@@ -94,6 +94,7 @@ function IssueCreateForm({
   const { workspaceId } = useAppServices()
   const navigate = useNavigate()
   const projectFieldRef = useRef<HTMLSelectElement>(null)
+  const submissionPendingRef = useRef(false)
   const [draft, setDraft] = useState<IssueCreateDraft>(() =>
     createInitialIssueDraft(metadata),
   )
@@ -111,11 +112,13 @@ function IssueCreateForm({
 
   const handleSubmit = (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (submissionPendingRef.current) return
     const validation = validateIssueCreateDraft(draft, metadata, workspaceId)
     setErrors(validation.errors)
     setSubmitError('')
     if (!validation.input) return
 
+    submissionPendingRef.current = true
     createIssue.mutate(validation.input, {
       onSuccess: (issue) => {
         onClose()
@@ -123,6 +126,9 @@ function IssueCreateForm({
       },
       onError: (error) => {
         setSubmitError(error.message)
+      },
+      onSettled: () => {
+        submissionPendingRef.current = false
       },
     })
   }

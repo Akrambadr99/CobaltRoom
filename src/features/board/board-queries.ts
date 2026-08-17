@@ -10,6 +10,11 @@ import { useAppServices } from '../../app/providers/app-services-context'
 import type { Page } from '../../data'
 import type { Issue, ProjectId, WorkflowStatusId } from '../../domain'
 import { atlasQueryKeys } from '../query-keys'
+import {
+  cancelIssueDerivedReads,
+  reconcileIssueCaches,
+  rollbackIssueCaches,
+} from '../issues/issue-cache'
 
 export function useBoardMetadata() {
   const { gateway, workspaceId } = useAppServices()
@@ -57,7 +62,8 @@ interface MoveIssueVariables {
 }
 
 interface MoveIssueContext {
-  readonly previous: InfiniteData<Page<Issue>, number> | undefined
+  readonly previousIssue: Issue
+  readonly optimisticRevision: number
 }
 
 export function useMoveBoardIssue(projectId: ProjectId | null) {
@@ -69,6 +75,7 @@ export function useMoveBoardIssue(projectId: ProjectId | null) {
       : atlasQueryKeys.boardIssues(workspaceId, projectId)
 
   return useMutation<Issue, Error, MoveIssueVariables, MoveIssueContext>({
+    scope: { id: `board:${projectId ?? 'unselected'}` },
     mutationFn: ({ issue, statusId }) =>
       gateway.updateIssue({
         id: issue.id,
@@ -76,10 +83,15 @@ export function useMoveBoardIssue(projectId: ProjectId | null) {
         changes: { statusId },
       }),
     onMutate: async ({ issue, statusId }) => {
-      await queryClient.cancelQueries({ queryKey })
+      await cancelIssueDerivedReads(queryClient, workspaceId)
       const previous = queryClient.getQueryData<InfiniteData<Page<Issue>, number>>(
         queryKey,
       )
+      const previousIssue =
+        previous?.pages
+          .flatMap(({ items }) => items)
+          .find(({ id }) => id === issue.id) ?? issue
+      const optimisticRevision = previousIssue.revision + 1
       queryClient.setQueryData<InfiniteData<Page<Issue>, number>>(queryKey, (current) =>
         current
           ? {
@@ -91,7 +103,7 @@ export function useMoveBoardIssue(projectId: ProjectId | null) {
                     ? {
                         ...candidate,
                         statusId,
-                        revision: candidate.revision + 1,
+                        revision: optimisticRevision,
                       }
                     : candidate,
                 ),
@@ -99,10 +111,17 @@ export function useMoveBoardIssue(projectId: ProjectId | null) {
             }
           : current,
       )
-      return { previous }
+      return { previousIssue, optimisticRevision }
     },
     onError: (_error, _variables, context) => {
-      if (context?.previous) queryClient.setQueryData(queryKey, context.previous)
+      if (context) {
+        rollbackIssueCaches(
+          queryClient,
+          workspaceId,
+          context.previousIssue,
+          context.optimisticRevision,
+        )
+      }
     },
     onSuccess: (updated) => {
       queryClient.setQueryData<InfiniteData<Page<Issue>, number>>(queryKey, (current) =>
@@ -118,10 +137,7 @@ export function useMoveBoardIssue(projectId: ProjectId | null) {
             }
           : current,
       )
-      queryClient.setQueryData(
-        atlasQueryKeys.issue(workspaceId, updated.id),
-        updated,
-      )
+      reconcileIssueCaches(queryClient, workspaceId, updated)
     },
     onSettled: async (_data, _error, variables) => {
       await Promise.all([

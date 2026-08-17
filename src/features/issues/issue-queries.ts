@@ -11,6 +11,7 @@ import { toIssueQuery, type IssueWorkspaceState } from './issue-workspace-state'
 import type { AtlasGateway, CreateIssueInput } from '../../data'
 import type { Issue, IssuePriority } from '../../domain'
 import type { IssuePageSize } from '../../preferences/types'
+import { cancelIssueDerivedReads, reconcileIssueCaches } from './issue-cache'
 
 export function useIssueWorkspaceData(
   state: IssueWorkspaceState,
@@ -48,11 +49,11 @@ export function useCreateIssue() {
 
   return useMutation({
     mutationFn: (input: CreateIssueInput) => gateway.createIssue(input),
+    onMutate: async () => {
+      await cancelIssueDerivedReads(queryClient, workspaceId)
+    },
     onSuccess: (issue) => {
-      queryClient.setQueryData(
-        atlasQueryKeys.issue(workspaceId, issue.id),
-        issue,
-      )
+      reconcileIssueCaches(queryClient, workspaceId, issue)
     },
     onSettled: async () => {
       await Promise.all([
@@ -85,6 +86,7 @@ export function useBulkUpdateIssuePriority() {
   const queryClient = useQueryClient()
 
   return useMutation({
+    scope: { id: `bulk-issue-priority:${workspaceId}` },
     mutationFn: ({
       issues,
       priority,
@@ -92,6 +94,17 @@ export function useBulkUpdateIssuePriority() {
       issues: readonly Issue[]
       priority: IssuePriority
     }) => updateIssuePriorities(gateway, issues, priority),
+    onMutate: async () => {
+      await cancelIssueDerivedReads(queryClient, workspaceId)
+    },
+    onSuccess: (result) => {
+      for (const issue of result.updated) {
+        reconcileIssueCaches(queryClient, workspaceId, issue)
+      }
+      for (const failure of result.failed) {
+        reconcileIssueCaches(queryClient, workspaceId, failure.issue)
+      }
+    },
     onSettled: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
