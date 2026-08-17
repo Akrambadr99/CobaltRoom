@@ -34,6 +34,8 @@ describe('RouteErrorBoundary', () => {
       {
         path: '/',
         loader: () => {
+          // React Router uses thrown Responses to represent expected route failures.
+          // eslint-disable-next-line @typescript-eslint/only-throw-error
           throw new Response('Private response body', {
             status: 403,
             statusText: 'Forbidden',
