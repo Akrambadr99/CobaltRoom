@@ -8,6 +8,8 @@ export type GatewayOperation =
   | 'administration.project-members.add'
   | 'administration.project-members.update'
   | 'administration.project-members.remove'
+  | 'administration.project-lead.get'
+  | 'administration.project-lead.transfer'
   | 'administration.workflow.get'
   | 'administration.workflow.update'
   | 'analytics.get'

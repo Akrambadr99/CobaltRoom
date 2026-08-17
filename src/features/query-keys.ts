@@ -26,6 +26,8 @@ export const atlasQueryKeys = {
     [...atlasQueryKeys.projects(workspaceId), 'detail', projectId] as const,
   projectMembers: (workspaceId: WorkspaceId, projectId: ProjectId) =>
     [...atlasQueryKeys.project(workspaceId, projectId), 'members'] as const,
+  projectLeadTransfer: (workspaceId: WorkspaceId, projectId: ProjectId) =>
+    [...atlasQueryKeys.project(workspaceId, projectId), 'lead-transfer'] as const,
   projectWorkflow: (workspaceId: WorkspaceId, projectId: ProjectId) =>
     [...atlasQueryKeys.project(workspaceId, projectId), 'workflow'] as const,
   projectActivity: (workspaceId: WorkspaceId, projectId: ProjectId) =>

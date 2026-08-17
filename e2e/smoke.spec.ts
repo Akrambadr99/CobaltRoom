@@ -147,6 +147,34 @@ test('governs project lifecycle changes and archival', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Edit project' })).toHaveCount(0)
 })
 
+test('transfers project leadership with authoritative role reconciliation', async ({
+  page,
+}) => {
+  await page.goto('/projects')
+  await page.getByRole('link', { name: 'Launch readiness' }).click()
+  const trigger = page.getByRole('button', { name: 'Transfer lead' })
+  await trigger.click()
+  const dialog = page.getByRole('dialog', {
+    name: 'Transfer project leadership',
+  })
+  await expect(dialog.getByLabel('New project lead')).toHaveValue(
+    /usr_.*product_lead/,
+  )
+  await dialog.getByLabel('Former lead’s new role').selectOption('viewer')
+  await dialog.getByRole('button', { name: 'Transfer leadership' }).click()
+
+  await expect(dialog).not.toBeVisible()
+  await expect(page.getByText('Maya Chen is now the project lead.')).toBeVisible()
+  const members = page.getByRole('table', {
+    name: 'Project membership administration',
+  })
+  await expect(members.getByRole('row', { name: /Maya Chen/ })).toContainText('Lead')
+  await expect(members.getByRole('row', { name: /Omar Haddad/ })).toContainText('Viewer')
+  await expect(
+    page.getByRole('heading', { name: 'Project activity' }).locator('xpath=ancestor::section[1]'),
+  ).toContainText('Transferred leadership from Omar Haddad to Maya Chen')
+})
+
 test('governs project membership and assigned-work reassignment', async ({ page }) => {
   await page.goto('/projects')
   await page.getByRole('link', { name: 'Launch readiness' }).click()

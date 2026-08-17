@@ -70,7 +70,17 @@ export interface ProjectSummary {
 
 export interface ProjectEditMetadata {
   readonly project: Project
-  readonly eligibleLeads: readonly User[]
+}
+
+export interface ProjectLeadCandidate {
+  readonly user: User
+  readonly currentRole: AssignableProjectRole
+}
+
+export interface ProjectLeadTransferData {
+  readonly project: Project
+  readonly currentLead: User
+  readonly candidates: readonly ProjectLeadCandidate[]
 }
 
 export type AssignableProjectRole = Exclude<ProjectMemberRole, 'lead'>
@@ -112,6 +122,14 @@ export interface RemoveProjectMemberInput {
   readonly id: ProjectMemberId
   readonly expectedProjectRevision: number
   readonly reassignIssuesTo: UserId | null
+}
+
+export interface TransferProjectLeadInput {
+  readonly projectId: ProjectId
+  readonly expectedProjectRevision: number
+  readonly expectedCurrentLeadId: UserId
+  readonly newLeadId: UserId
+  readonly formerLeadRole: AssignableProjectRole
 }
 
 export interface ProjectWorkflowAdministrationEntry {
@@ -171,7 +189,7 @@ export interface ProjectActivityData {
 
 export type MutableProjectFields = Pick<
   Project,
-  'description' | 'leadId' | 'name' | 'status'
+  'description' | 'name' | 'status'
 >
 
 export interface UpdateProjectInput {
@@ -436,6 +454,14 @@ export interface AtlasGateway {
   ): Promise<Project>
   removeProjectMember(
     input: RemoveProjectMemberInput,
+    options?: RequestOptions,
+  ): Promise<Project>
+  getProjectLeadTransfer(
+    projectId: ProjectId,
+    options?: RequestOptions,
+  ): Promise<ProjectLeadTransferData>
+  transferProjectLead(
+    input: TransferProjectLeadInput,
     options?: RequestOptions,
   ): Promise<Project>
   getProjectWorkflowAdministration(

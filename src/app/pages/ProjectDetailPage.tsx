@@ -17,6 +17,7 @@ import {
   useUpdateProject,
 } from '../../features/projects/project-queries'
 import { ProjectMembershipPanel } from '../../features/projects/ProjectMembershipPanel'
+import { ProjectLeadTransferDialog } from '../../features/projects/ProjectLeadTransferDialog'
 import { ProjectWorkflowPanel } from '../../features/projects/ProjectWorkflowPanel'
 import { useAuthorization } from '../providers/authorization-context'
 import './pages.css'
@@ -45,7 +46,9 @@ function LoadedProject({
   const [page, setPage] = useState(1)
   const [activityPage, setActivityPage] = useState(1)
   const [editing, setEditing] = useState(false)
+  const [transferringLead, setTransferringLead] = useState(false)
   const [confirmingArchive, setConfirmingArchive] = useState(false)
+  const [announcement, setAnnouncement] = useState('')
   const authorization = useAuthorization()
   const { issues, metadata } = useProjectDetail(requestedId, page)
   const activity = useProjectActivity(requestedId, activityPage)
@@ -83,6 +86,10 @@ function LoadedProject({
   const canArchive =
     project.status !== 'archived' &&
     authorization.can('project:archive', project.id)
+  const canTransferLead =
+    project.status !== 'completed' &&
+    project.status !== 'archived' &&
+    authorization.can('project:update', project.id)
 
   return (
     <section className="page" aria-labelledby="project-detail-title">
@@ -96,7 +103,7 @@ function LoadedProject({
             <h1 id="project-detail-title">{project.name}</h1>
             <p>{project.description}</p>
           </div>
-          {canEdit || canArchive ? (
+          {canEdit || canArchive || canTransferLead ? (
             <div className="project-detail-actions">
               {canEdit ? (
                 <button
@@ -107,6 +114,18 @@ function LoadedProject({
                   }}
                 >
                   Edit project
+                </button>
+              ) : null}
+              {canTransferLead ? (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => {
+                    setAnnouncement('')
+                    setTransferringLead(true)
+                  }}
+                >
+                  Transfer lead
                 </button>
               ) : null}
               {canArchive ? (
@@ -129,6 +148,10 @@ function LoadedProject({
           </p>
         ) : null}
       </header>
+
+      <p className="visually-hidden" role="status" aria-live="polite">
+        {announcement}
+      </p>
 
       <section className="work-panel" aria-labelledby="project-issues-title">
         <div className="work-panel__header">
@@ -204,9 +227,21 @@ function LoadedProject({
       {editing ? (
         <ProjectEditDialog
           project={project}
-          leads={metadata.data.eligibleLeads}
           onClose={() => {
             setEditing(false)
+          }}
+        />
+      ) : null}
+      {transferringLead ? (
+        <ProjectLeadTransferDialog
+          projectId={project.id}
+          authorized={canTransferLead}
+          onClose={() => {
+            setTransferringLead(false)
+          }}
+          onTransferred={(message) => {
+            setAnnouncement(message)
+            setTransferringLead(false)
           }}
         />
       ) : null}
@@ -303,20 +338,14 @@ function ProjectActivityPanel({
 
 function ProjectEditDialog({
   project,
-  leads,
   onClose,
 }: Readonly<{
   project: Project
-  leads: readonly {
-    readonly id: Project['leadId']
-    readonly displayName: string
-  }[]
   onClose: () => void
 }>) {
   const update = useUpdateProject(project.id)
   const [name, setName] = useState(project.name)
   const [description, setDescription] = useState(project.description)
-  const [leadId, setLeadId] = useState(project.leadId)
   const [status, setStatus] = useState(project.status)
   const [validationError, setValidationError] = useState<string | null>(null)
 
@@ -335,7 +364,6 @@ function ProjectEditDialog({
     const changes: Partial<MutableProjectFields> = {
       name: normalizedName,
       description: description.trim(),
-      leadId,
       status,
     }
     update.mutate({ project, changes }, { onSuccess: onClose })
@@ -378,19 +406,6 @@ function ProjectEditDialog({
               setDescription(event.currentTarget.value)
             }}
           />
-        </label>
-        <label>
-          <span>Lead</span>
-          <select
-            value={leadId}
-            onChange={(event) => {
-              setLeadId(event.currentTarget.value as Project['leadId'])
-            }}
-          >
-            {leads.map((lead) => (
-              <option key={lead.id} value={lead.id}>{lead.displayName}</option>
-            ))}
-          </select>
         </label>
         <label>
           <span>Status</span>

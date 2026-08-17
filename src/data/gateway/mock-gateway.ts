@@ -23,10 +23,12 @@ import type {
   ProjectEditMetadata,
   ProjectMembershipAdministrationData,
   ProjectMembershipQuery,
+  ProjectLeadTransferData,
   ProjectWorkflowAdministrationData,
   ProjectActivityData,
   RequestOptions,
   RemoveProjectMemberInput,
+  TransferProjectLeadInput,
   UpdateIssueInput,
   UpdateCommentInput,
   UpdateNotificationPreferencesInput,
@@ -410,25 +412,7 @@ export class MockAtlasGateway implements AtlasGateway {
       const project = data.projects.find(({ id }) => id === projectId)
       if (!project) throw new EntityNotFoundError('Project')
       this.assertPermission('project:view', project.workspaceId, project.id)
-      const activeUserIds = new Set(
-        data.memberships
-          .filter(
-            ({ workspaceId, status }) =>
-              workspaceId === project.workspaceId && status === 'active',
-          )
-          .map(({ userId }) => userId),
-      )
-      const projectUserIds = new Set(
-        data.projectMembers
-          .filter(({ projectId: memberProjectId }) => memberProjectId === project.id)
-          .map(({ userId }) => userId),
-      )
-      return {
-        project,
-        eligibleLeads: data.users
-          .filter(({ id }) => activeUserIds.has(id) && projectUserIds.has(id))
-          .sort((left, right) => left.displayName.localeCompare(right.displayName)),
-      }
+      return { project }
     })
   }
 
@@ -731,6 +715,167 @@ export class MockAtlasGateway implements AtlasGateway {
       })
       return updatedProject
     })
+  }
+
+  getProjectLeadTransfer(
+    projectId: ProjectId,
+    options?: RequestOptions,
+  ): Promise<ProjectLeadTransferData> {
+    return this.execute('administration.project-lead.get', options, () => {
+      const data = this.store.read().data
+      const project = data.projects.find(({ id }) => id === projectId)
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('project:update', project.workspaceId, project.id)
+      const currentLead = data.users.find(({ id }) => id === project.leadId)
+      if (!currentLead) throw new EntityNotFoundError('Project lead')
+      const activeUserIds = new Set(
+        data.memberships
+          .filter(
+            ({ workspaceId, status }) =>
+              workspaceId === project.workspaceId && status === 'active',
+          )
+          .map(({ userId }) => userId),
+      )
+      const candidates = data.projectMembers
+        .flatMap((membership) => {
+          if (
+            membership.projectId !== project.id ||
+            membership.role === 'lead' ||
+            !activeUserIds.has(membership.userId)
+          ) {
+            return []
+          }
+          const user = data.users.find(({ id }) => id === membership.userId)
+          if (!user) throw new EntityNotFoundError('Project member')
+          return [{ user, currentRole: membership.role }]
+        })
+        .sort((left, right) =>
+          left.user.displayName.localeCompare(right.user.displayName),
+        )
+      return { project, currentLead, candidates }
+    })
+  }
+
+  transferProjectLead(
+    input: TransferProjectLeadInput,
+    options?: RequestOptions,
+  ): Promise<Project> {
+    return this.execute(
+      'administration.project-lead.transfer',
+      options,
+      (requestId) => {
+        const current = this.store.read()
+        const projectIndex = current.data.projects.findIndex(
+          ({ id }) => id === input.projectId,
+        )
+        const project = current.data.projects[projectIndex]
+        if (!project) throw new EntityNotFoundError('Project')
+        this.assertPermission('project:update', project.workspaceId, project.id)
+        this.assertProjectOpen(current.data, project.id)
+        this.assertProjectRevision(project, input.expectedProjectRevision)
+        this.assertAssignableProjectRole(input.formerLeadRole)
+        if (project.leadId !== input.expectedCurrentLeadId) {
+          throw new GatewayConflictError(
+            'Project leadership changed after it was loaded. Reload the latest members and try again.',
+          )
+        }
+        if (input.newLeadId === project.leadId) {
+          throw new InvalidGatewayRequestError(
+            'Choose a different project member as the new lead.',
+          )
+        }
+
+        const currentLead = current.data.users.find(({ id }) => id === project.leadId)
+        const newLead = current.data.users.find(({ id }) => id === input.newLeadId)
+        const currentLeadMembership = current.data.projectMembers.find(
+          ({ projectId, userId, role }) =>
+            projectId === project.id && userId === project.leadId && role === 'lead',
+        )
+        const newLeadMembership = current.data.projectMembers.find(
+          ({ projectId, userId }) =>
+            projectId === project.id && userId === input.newLeadId,
+        )
+        const newLeadWorkspaceMembership = current.data.memberships.find(
+          ({ workspaceId, userId }) =>
+            workspaceId === project.workspaceId && userId === input.newLeadId,
+        )
+        if (!currentLead || !currentLeadMembership) {
+          throw new GatewayConflictError(
+            'The current project lead membership is no longer valid.',
+          )
+        }
+        if (
+          !newLead ||
+          !newLeadMembership ||
+          newLeadMembership.role === 'lead' ||
+          newLeadWorkspaceMembership?.status !== 'active'
+        ) {
+          throw new InvalidGatewayRequestError(
+            'Project leadership can transfer only to an active project member.',
+          )
+        }
+
+        const occurredAt = this.clock.now()
+        const updatedProject: Project = {
+          ...project,
+          leadId: newLead.id,
+          revision: project.revision + 1,
+          updatedAt: occurredAt,
+        }
+        const projects = [...current.data.projects]
+        projects[projectIndex] = updatedProject
+        const projectMembers = current.data.projectMembers.map((membership) => {
+          if (membership.id === currentLeadMembership.id) {
+            return { ...membership, role: input.formerLeadRole }
+          }
+          if (membership.id === newLeadMembership.id) {
+            return { ...membership, role: 'lead' as const }
+          }
+          return membership
+        })
+
+        this.commit(current.version, {
+          ...current.data,
+          projects,
+          projectMembers,
+          activityEvents: [
+            ...current.data.activityEvents,
+            {
+              id: this.ids.activity('project_lead_transferred'),
+              workspaceId: project.workspaceId,
+              actorId: this.actorId,
+              entityKind: 'project',
+              entityId: project.id,
+              action: 'project.lead.transferred',
+              occurredAt,
+              summary: `Transferred leadership from ${currentLead.displayName} to ${newLead.displayName}.`,
+            },
+          ],
+          auditEvents: [
+            ...current.data.auditEvents,
+            {
+              id: this.ids.audit('project_lead_transferred'),
+              workspaceId: project.workspaceId,
+              actorId: this.actorId,
+              requestId,
+              action: 'project.lead.transferred',
+              outcome: 'succeeded',
+              occurredAt,
+              metadata: {
+                projectId: project.id,
+                previousLeadId: currentLead.id,
+                newLeadId: newLead.id,
+                previousLeadRole: input.formerLeadRole,
+                previousCandidateRole: newLeadMembership.role,
+                fromRevision: project.revision,
+                toRevision: updatedProject.revision,
+              },
+            },
+          ],
+        })
+        return updatedProject
+      },
+    )
   }
 
   getProjectWorkflowAdministration(
@@ -1171,21 +1316,6 @@ export class MockAtlasGateway implements AtlasGateway {
           `Projects may not move from ${project.status} to ${status}.`,
         )
       }
-      const leadId = input.changes.leadId ?? project.leadId
-      const eligibleLead = current.data.projectMembers.some(
-        ({ projectId, userId }) => projectId === project.id && userId === leadId,
-      ) && current.data.memberships.some(
-        ({ workspaceId, userId, status }) =>
-          workspaceId === project.workspaceId &&
-          userId === leadId &&
-          status === 'active',
-      )
-      if (!eligibleLead) {
-        throw new InvalidGatewayRequestError(
-          'Project leads must be active members of the project.',
-        )
-      }
-
       const occurredAt = this.clock.now()
       const updated: Project = {
         ...project,
@@ -1193,22 +1323,14 @@ export class MockAtlasGateway implements AtlasGateway {
         name,
         description,
         status,
-        leadId,
         revision: project.revision + 1,
         updatedAt: occurredAt,
       }
       const projects = [...current.data.projects]
       projects[projectIndex] = updated
-      const projectMembers = current.data.projectMembers.map((member) => {
-        if (member.projectId !== project.id) return member
-        if (member.userId === leadId) return { ...member, role: 'lead' as const }
-        if (member.role === 'lead') return { ...member, role: 'contributor' as const }
-        return member
-      })
       this.commit(current.version, {
         ...current.data,
         projects,
-        projectMembers,
         activityEvents: [
           ...current.data.activityEvents,
           {

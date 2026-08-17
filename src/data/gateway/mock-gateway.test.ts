@@ -91,7 +91,7 @@ describe('MockAtlasGateway', () => {
     ])
   })
 
-  it('returns project edit metadata for active project members', async () => {
+  it('returns project edit metadata', async () => {
     const { fixtures, gateway, tracer } = createGateway()
     const project = fixtures.projects[0]
     if (!project) throw new Error('Expected a fixture project.')
@@ -99,10 +99,6 @@ describe('MockAtlasGateway', () => {
     const metadata = await gateway.getProjectEditMetadata(project.id)
 
     expect(metadata.project).toEqual(project)
-    expect(metadata.eligibleLeads.map(({ displayName }) => displayName)).toEqual([
-      'Maya Chen',
-      'Omar Haddad',
-    ])
     expect(tracer.read()).toMatchObject([
       { operation: 'project.metadata.get', phase: 'started' },
       { operation: 'project.metadata.get', phase: 'succeeded' },
@@ -215,13 +211,10 @@ describe('MockAtlasGateway', () => {
     )
   })
 
-  it('updates project lifecycle fields and transfers leadership atomically', async () => {
+  it('updates project lifecycle fields without changing leadership', async () => {
     const { fixtures, gateway, store } = createGateway()
     const project = fixtures.projects[0]
-    const nextLead = fixtures.projectMembers.find(
-      ({ projectId, role }) => projectId === project?.id && role === 'contributor',
-    )
-    if (!project || !nextLead) throw new Error('Expected project leadership fixtures.')
+    if (!project) throw new Error('Expected project lifecycle fixtures.')
 
     const updated = await gateway.updateProject({
       id: project.id,
@@ -229,7 +222,6 @@ describe('MockAtlasGateway', () => {
       changes: {
         name: '  Launch assurance  ',
         description: '  Govern the launch decision.  ',
-        leadId: nextLead.userId,
         status: 'paused',
       },
     })
@@ -237,21 +229,169 @@ describe('MockAtlasGateway', () => {
     expect(updated).toMatchObject({
       name: 'Launch assurance',
       description: 'Govern the launch decision.',
-      leadId: nextLead.userId,
+      leadId: project.leadId,
       status: 'paused',
       revision: 2,
     })
     const snapshot = store.read().data
-    expect(
-      snapshot.projectMembers.find(
-        ({ projectId, userId }) =>
-          projectId === project.id && userId === nextLead.userId,
-      ),
-    ).toMatchObject({ role: 'lead' })
+    expect(snapshot.projectMembers.filter(
+      ({ projectId, role }) => projectId === project.id && role === 'lead',
+    )).toEqual([
+      expect.objectContaining({ userId: project.leadId }),
+    ])
     expect(snapshot.auditEvents.at(-1)).toMatchObject({
       action: 'project.updated',
       metadata: { projectId: project.id, fromRevision: 1, toRevision: 2 },
     })
+  })
+
+  it('transfers project leadership atomically with roles, activity, audit, and tracing', async () => {
+    const { fixtures, gateway, store, tracer } = createGateway()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    const currentLead = fixtures.users.find(({ id }) => id === project?.leadId)
+    const candidate = fixtures.users.find(({ displayName }) => displayName === 'Maya Chen')
+    if (!project || !currentLead || !candidate) {
+      throw new Error('Expected lead transfer fixtures.')
+    }
+
+    const transferData = await gateway.getProjectLeadTransfer(project.id)
+    expect(transferData).toMatchObject({
+      project,
+      currentLead,
+      candidates: [
+        { user: { id: candidate.id, displayName: candidate.displayName }, currentRole: 'contributor' },
+      ],
+    })
+
+    const updated = await gateway.transferProjectLead({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      expectedCurrentLeadId: currentLead.id,
+      newLeadId: candidate.id,
+      formerLeadRole: 'viewer',
+    })
+
+    expect(updated).toMatchObject({ leadId: candidate.id, revision: 2 })
+    const snapshot = store.read().data
+    expect(snapshot.projectMembers.find(
+      ({ projectId, userId }) => projectId === project.id && userId === currentLead.id,
+    )).toMatchObject({ role: 'viewer' })
+    expect(snapshot.projectMembers.find(
+      ({ projectId, userId }) => projectId === project.id && userId === candidate.id,
+    )).toMatchObject({ role: 'lead' })
+    expect(snapshot.activityEvents.at(-1)).toMatchObject({
+      action: 'project.lead.transferred',
+      summary: 'Transferred leadership from Omar Haddad to Maya Chen.',
+    })
+    expect(snapshot.auditEvents.at(-1)).toMatchObject({
+      action: 'project.lead.transferred',
+      metadata: {
+        previousLeadId: currentLead.id,
+        newLeadId: candidate.id,
+        previousLeadRole: 'viewer',
+        previousCandidateRole: 'contributor',
+        fromRevision: 1,
+        toRevision: 2,
+      },
+    })
+    expect(tracer.read().slice(-2)).toMatchObject([
+      { operation: 'administration.project-lead.transfer', phase: 'started' },
+      { operation: 'administration.project-lead.transfer', phase: 'succeeded' },
+    ])
+  })
+
+  it('rejects ineligible, stale, no-op, and unauthorized lead transfers', async () => {
+    const ineligible = createGateway()
+    const project = ineligible.fixtures.projects.find(({ key }) => key === 'OPS')
+    const candidate = ineligible.fixtures.users.find(
+      ({ displayName }) => displayName === 'Maya Chen',
+    )
+    const candidateWorkspaceMembership = ineligible.fixtures.memberships.find(
+      ({ userId }) => userId === candidate?.id,
+    )
+    if (!project || !candidate || !candidateWorkspaceMembership) {
+      throw new Error('Expected lead eligibility fixtures.')
+    }
+    const suspended = ineligible.store.read()
+    ineligible.store.commit(suspended.version, {
+      ...suspended.data,
+      memberships: suspended.data.memberships.map((membership) =>
+        membership.id === candidateWorkspaceMembership.id
+          ? { ...membership, status: 'suspended' as const, revision: 2 }
+          : membership,
+      ),
+    })
+    await expect(ineligible.gateway.transferProjectLead({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      expectedCurrentLeadId: project.leadId,
+      newLeadId: candidate.id,
+      formerLeadRole: 'contributor',
+    })).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+
+    const stale = createGateway()
+    const staleProject = stale.fixtures.projects.find(({ key }) => key === 'OPS')
+    const staleCandidate = stale.fixtures.users.find(
+      ({ displayName }) => displayName === 'Maya Chen',
+    )
+    if (!staleProject || !staleCandidate) throw new Error('Expected stale transfer fixtures.')
+    await stale.gateway.updateProject({
+      id: staleProject.id,
+      expectedRevision: staleProject.revision,
+      changes: { description: 'A concurrent project update.' },
+    })
+    await expect(stale.gateway.transferProjectLead({
+      projectId: staleProject.id,
+      expectedProjectRevision: staleProject.revision,
+      expectedCurrentLeadId: staleProject.leadId,
+      newLeadId: staleCandidate.id,
+      formerLeadRole: 'contributor',
+    })).rejects.toBeInstanceOf(GatewayConflictError)
+    await expect(stale.gateway.transferProjectLead({
+      projectId: staleProject.id,
+      expectedProjectRevision: 2,
+      expectedCurrentLeadId: staleProject.leadId,
+      newLeadId: staleProject.leadId,
+      formerLeadRole: 'contributor',
+    })).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+
+    const revoked = createGateway()
+    const revokedProject = revoked.fixtures.projects.find(({ key }) => key === 'OPS')
+    const revokedCandidate = revoked.fixtures.users.find(
+      ({ displayName }) => displayName === 'Maya Chen',
+    )
+    if (!revokedProject || !revokedCandidate) {
+      throw new Error('Expected authorization transfer fixtures.')
+    }
+    const current = revoked.store.read()
+    revoked.store.commit(current.version, {
+      ...current.data,
+      projects: current.data.projects.map((item) =>
+        item.id === revokedProject.id ? { ...item, leadId: revokedCandidate.id } : item,
+      ),
+      memberships: current.data.memberships.map((membership) =>
+        membership.userId === revokedProject.leadId
+          ? { ...membership, role: 'member' as const, revision: membership.revision + 1 }
+          : membership,
+      ),
+      projectMembers: current.data.projectMembers.map((membership) => {
+        if (membership.projectId !== revokedProject.id) return membership
+        if (membership.userId === revokedProject.leadId) {
+          return { ...membership, role: 'contributor' as const }
+        }
+        if (membership.userId === revokedCandidate.id) {
+          return { ...membership, role: 'lead' as const }
+        }
+        return membership
+      }),
+    })
+    await expect(revoked.gateway.transferProjectLead({
+      projectId: revokedProject.id,
+      expectedProjectRevision: revokedProject.revision,
+      expectedCurrentLeadId: revokedProject.leadId,
+      newLeadId: revokedCandidate.id,
+      formerLeadRole: 'contributor',
+    })).rejects.toBeInstanceOf(ForbiddenGatewayError)
   })
 
   it('returns paginated project activity with authoritative actor attribution', async () => {

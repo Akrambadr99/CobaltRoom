@@ -12,7 +12,7 @@ import {
   SimulatedNetwork,
   type RequestSimulator,
 } from '../../data'
-import type { UserId } from '../../domain'
+import { projectMemberId, type UserId } from '../../domain'
 import { render, screen, waitFor, within } from '../../test/render'
 
 function renderProjectDetail(
@@ -28,9 +28,10 @@ function renderProjectDetail(
     ...(options.actorId ? { actorId: options.actorId } : {}),
     ...(options.store ? { dataStore: options.store } : {}),
   })
-  return render(
+  const queryClient = createAtlasQueryClient()
+  const result = render(
     <AppProviders
-      queryClient={createAtlasQueryClient()}
+      queryClient={queryClient}
       services={services}
     >
       <MemoryRouter initialEntries={[path]}>
@@ -40,6 +41,7 @@ function renderProjectDetail(
       </MemoryRouter>
     </AppProviders>,
   )
+  return { ...result, queryClient, services }
 }
 
 describe('ProjectDetailPage', () => {
@@ -84,7 +86,7 @@ describe('ProjectDetailPage', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('edits validated project fields and transfers leadership', async () => {
+  it('edits validated project lifecycle fields', async () => {
     const user = userEvent.setup()
     const fixtures = createAtlasFixtures()
     const project = fixtures.projects.find(({ key }) => key === 'OPS')
@@ -99,7 +101,6 @@ describe('ProjectDetailPage', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('1 to 120 characters')
 
     await user.type(name, 'Launch assurance')
-    await user.selectOptions(screen.getByLabelText('Lead'), 'Maya Chen')
     await user.selectOptions(screen.getByLabelText('Status'), 'paused')
     await user.click(screen.getByRole('button', { name: 'Save project' }))
 
@@ -115,6 +116,279 @@ describe('ProjectDetailPage', () => {
           .closest('section'),
       ).toHaveTextContent('Omar Haddad Updated OPS.')
     })
+  })
+
+  it('transfers leadership through an accessible governed confirmation', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    const currentLead = fixtures.users.find(({ id }) => id === project?.leadId)
+    const candidate = fixtures.users.find(({ displayName }) => displayName === 'Maya Chen')
+    const alternate = fixtures.users.find(({ displayName }) => displayName === 'Theo Martin')
+    if (!project || !currentLead || !candidate || !alternate) {
+      throw new Error('Expected lead transfer fixtures.')
+    }
+    const store = new InMemoryDataStore({
+      ...fixtures,
+      projectMembers: [
+        ...fixtures.projectMembers,
+        {
+          id: projectMemberId('pm_test_alternate_lead'),
+          projectId: project.id,
+          userId: alternate.id,
+          role: 'viewer',
+        },
+      ],
+    })
+    renderProjectDetail(`/projects/${project.id}`, { store })
+    await screen.findByRole('heading', { level: 1, name: project.name })
+
+    const trigger = screen.getByRole('button', { name: 'Transfer lead' })
+    await user.click(trigger)
+    let dialog = await screen.findByRole('dialog', {
+      name: 'Transfer project leadership',
+    })
+    expect(dialog).toHaveAccessibleDescription(
+      'Leadership changes immediately update project permissions and member roles.',
+    )
+    expect(within(dialog).getByLabelText('New project lead')).toHaveValue(candidate.id)
+    await user.selectOptions(
+      within(dialog).getByLabelText('New project lead'),
+      alternate.id,
+    )
+    await user.selectOptions(
+      within(dialog).getByLabelText('New project lead'),
+      candidate.id,
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(trigger).toHaveFocus()
+
+    await user.click(trigger)
+    dialog = await screen.findByRole('dialog', {
+      name: 'Transfer project leadership',
+    })
+    await user.selectOptions(
+      within(dialog).getByLabelText('Former lead’s new role'),
+      'viewer',
+    )
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Transfer leadership' }),
+    )
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Maya Chen is now the project lead.',
+    )
+    expect(store.read().data.projects.find(({ id }) => id === project.id)?.leadId)
+      .toBe(candidate.id)
+    expect(store.read().data.projectMembers.find(
+      ({ projectId, userId }) => projectId === project.id && userId === currentLead.id,
+    )).toMatchObject({ role: 'viewer' })
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'Project activity' }).closest('section'),
+      ).toHaveTextContent(
+        'Omar Haddad Transferred leadership from Omar Haddad to Maya Chen.',
+      )
+    })
+  })
+
+  it('preserves the selected lead after a concurrent project revision conflict', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    const candidate = fixtures.users.find(({ displayName }) => displayName === 'Maya Chen')
+    if (!project || !candidate) throw new Error('Expected lead conflict fixtures.')
+    const store = new InMemoryDataStore(fixtures)
+    renderProjectDetail(`/projects/${project.id}`, { store })
+    await screen.findByRole('heading', { level: 1, name: project.name })
+    await user.click(screen.getByRole('button', { name: 'Transfer lead' }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Transfer project leadership',
+    })
+    const newLead = within(dialog).getByLabelText('New project lead')
+    expect(newLead).toHaveValue(candidate.id)
+
+    const concurrent = store.read()
+    store.commit(concurrent.version, {
+      ...concurrent.data,
+      projects: concurrent.data.projects.map((item) =>
+        item.id === project.id
+          ? { ...item, description: 'Concurrent governance update.', revision: 2 }
+          : item,
+      ),
+    })
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Transfer leadership' }),
+    )
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'project changed after it was loaded',
+    )
+    expect(newLead).toHaveValue(candidate.id)
+    await waitFor(() => {
+      expect(within(dialog).getByText('2')).toBeVisible()
+    })
+  })
+
+  it('retains the rejection reason when a candidate is suspended concurrently', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    const candidate = fixtures.users.find(({ displayName }) => displayName === 'Maya Chen')
+    const candidateMembership = fixtures.memberships.find(
+      ({ userId }) => userId === candidate?.id,
+    )
+    if (!project || !candidate || !candidateMembership) {
+      throw new Error('Expected concurrent candidate fixtures.')
+    }
+    const store = new InMemoryDataStore(fixtures)
+    renderProjectDetail(`/projects/${project.id}`, { store })
+    await screen.findByRole('heading', { level: 1, name: project.name })
+    await user.click(screen.getByRole('button', { name: 'Transfer lead' }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Transfer project leadership',
+    })
+    await within(dialog).findByLabelText('New project lead')
+
+    const current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      memberships: current.data.memberships.map((membership) =>
+        membership.id === candidateMembership.id
+          ? { ...membership, status: 'suspended' as const, revision: 2 }
+          : membership,
+      ),
+    })
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Transfer leadership' }),
+    )
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'only to an active project member',
+    )
+    expect(await within(dialog).findByText(
+      'No other active project member is eligible to become lead.',
+    )).toBeVisible()
+  })
+
+  it('removes transfer actions when authorization changes while the dialog is open', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    const candidate = fixtures.users.find(({ displayName }) => displayName === 'Maya Chen')
+    const actorMembership = fixtures.memberships.find(
+      ({ userId }) => userId === project?.leadId,
+    )
+    if (!project || !candidate || !actorMembership) {
+      throw new Error('Expected live authorization fixtures.')
+    }
+    const store = new InMemoryDataStore(fixtures)
+    const { queryClient, services } = renderProjectDetail(
+      `/projects/${project.id}`,
+      { store },
+    )
+    await screen.findByRole('heading', { level: 1, name: project.name })
+    await user.click(screen.getByRole('button', { name: 'Transfer lead' }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Transfer project leadership',
+    })
+
+    const current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      projects: current.data.projects.map((item) =>
+        item.id === project.id ? { ...item, leadId: candidate.id } : item,
+      ),
+      memberships: current.data.memberships.map((membership) =>
+        membership.id === actorMembership.id
+          ? { ...membership, role: 'member' as const, revision: 2 }
+          : membership,
+      ),
+      projectMembers: current.data.projectMembers.map((membership) => {
+        if (membership.projectId !== project.id) return membership
+        if (membership.userId === project.leadId) {
+          return { ...membership, role: 'contributor' as const }
+        }
+        if (membership.userId === candidate.id) {
+          return { ...membership, role: 'lead' as const }
+        }
+        return membership
+      }),
+    })
+    await queryClient.invalidateQueries({
+      queryKey: ['authorization', services.workspaceId],
+    })
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'permission to transfer this project changed',
+    )
+    expect(within(dialog).queryByRole('button', { name: 'Transfer leadership' }))
+      .not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Transfer lead' }))
+      .not.toBeInTheDocument()
+    const close = within(dialog).getByRole('button', { name: 'Close' })
+    expect(close).toHaveFocus()
+    await user.click(close)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('explains when no other active project member can become lead', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    if (!project) throw new Error('Expected lead eligibility fixtures.')
+    const store = new InMemoryDataStore({
+      ...fixtures,
+      projectMembers: fixtures.projectMembers.filter(
+        ({ projectId, role }) => projectId !== project.id || role === 'lead',
+      ),
+    })
+    renderProjectDetail(`/projects/${project.id}`, { store })
+    await screen.findByRole('heading', { level: 1, name: project.name })
+    await user.click(screen.getByRole('button', { name: 'Transfer lead' }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Transfer project leadership',
+    })
+
+    expect(within(dialog).getByText(
+      'No other active project member is eligible to become lead.',
+    )).toBeVisible()
+    expect(within(dialog).queryByRole('button', { name: 'Transfer leadership' }))
+      .not.toBeInTheDocument()
+  })
+
+  it('retries a transient eligible-member request without closing the dialog', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    const candidate = fixtures.users.find(({ displayName }) => displayName === 'Maya Chen')
+    if (!project || !candidate) throw new Error('Expected lead retry fixtures.')
+    let attempts = 0
+    renderProjectDetail(`/projects/${project.id}`, {
+      simulator: new SimulatedNetwork({
+        failure: (operation) => {
+          if (operation !== 'administration.project-lead.get') return null
+          attempts += 1
+          return attempts === 1 ? 'Eligible members are temporarily unavailable.' : null
+        },
+      }),
+    })
+    await screen.findByRole('heading', { level: 1, name: project.name })
+    await user.click(screen.getByRole('button', { name: 'Transfer lead' }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Transfer project leadership',
+    })
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Eligible members are temporarily unavailable.',
+    )
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Retry eligible members' }),
+    )
+    expect(await within(dialog).findByLabelText('New project lead')).toHaveValue(
+      candidate.id,
+    )
   })
 
   it('adds project members and confirms removal with assigned-work reassignment', async () => {
