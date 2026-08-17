@@ -6,8 +6,12 @@ import { BoardPage } from './BoardPage'
 import { AppProviders } from '../providers/AppProviders'
 import { createAtlasQueryClient } from '../query-client'
 import { createAppServices } from '../services'
-import { createAtlasFixtures, SimulatedNetwork } from '../../data'
-import type { UserId } from '../../domain'
+import {
+  createAtlasFixtures,
+  InMemoryDataStore,
+  SimulatedNetwork,
+} from '../../data'
+import { issueId, type UserId } from '../../domain'
 import { render, screen, waitFor, within } from '../../test/render'
 
 function LocationProbe() {
@@ -19,10 +23,12 @@ function renderBoard(
   path = '/board',
   simulator = new SimulatedNetwork(),
   actorId?: UserId,
+  dataStore?: InMemoryDataStore,
 ) {
   const services = createAppServices({
     simulator,
     ...(actorId ? { actorId } : {}),
+    ...(dataStore ? { dataStore } : {}),
   })
 
   return {
@@ -77,7 +83,7 @@ describe('BoardPage', () => {
         'Close the device telemetry coverage gap',
       ),
     ).toBeVisible()
-    expect(within(getColumn('Triage')).getByLabelText('1 issues')).toBeVisible()
+    expect(within(getColumn('Triage')).getByLabelText('1 loaded issue')).toBeVisible()
 
     await user.selectOptions(
       screen.getByRole('combobox', { name: 'Project' }),
@@ -196,5 +202,42 @@ describe('BoardPage', () => {
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Investigating' }),
     ).toBeVisible()
+  })
+
+  it('progressively loads large project boards across server pages', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ name }) => name === 'Launch readiness')
+    const template = fixtures.issues.find(({ projectId }) => projectId === project?.id)
+    if (!project || !template) throw new Error('Expected launch project fixtures.')
+    const additionalIssues = Array.from({ length: 48 }, (_, index) => ({
+      ...template,
+      id: issueId(`issue_board_scale_${String(index + 4).padStart(3, '0')}`),
+      number: index + 4,
+      title: `Scaled board issue ${String(index + 4)}`,
+      parentIssueId: null,
+      labelIds: [],
+    }))
+    const dataStore = new InMemoryDataStore({
+      ...fixtures,
+      issues: [...fixtures.issues, ...additionalIssues],
+    })
+
+    renderBoard(
+      `/board?project=${project.id}`,
+      new SimulatedNetwork(),
+      undefined,
+      dataStore,
+    )
+
+    expect(await screen.findByText('Showing 50 of 51 issues.')).toBeVisible()
+    expect(screen.getAllByRole('article')).toHaveLength(50)
+    await user.click(screen.getByRole('button', { name: 'Load more issues' }))
+    expect(await screen.findByText('Scaled board issue 51')).toBeVisible()
+    expect(screen.getAllByRole('article')).toHaveLength(51)
+    expect(screen.getByText('Showing 51 of 51 issues.')).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Load more issues' }),
+    ).not.toBeInTheDocument()
   })
 })

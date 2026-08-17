@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from '@tanstack/react-query'
 
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { Page } from '../../data'
@@ -17,12 +23,12 @@ export function useBoardMetadata() {
 export function useBoardIssues(projectId: ProjectId | null) {
   const { gateway, workspaceId } = useAppServices()
 
-  return useQuery({
+  return useInfiniteQuery({
     queryKey:
       projectId === null
         ? [...atlasQueryKeys.workspaceIssues(workspaceId), 'board', 'unselected']
         : atlasQueryKeys.boardIssues(workspaceId, projectId),
-    queryFn: ({ signal }) => {
+    queryFn: ({ pageParam, signal }) => {
       if (projectId === null) {
         throw new TypeError('A project must be selected before loading its board.')
       }
@@ -31,11 +37,16 @@ export function useBoardIssues(projectId: ProjectId | null) {
         {
           filters: { workspaceId, projectIds: [projectId] },
           sort: { field: 'number', direction: 'ascending' },
-          page: { number: 1, size: 100 },
+          page: { number: pageParam, size: 50 },
         },
         { signal },
       )
     },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.pageNumber < lastPage.pageCount
+        ? lastPage.pageNumber + 1
+        : undefined,
     enabled: projectId !== null,
   })
 }
@@ -46,7 +57,7 @@ interface MoveIssueVariables {
 }
 
 interface MoveIssueContext {
-  readonly previous: Page<Issue> | undefined
+  readonly previous: InfiniteData<Page<Issue>, number> | undefined
 }
 
 export function useMoveBoardIssue(projectId: ProjectId | null) {
@@ -66,20 +77,25 @@ export function useMoveBoardIssue(projectId: ProjectId | null) {
       }),
     onMutate: async ({ issue, statusId }) => {
       await queryClient.cancelQueries({ queryKey })
-      const previous = queryClient.getQueryData<Page<Issue>>(queryKey)
-      queryClient.setQueryData<Page<Issue>>(queryKey, (current) =>
+      const previous = queryClient.getQueryData<InfiniteData<Page<Issue>, number>>(
+        queryKey,
+      )
+      queryClient.setQueryData<InfiniteData<Page<Issue>, number>>(queryKey, (current) =>
         current
           ? {
               ...current,
-              items: current.items.map((candidate) =>
-                candidate.id === issue.id
-                  ? {
-                      ...candidate,
-                      statusId,
-                      revision: candidate.revision + 1,
-                    }
-                  : candidate,
-              ),
+              pages: current.pages.map((page) => ({
+                ...page,
+                items: page.items.map((candidate) =>
+                  candidate.id === issue.id
+                    ? {
+                        ...candidate,
+                        statusId,
+                        revision: candidate.revision + 1,
+                      }
+                    : candidate,
+                ),
+              })),
             }
           : current,
       )
@@ -89,13 +105,16 @@ export function useMoveBoardIssue(projectId: ProjectId | null) {
       if (context?.previous) queryClient.setQueryData(queryKey, context.previous)
     },
     onSuccess: (updated) => {
-      queryClient.setQueryData<Page<Issue>>(queryKey, (current) =>
+      queryClient.setQueryData<InfiniteData<Page<Issue>, number>>(queryKey, (current) =>
         current
           ? {
               ...current,
-              items: current.items.map((candidate) =>
-                candidate.id === updated.id ? updated : candidate,
-              ),
+              pages: current.pages.map((page) => ({
+                ...page,
+                items: page.items.map((candidate) =>
+                  candidate.id === updated.id ? updated : candidate,
+                ),
+              })),
             }
           : current,
       )

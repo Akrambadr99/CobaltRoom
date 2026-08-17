@@ -188,6 +188,19 @@
   font-weight: 700;
 }
 
+.board-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+}
+
+.board-pagination p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
 @media (width < 44rem) {
   .board-header {
     align-items: stretch;
@@ -200,5 +213,10 @@
 
   .kanban-board {
     grid-auto-columns: minmax(85vw, 1fr);
+  }
+
+  .board-pagination {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

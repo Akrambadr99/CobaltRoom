@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import {
@@ -25,6 +25,11 @@ export function BoardPage() {
   const projectId = selectedProject?.project.id ?? null
   const issues = useBoardIssues(projectId)
   const moveIssue = useMoveBoardIssue(projectId)
+  const loadedIssues = useMemo(
+    () => issues.data?.pages.flatMap((page) => page.items) ?? [],
+    [issues.data],
+  )
+  const totalIssues = issues.data?.pages[0]?.totalItems ?? 0
 
   useEffect(() => {
     if (!selectedProject || requestedProjectId === selectedProject.project.id) {
@@ -150,7 +155,7 @@ export function BoardPage() {
           aria-label={`${selectedProject.project.name} workflow board`}
         >
           {selectedProject.statuses.map((status) => {
-            const statusIssues = issues.data.items.filter(
+            const statusIssues = loadedIssues.filter(
               ({ statusId }) => statusId === status.id,
             )
 
@@ -162,12 +167,18 @@ export function BoardPage() {
               >
                 <header className="kanban-column__header">
                   <h2 id={`status-${status.id}`}>{status.name}</h2>
-                  <span aria-label={`${String(statusIssues.length)} issues`}>
+                  <span
+                    aria-label={`${String(statusIssues.length)} loaded ${statusIssues.length === 1 ? 'issue' : 'issues'}`}
+                  >
                     {statusIssues.length}
                   </span>
                 </header>
                 {statusIssues.length === 0 ? (
-                  <p className="kanban-column__empty">No issues in this status.</p>
+                  <p className="kanban-column__empty">
+                    {issues.hasNextPage
+                      ? 'No loaded issues in this status.'
+                      : 'No issues in this status.'}
+                  </p>
                 ) : (
                   <ol className="kanban-card-list">
                     {statusIssues.map((issue) => {
@@ -216,6 +227,24 @@ export function BoardPage() {
               </section>
             )
           })}
+        </div>
+      ) : null}
+
+      {issues.isSuccess && totalIssues > 50 ? (
+        <div className="board-pagination">
+          <p>
+            Showing {String(loadedIssues.length)} of {String(totalIssues)} issues.
+          </p>
+          {issues.hasNextPage ? (
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={issues.isFetchingNextPage}
+              onClick={() => void issues.fetchNextPage()}
+            >
+              {issues.isFetchingNextPage ? 'Loading more issues…' : 'Load more issues'}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
