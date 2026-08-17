@@ -68,8 +68,8 @@ describe('domain invariants', () => {
       createTestWorkflowStatus(),
       createTestWorkflowStatus({
         id: testIds.secondStatus,
-        name: 'In progress',
-        category: 'started',
+        name: 'Done',
+        category: 'completed',
         order: 1,
       }),
     ]
@@ -81,7 +81,7 @@ describe('domain invariants', () => {
 
   it.each([
     { statuses: [] },
-    { statuses: [createTestWorkflowStatus({ order: 2 })] },
+    { statuses: [createTestWorkflowStatus()] },
     {
       statuses: [
         createTestWorkflowStatus(),
@@ -98,8 +98,31 @@ describe('domain invariants', () => {
         createTestWorkflowStatus({
           id: testIds.secondStatus,
           name: 'Started',
+          category: 'completed',
           order: 1,
           projectId: testIds.secondProject,
+        }),
+      ],
+    },
+    {
+      statuses: [
+        createTestWorkflowStatus(),
+        createTestWorkflowStatus({
+          id: testIds.secondStatus,
+          name: 'Started',
+          category: 'started',
+          order: 1,
+        }),
+      ],
+    },
+    {
+      statuses: [
+        createTestWorkflowStatus({ category: 'completed' }),
+        createTestWorkflowStatus({
+          id: testIds.secondStatus,
+          name: 'Canceled',
+          category: 'canceled',
+          order: 1,
         }),
       ],
     },

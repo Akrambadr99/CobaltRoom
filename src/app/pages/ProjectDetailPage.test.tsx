@@ -243,6 +243,102 @@ describe('ProjectDetailPage', () => {
       .toBe(lead.id)
   })
 
+  it('reorders workflow stages and migrates issues before retiring a status', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    const statuses = fixtures.workflowStatuses
+      .filter(({ projectId }) => projectId === project?.id)
+      .sort((left, right) => left.order - right.order)
+    const active = statuses.find(({ name }) => name === 'In progress')
+    const completed = statuses.find(({ name }) => name === 'Done')
+    const completedIssue = fixtures.issues.find(({ statusId }) => statusId === completed?.id)
+    if (!project || !active || !completed || !completedIssue) {
+      throw new Error('Expected workflow editor fixtures.')
+    }
+    const store = new InMemoryDataStore(fixtures)
+    renderProjectDetail(`/projects/${project.id}`, { store })
+    const workflowTable = await screen.findByRole('table', {
+      name: 'Project workflow administration',
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Configure workflow' }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Configure project workflow',
+    })
+    const names = within(dialog).getAllByLabelText(/Status \d+ name/)
+    const backlogName = names[0]
+    if (!backlogName) throw new Error('Expected the backlog workflow field.')
+    await user.clear(backlogName)
+    await user.type(backlogName, 'Intake queue')
+    const backlogCategory = within(dialog).getAllByLabelText(/Status \d+ category/)[0]
+    if (!backlogCategory) throw new Error('Expected the backlog workflow category.')
+    await user.selectOptions(backlogCategory, 'unstarted')
+    await user.click(within(dialog).getByRole('button', { name: 'Move In progress up' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Add status' }))
+    const updatedNames = within(dialog).getAllByLabelText(/Status \d+ name/)
+    const addedName = updatedNames.at(-1)
+    if (!addedName) throw new Error('Expected the added workflow field.')
+    await user.type(addedName, 'Verified')
+    const categoryFields = within(dialog).getAllByLabelText(/Status \d+ category/)
+    const addedCategory = categoryFields.at(-1)
+    if (!addedCategory) throw new Error('Expected the added workflow category.')
+    await user.selectOptions(addedCategory, 'completed')
+    await user.click(within(dialog).getByRole('button', { name: 'Retire Done' }))
+    expect(within(dialog).getByLabelText('Move 1 issue from Done to')).toHaveValue(active.id)
+    await user.click(within(dialog).getByRole('button', { name: 'Save workflow' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() => {
+      const rows = within(workflowTable).getAllByRole('row').slice(1)
+      expect(rows.map((row) => row.textContent)).toEqual([
+        expect.stringContaining('In progress'),
+        expect.stringContaining('Intake queueUnstarted'),
+        expect.stringContaining('Verified'),
+      ])
+    })
+    expect(store.read().data.issues.find(({ id }) => id === completedIssue.id)).toMatchObject({
+      statusId: active.id,
+      revision: completedIssue.revision + 1,
+    })
+  })
+
+  it('preserves a workflow draft after a concurrent project revision conflict', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    if (!project) throw new Error('Expected a workflow concurrency project.')
+    const store = new InMemoryDataStore(fixtures)
+    renderProjectDetail(`/projects/${project.id}`, { store })
+    await screen.findByRole('table', { name: 'Project workflow administration' })
+    await user.click(screen.getByRole('button', { name: 'Configure workflow' }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Configure project workflow',
+    })
+    const backlogName = within(dialog).getAllByLabelText(/Status \d+ name/)[0]
+    if (!backlogName) throw new Error('Expected the workflow draft field.')
+    await user.clear(backlogName)
+    await user.type(backlogName, 'Preserved intake draft')
+
+    const concurrent = store.read()
+    store.commit(concurrent.version, {
+      ...concurrent.data,
+      projects: concurrent.data.projects.map((candidate) =>
+        candidate.id === project.id
+          ? { ...candidate, name: 'Concurrent project name', revision: 2 }
+          : candidate,
+      ),
+    })
+    await user.click(within(dialog).getByRole('button', { name: 'Save workflow' }))
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'project changed after it was loaded',
+    )
+    expect(backlogName).toHaveValue('Preserved intake draft')
+    expect(within(dialog).getByRole('button', { name: 'Reload latest workflow' }))
+      .toBeVisible()
+  })
+
   it('archives a project through confirmation and exposes its read-only state', async () => {
     const user = userEvent.setup()
     const fixtures = createAtlasFixtures()
@@ -274,6 +370,10 @@ describe('ProjectDetailPage', () => {
       ).toHaveTextContent('Read-only project')
     })
     expect(screen.queryByRole('button', { name: 'Add member' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Configure workflow' }))
+      .not.toBeInTheDocument()
+    expect(screen.getByText('Reactivate this project before changing its workflow.'))
+      .toBeVisible()
     expect(store.read().data.projects.find(({ id }) => id === project.id)).toMatchObject({
       status: 'archived',
       revision: 2,

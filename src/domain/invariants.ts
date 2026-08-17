@@ -3,6 +3,14 @@ import type { Membership } from './workspace'
 import type { Project, WorkflowStatus } from './project'
 import type { IssueId } from './ids'
 
+const workflowStatusCategories = new Set<WorkflowStatus['category']>([
+  'backlog',
+  'unstarted',
+  'started',
+  'completed',
+  'canceled',
+])
+
 export type DomainInvariantCode =
   | 'duplicate-membership'
   | 'invalid-project-key'
@@ -50,10 +58,10 @@ export function assertProjectWorkflow(
   project: Project,
   statuses: readonly WorkflowStatus[],
 ): void {
-  if (statuses.length === 0) {
+  if (statuses.length < 2 || statuses.length > 10) {
     throw new DomainInvariantError(
       'invalid-workflow',
-      'A project workflow must contain at least one status.',
+      'A project workflow must contain 2 to 10 statuses.',
     )
   }
 
@@ -67,13 +75,15 @@ export function assertProjectWorkflow(
     if (
       status.projectId !== project.id ||
       normalizedName.length === 0 ||
+      normalizedName.length > 60 ||
+      !workflowStatusCategories.has(status.category) ||
       ids.has(status.id) ||
       names.has(normalizedName) ||
       orders.has(status.order)
     ) {
       throw new DomainInvariantError(
         'invalid-workflow',
-        'Workflow statuses must belong to the project and use unique ids, names, and order values.',
+        'Workflow statuses must belong to the project, use valid names and categories, and have unique ids, names, and order values.',
       )
     }
 
@@ -89,6 +99,18 @@ export function assertProjectWorkflow(
     throw new DomainInvariantError(
       'invalid-workflow',
       'Workflow status order must be contiguous and start at zero.',
+    )
+  }
+
+  if (
+    !statuses.some(({ category }) => category === 'completed') ||
+    !statuses.some(
+      ({ category }) => category !== 'completed' && category !== 'canceled',
+    )
+  ) {
+    throw new DomainInvariantError(
+      'invalid-workflow',
+      'A project workflow must support both open and completed work.',
     )
   }
 }

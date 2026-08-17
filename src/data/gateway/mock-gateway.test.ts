@@ -694,6 +694,166 @@ describe('MockAtlasGateway', () => {
     ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
   })
 
+  it('updates workflows atomically and migrates issues from retired statuses', async () => {
+    const { fixtures, gateway, store, tracer } = createGateway()
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    const statuses = fixtures.workflowStatuses
+      .filter(({ projectId }) => projectId === project?.id)
+      .sort((left, right) => left.order - right.order)
+    const backlog = statuses[0]
+    const active = statuses[1]
+    const completed = statuses[2]
+    const completedIssue = fixtures.issues.find(({ statusId }) => statusId === completed?.id)
+    if (!project || !backlog || !active || !completed || !completedIssue) {
+      throw new Error('Expected workflow administration fixtures.')
+    }
+
+    const administration = await gateway.getProjectWorkflowAdministration(project.id)
+    expect(administration.statuses.map(({ status, issueCount }) => ({
+      name: status.name,
+      issueCount,
+    }))).toEqual([
+      { name: backlog.name, issueCount: 1 },
+      { name: active.name, issueCount: 1 },
+      { name: completed.name, issueCount: 1 },
+    ])
+
+    const updated = await gateway.updateProjectWorkflow({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      statuses: [
+        { id: active.id, name: 'In verification', category: 'started' },
+        { id: backlog.id, name: backlog.name, category: 'unstarted' },
+        { id: null, name: 'Verified', category: 'completed' },
+      ],
+      migrations: [
+        { statusId: completed.id, reassignToStatusId: active.id },
+      ],
+    })
+
+    expect(updated.revision).toBe(2)
+    expect(
+      store.read().data.workflowStatuses
+        .filter(({ projectId }) => projectId === project.id)
+        .sort((left, right) => left.order - right.order)
+        .map(({ name, category, order }) => ({ name, category, order })),
+    ).toEqual([
+      { name: 'In verification', category: 'started', order: 0 },
+      { name: backlog.name, category: 'unstarted', order: 1 },
+      { name: 'Verified', category: 'completed', order: 2 },
+    ])
+    expect(store.read().data.issues.find(({ id }) => id === completedIssue.id)).toMatchObject({
+      statusId: active.id,
+      revision: completedIssue.revision + 1,
+    })
+    expect((await gateway.getBoardMetadata(project.workspaceId)).projects
+      .find(({ project: candidate }) => candidate.id === project.id)?.statuses
+      .map(({ name }) => name)).toEqual(['In verification', backlog.name, 'Verified'])
+    expect((await gateway.getWorkspaceAnalytics(project.workspaceId)).statusCategories)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ value: 'completed', count: 1 }),
+        expect.objectContaining({ value: 'started', count: 3 }),
+        expect.objectContaining({ value: 'backlog', count: 0 }),
+        expect.objectContaining({ value: 'unstarted', count: 2 }),
+      ]))
+    expect(store.read().data.activityEvents.slice(-2).map(({ action }) => action))
+      .toEqual(['project.workflow.updated', 'issue.workflow.migrated'])
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'project.workflow.updated',
+      metadata: { retiredCount: 1, migratedIssueCount: 1, toRevision: 2 },
+    })
+    expect(tracer.read().at(-1)).toMatchObject({
+      operation: 'analytics.get',
+      phase: 'succeeded',
+    })
+  })
+
+  it('refuses to retire referenced workflow statuses without an explicit migration', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const project = fixtures.projects[0]
+    const statuses = fixtures.workflowStatuses
+      .filter(({ projectId }) => projectId === project?.id)
+      .sort((left, right) => left.order - right.order)
+    const retired = statuses[0]
+    if (!project || !retired) throw new Error('Expected workflow migration fixtures.')
+    const before = store.read()
+
+    await expect(gateway.updateProjectWorkflow({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      statuses: statuses.slice(1).map((status) => ({
+        id: status.id,
+        name: status.name,
+        category: status.category,
+      })),
+      migrations: [],
+    })).rejects.toBeInstanceOf(GatewayConflictError)
+    expect(store.read()).toEqual(before)
+  })
+
+  it('enforces workflow validation, authorization, no-op, and revision boundaries', async () => {
+    const { fixtures, gateway } = createGateway()
+    const project = fixtures.projects[0]
+    const statuses = fixtures.workflowStatuses
+      .filter(({ projectId }) => projectId === project?.id)
+      .sort((left, right) => left.order - right.order)
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    if (!project || statuses.length < 2 || !viewerId) {
+      throw new Error('Expected workflow validation fixtures.')
+    }
+    const unchanged = statuses.map((status) => ({
+      id: status.id,
+      name: status.name,
+      category: status.category,
+    }))
+
+    await expect(gateway.updateProjectWorkflow({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      statuses: unchanged,
+      migrations: [],
+    })).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+    await expect(gateway.updateProjectWorkflow({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      statuses: unchanged.map((status) => ({ ...status, name: 'Duplicate' })),
+      migrations: [],
+    })).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+    await expect(gateway.updateProjectWorkflow({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      statuses: [
+        ...unchanged,
+        { id: null, name: statuses[0]?.name ?? 'Backlog', category: 'started' },
+      ],
+      migrations: [],
+    })).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+
+    const changed = await gateway.updateProjectWorkflow({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      statuses: [
+        ...unchanged,
+        { id: null, name: 'Quality review', category: 'started' },
+      ],
+      migrations: [],
+    })
+    await expect(gateway.updateProjectWorkflow({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      statuses: unchanged,
+      migrations: [],
+    })).rejects.toBeInstanceOf(GatewayConflictError)
+    expect(changed.revision).toBe(2)
+    expect((await gateway.getProjectWorkflowAdministration(project.id)).statuses
+      .find(({ status }) => status.name === 'Quality review')?.status.id)
+      .toBe('status_gateway_workflow_added_001')
+
+    const { gateway: viewerGateway } = createGateway(new SimulatedNetwork(), viewerId)
+    await expect(viewerGateway.getProjectWorkflowAdministration(project.id))
+      .rejects.toBeInstanceOf(ForbiddenGatewayError)
+  })
+
   it('returns filtered, sorted, and paginated issues asynchronously', async () => {
     const { fixtures, gateway, tracer } = createGateway()
     const workspaceId = fixtures.workspaces[0]?.id

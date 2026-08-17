@@ -114,6 +114,34 @@ export interface RemoveProjectMemberInput {
   readonly reassignIssuesTo: UserId | null
 }
 
+export interface ProjectWorkflowAdministrationEntry {
+  readonly status: WorkflowStatus
+  readonly issueCount: number
+}
+
+export interface ProjectWorkflowAdministrationData {
+  readonly project: Project
+  readonly statuses: readonly ProjectWorkflowAdministrationEntry[]
+}
+
+export interface ProjectWorkflowStatusDraft {
+  readonly id: WorkflowStatusId | null
+  readonly name: string
+  readonly category: WorkflowStatusCategory
+}
+
+export interface ProjectWorkflowMigration {
+  readonly statusId: WorkflowStatusId
+  readonly reassignToStatusId: WorkflowStatusId
+}
+
+export interface UpdateProjectWorkflowInput {
+  readonly projectId: ProjectId
+  readonly expectedProjectRevision: number
+  readonly statuses: readonly ProjectWorkflowStatusDraft[]
+  readonly migrations: readonly ProjectWorkflowMigration[]
+}
+
 export interface ProjectCreationMetadata {
   readonly eligibleLeads: readonly User[]
 }
@@ -408,6 +436,14 @@ export interface AtlasGateway {
   ): Promise<Project>
   removeProjectMember(
     input: RemoveProjectMemberInput,
+    options?: RequestOptions,
+  ): Promise<Project>
+  getProjectWorkflowAdministration(
+    projectId: ProjectId,
+    options?: RequestOptions,
+  ): Promise<ProjectWorkflowAdministrationData>
+  updateProjectWorkflow(
+    input: UpdateProjectWorkflowInput,
     options?: RequestOptions,
   ): Promise<Project>
   getProjectCreationMetadata(

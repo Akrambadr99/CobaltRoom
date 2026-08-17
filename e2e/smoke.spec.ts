@@ -184,6 +184,43 @@ test('governs project membership and assigned-work reassignment', async ({ page 
   ).toContainText('Removed Maya Chen and reassigned 1 issue')
 })
 
+test('evolves a project workflow without orphaning active work', async ({ page }) => {
+  await page.goto('/projects')
+  await page.getByRole('link', { name: 'Launch readiness' }).click()
+  const workflow = page.getByRole('table', {
+    name: 'Project workflow administration',
+  })
+  await expect(workflow).toBeVisible()
+
+  await page.getByRole('button', { name: 'Configure workflow' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Configure project workflow' })
+  await dialog.getByLabel('Status 1 name').fill('Intake queue')
+  await dialog.getByLabel('Status 1 category').selectOption('unstarted')
+  await dialog.getByRole('button', { name: 'Move In progress up' }).click()
+  await dialog.getByRole('button', { name: 'Add status' }).click()
+  await dialog.getByLabel('Status 4 name').fill('Verified')
+  await dialog.getByLabel('Status 4 category').selectOption('completed')
+  await dialog.getByRole('button', { name: 'Retire Done' }).click()
+  await expect(dialog.getByLabel('Move 1 issue from Done to')).toHaveValue(
+    /status_.*launch_active/,
+  )
+  await dialog.getByRole('button', { name: 'Save workflow' }).click()
+  await expect(dialog).not.toBeVisible()
+  await expect(workflow.getByRole('row').nth(1)).toContainText('In progress')
+  await expect(workflow.getByRole('row').nth(2)).toContainText('Intake queue')
+  await expect(workflow.getByRole('row').nth(3)).toContainText('Verified')
+
+  await page.getByRole('link', { name: 'Board', exact: true }).click()
+  await expect(page).toHaveURL(/\/board/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Board' })).toBeVisible()
+  await page.getByRole('combobox', { name: 'Project', exact: true })
+    .selectOption({ label: 'Launch readiness' })
+  await expect(page.getByRole('heading', { name: 'In progress' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Intake queue' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Verified' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Done' })).toHaveCount(0)
+})
+
 test('creates a permission-aware issue with workflow metadata', async ({ page }) => {
   await page.goto('/issues')
   await expect(page.getByRole('table', { name: 'Workspace issues' })).toBeVisible()

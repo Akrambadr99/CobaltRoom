@@ -23,6 +23,7 @@ import type {
   ProjectEditMetadata,
   ProjectMembershipAdministrationData,
   ProjectMembershipQuery,
+  ProjectWorkflowAdministrationData,
   ProjectActivityData,
   RequestOptions,
   RemoveProjectMemberInput,
@@ -31,6 +32,7 @@ import type {
   UpdateNotificationPreferencesInput,
   UpdateProjectInput,
   UpdateProjectMemberInput,
+  UpdateProjectWorkflowInput,
   UpdateWorkspaceMembershipInput,
   WorkspaceAdministrationData,
   WorkspaceAdministrationQuery,
@@ -77,7 +79,9 @@ import {
   type ProjectId,
   type ProjectMember,
   type ProjectStatus,
+  type WorkflowStatus,
   type WorkflowStatusCategory,
+  type WorkflowStatusId,
   type UserId,
   type WorkspaceId,
   type WorkspaceRole,
@@ -723,6 +727,201 @@ export class MockAtlasGateway implements AtlasGateway {
             fromRevision: project.revision,
             toRevision: updatedProject.revision,
           }),
+        ],
+      })
+      return updatedProject
+    })
+  }
+
+  getProjectWorkflowAdministration(
+    projectId: ProjectId,
+    options?: RequestOptions,
+  ): Promise<ProjectWorkflowAdministrationData> {
+    return this.execute('administration.workflow.get', options, () => {
+      const data = this.store.read().data
+      const project = data.projects.find(({ id }) => id === projectId)
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('project:update', project.workspaceId, project.id)
+      return {
+        project,
+        statuses: data.workflowStatuses
+          .filter((status) => status.projectId === project.id)
+          .sort((left, right) => left.order - right.order)
+          .map((status) => ({
+            status,
+            issueCount: data.issues.filter(({ statusId }) => statusId === status.id).length,
+          })),
+      }
+    })
+  }
+
+  updateProjectWorkflow(
+    input: UpdateProjectWorkflowInput,
+    options?: RequestOptions,
+  ): Promise<Project> {
+    return this.execute('administration.workflow.update', options, (requestId) => {
+      const current = this.store.read()
+      const projectIndex = current.data.projects.findIndex(({ id }) => id === input.projectId)
+      const project = current.data.projects[projectIndex]
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('project:update', project.workspaceId, project.id)
+      this.assertProjectOpen(current.data, project.id)
+      this.assertProjectRevision(project, input.expectedProjectRevision)
+
+      const existing = current.data.workflowStatuses
+        .filter(({ projectId }) => projectId === project.id)
+        .sort((left, right) => left.order - right.order)
+      const existingById = new Map(existing.map((status) => [status.id, status]))
+      const referencedIds = new Set<WorkflowStatusId>()
+      const normalizedDrafts = input.statuses.map((draft, order) => {
+        const name = draft.name.trim()
+        if (name.length === 0 || name.length > 60) {
+          throw new InvalidGatewayRequestError(
+            'Workflow status names must contain 1 to 60 characters.',
+          )
+        }
+        if (!workflowCategories.has(draft.category)) {
+          throw new InvalidGatewayRequestError('Choose a supported workflow category.')
+        }
+        if (draft.id !== null) {
+          if (!existingById.has(draft.id) || referencedIds.has(draft.id)) {
+            throw new InvalidGatewayRequestError(
+              'Workflow updates may reference each existing project status once.',
+            )
+          }
+          referencedIds.add(draft.id)
+        }
+        return {
+          id: draft.id,
+          name,
+          category: draft.category,
+          order,
+        }
+      })
+      const names = new Set(normalizedDrafts.map(({ name }) => name.toLocaleLowerCase()))
+      if (
+        normalizedDrafts.length < 2 ||
+        normalizedDrafts.length > 10 ||
+        names.size !== normalizedDrafts.length ||
+        !normalizedDrafts.some(({ category }) => category === 'completed') ||
+        !normalizedDrafts.some(
+          ({ category }) => category !== 'completed' && category !== 'canceled',
+        )
+      ) {
+        throw new InvalidGatewayRequestError(
+          'Project workflows require 2-10 uniquely named stages, including open and completed work.',
+        )
+      }
+
+      const retired = existing.filter(({ id }) => !referencedIds.has(id))
+      const retiredIds = new Set(retired.map(({ id }) => id))
+      const targetIds = new Set(normalizedDrafts.flatMap(({ id }) => id ? [id] : []))
+      const migrations = new Map<WorkflowStatusId, WorkflowStatusId>()
+      for (const migration of input.migrations) {
+        if (
+          migrations.has(migration.statusId) ||
+          !retiredIds.has(migration.statusId) ||
+          !targetIds.has(migration.reassignToStatusId)
+        ) {
+          throw new InvalidGatewayRequestError(
+            'Workflow migrations must map each retired status to one retained status.',
+          )
+        }
+        migrations.set(migration.statusId, migration.reassignToStatusId)
+      }
+      const migratedIssues = current.data.issues.filter(
+        ({ projectId, statusId }) => projectId === project.id && retiredIds.has(statusId),
+      )
+      if (migratedIssues.some(({ statusId }) => !migrations.has(statusId))) {
+        throw new GatewayConflictError(
+          'Retired statuses still contain issues. Choose a retained status for migration.',
+        )
+      }
+      const workflowUnchanged =
+        normalizedDrafts.length === existing.length &&
+        normalizedDrafts.every((status, index) => {
+          const previous = existing[index]
+          return status.id === previous?.id &&
+            status.name === previous.name &&
+            status.category === previous.category
+        })
+      if (workflowUnchanged) {
+        throw new InvalidGatewayRequestError('Change the workflow before saving.')
+      }
+
+      const normalized: WorkflowStatus[] = normalizedDrafts.map((draft) => ({
+        ...draft,
+        id: draft.id ?? this.ids.workflowStatus('workflow_added'),
+        projectId: project.id,
+      }))
+
+      const occurredAt = this.clock.now()
+      const updatedProject = {
+        ...project,
+        revision: project.revision + 1,
+        updatedAt: occurredAt,
+      }
+      const projects = [...current.data.projects]
+      projects[projectIndex] = updatedProject
+      const migratedIssueIds = new Set(migratedIssues.map(({ id }) => id))
+      const issues = current.data.issues.map((issue) => {
+        if (!migratedIssueIds.has(issue.id)) return issue
+        const statusId = migrations.get(issue.statusId)
+        if (!statusId) throw new GatewayConflictError('Issue migration target is unavailable.')
+        return { ...issue, statusId, revision: issue.revision + 1, updatedAt: occurredAt }
+      })
+      const statusNames = new Map(normalized.map(({ id, name }) => [id, name]))
+      this.commit(current.version, {
+        ...current.data,
+        projects,
+        workflowStatuses: [
+          ...current.data.workflowStatuses.filter(({ projectId }) => projectId !== project.id),
+          ...normalized,
+        ],
+        issues,
+        activityEvents: [
+          ...current.data.activityEvents,
+          {
+            id: this.ids.activity('project_workflow_updated'),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'project',
+            entityId: project.id,
+            action: 'project.workflow.updated',
+            occurredAt,
+            summary: `Updated ${project.key} workflow to ${normalized.length.toString()} stages; retired ${retired.length.toString()} and migrated ${migratedIssues.length.toString()} issues.`,
+          },
+          ...migratedIssues.map((issue) => ({
+            id: this.ids.activity('workflow_issue_migrated'),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'issue' as const,
+            entityId: issue.id,
+            action: 'issue.workflow.migrated',
+            occurredAt,
+            summary: `Migrated ${this.issueReference(current.data, issue)} from ${this.statusName(current.data, issue.statusId)} to ${statusNames.get(migrations.get(issue.statusId) ?? issue.statusId) ?? 'retained workflow status'}.`,
+          })),
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit('project_workflow_updated'),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action: 'project.workflow.updated',
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: {
+              projectId: project.id,
+              fromRevision: project.revision,
+              toRevision: updatedProject.revision,
+              stageCount: normalized.length,
+              retiredCount: retired.length,
+              migratedIssueCount: migratedIssues.length,
+              retiredStatusIds: retired.map(({ id }) => id).join(','),
+            },
+          },
         ],
       })
       return updatedProject
