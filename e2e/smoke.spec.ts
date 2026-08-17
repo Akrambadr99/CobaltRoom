@@ -128,3 +128,24 @@ test('moves work across the accessible project board', async ({ page }) => {
   await expect(page.getByText('Investigating')).toBeVisible()
   await expect(page.getByText('Moved from Triage to Investigating.')).toBeVisible()
 })
+
+test('searches globally with the keyboard shortcut', async ({ page }) => {
+  await page.goto('/')
+
+  const searchbox = page.getByRole('searchbox', { name: 'Search all issues' })
+  await expect(searchbox).toBeVisible()
+  await page.keyboard.press('/')
+  await expect(searchbox).toBeFocused()
+  await searchbox.fill('telemetry')
+  await page
+    .getByRole('link', { name: /Close the device telemetry coverage gap/i })
+    .click()
+
+  await expect(page).toHaveURL(/\/issues\/issue_/)
+  await expect(
+    page.getByRole('heading', {
+      level: 1,
+      name: 'Close the device telemetry coverage gap',
+    }),
+  ).toBeVisible()
+})

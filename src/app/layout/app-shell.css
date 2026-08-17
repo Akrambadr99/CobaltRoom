@@ -116,6 +116,117 @@
   font-weight: 650;
 }
 
+.global-search {
+  position: relative;
+  width: min(28rem, 42vw);
+  margin-inline: auto;
+}
+
+.global-search__field {
+  position: relative;
+  display: block;
+}
+
+.global-search__field input {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 3rem 0 var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-bg-subtle);
+}
+
+.global-search__field input:focus {
+  border-color: var(--color-accent);
+  background: var(--color-bg-surface);
+}
+
+.global-search__field kbd {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-subtle);
+  background: var(--color-bg-surface);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  transform: translateY(-50%);
+}
+
+.global-search__panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  left: 0;
+  max-height: min(28rem, 70vh);
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.global-search__panel > p,
+.global-search__panel > div {
+  padding: var(--space-4);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.global-search__panel > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.global-search__panel > div p {
+  margin: 0;
+}
+
+.global-search__retry {
+  border: 0;
+  color: var(--color-accent);
+  background: transparent;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.global-search__panel ul {
+  padding: var(--space-2);
+  margin: 0;
+  list-style: none;
+}
+
+.global-search__panel a {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+}
+
+.global-search__panel a:hover,
+.global-search__panel a:focus-visible {
+  color: var(--color-accent);
+  background: var(--color-bg-subtle);
+}
+
+.global-search__panel a span {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.global-search__panel a small {
+  color: var(--color-text-muted);
+  font-size: 0.6875rem;
+  text-transform: capitalize;
+}
+
 .user-summary {
   display: flex;
   gap: var(--space-2);
@@ -159,7 +270,14 @@
   }
 
   .app-topbar {
+    flex-wrap: wrap;
+    gap: var(--space-3);
     padding-inline: var(--space-4);
+  }
+
+  .global-search {
+    order: 3;
+    width: 100%;
   }
 
   .app-main {

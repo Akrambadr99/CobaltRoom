@@ -1,5 +1,6 @@
 import { Link, Outlet } from 'react-router-dom'
 
+import { GlobalSearch } from '../../features/search/GlobalSearch'
 import { PrimaryNavigation } from '../navigation/PrimaryNavigation'
 import { useAppServices } from '../providers/app-services-context'
 import './app-shell.css'
@@ -35,6 +36,7 @@ export function AppShell() {
             <p className="app-topbar__label">Workspace</p>
             <p className="app-topbar__name">Atlas Operations</p>
           </div>
+          <GlobalSearch />
           <div
             className="user-summary"
             aria-label={`Signed in as ${session.user.displayName}`}
