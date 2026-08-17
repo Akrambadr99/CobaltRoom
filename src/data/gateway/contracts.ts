@@ -12,6 +12,7 @@ import type {
   Label,
   LabelId,
   Notification,
+  NotificationCategory,
   NotificationId,
   NotificationPreferences,
   Membership,
@@ -330,11 +331,13 @@ export interface DeleteCommentInput {
 
 export interface NotificationQuery {
   readonly workspaceId: WorkspaceId
+  readonly category?: NotificationCategory
   readonly page?: PageRequest
 }
 
 export interface NotificationInbox extends Page<Notification> {
   readonly unreadCount: number
+  readonly categories: readonly AnalyticsBreakdown<NotificationCategory>[]
 }
 
 export interface MarkNotificationReadInput {

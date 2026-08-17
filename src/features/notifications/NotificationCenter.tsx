@@ -2,6 +2,11 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import {
+  notificationCategory,
+  type NotificationCategory,
+  type NotificationTarget,
+} from '../../domain'
+import {
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
   useNotificationInbox,
@@ -11,17 +16,21 @@ import './notification-center.css'
 export function NotificationCenter() {
   const [open, setOpen] = useState(false)
   const [status, setStatus] = useState('')
+  const [category, setCategory] = useState<NotificationCategory | undefined>()
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelId = useId()
-  const inbox = useNotificationInbox()
-  const markRead = useMarkNotificationRead()
-  const markAllRead = useMarkAllNotificationsRead()
+  const summary = useNotificationInbox()
+  const filteredInbox = useNotificationInbox(category)
+  const inbox = category ? filteredInbox : summary
+  const markRead = useMarkNotificationRead(category)
+  const markAllRead = useMarkAllNotificationsRead(category)
   const items = useMemo(
     () => inbox.data?.pages.flatMap((page) => page.items) ?? [],
     [inbox.data],
   )
-  const unreadCount = inbox.data?.pages[0]?.unreadCount ?? 0
+  const unreadCount = summary.data?.pages[0]?.unreadCount ?? 0
+  const categoryFacets = summary.data?.pages[0]?.categories ?? []
 
   useEffect(() => {
     if (!open) return
@@ -95,6 +104,24 @@ export function NotificationCenter() {
             </button>
           </header>
 
+          <label className="notification-center__filter">
+            <span>Category</span>
+            <select
+              value={category ?? ''}
+              onChange={(event) => {
+                const value = event.currentTarget.value
+                setCategory(isNotificationCategory(value) ? value : undefined)
+              }}
+            >
+              <option value="">All notifications</option>
+              {categoryFacets.map(({ value, count }) => (
+                <option key={value} value={value}>
+                  {formatCategory(value)} ({count})
+                </option>
+              ))}
+            </select>
+          </label>
+
           {inbox.isPending ? <p role="status">Loading notifications…</p> : null}
           {inbox.isError ? (
             <div className="notification-center__state" role="alert">
@@ -105,7 +132,9 @@ export function NotificationCenter() {
             </div>
           ) : null}
           {inbox.isSuccess && items.length === 0 ? (
-            <p className="notification-center__state">You’re all caught up.</p>
+            <p className="notification-center__state">
+              {category ? 'No notifications match this category.' : 'You’re all caught up.'}
+            </p>
           ) : null}
           {inbox.isSuccess && items.length > 0 ? (
             <>
@@ -116,7 +145,7 @@ export function NotificationCenter() {
                     data-unread={notification.readAt === null}
                   >
                     <Link
-                      to={`/issues/${notification.issueId}`}
+                      to={notificationTargetHref(notification.target)}
                       onClick={() => {
                         setOpen(false)
                         if (notification.readAt === null) {
@@ -126,6 +155,9 @@ export function NotificationCenter() {
                     >
                       <strong>{notification.title}</strong>
                       <span>{notification.body}</span>
+                      <span className="notification-center__category">
+                        {formatCategory(notificationCategory(notification.kind))}
+                      </span>
                       <time dateTime={notification.occurredAt}>
                         {formatNotificationTime(notification.occurredAt)}
                       </time>
@@ -179,6 +211,29 @@ export function NotificationCenter() {
       ) : null}
     </div>
   )
+}
+
+const notificationCategories: readonly NotificationCategory[] = [
+  'work',
+  'collaboration',
+  'administration',
+  'governance',
+]
+
+function isNotificationCategory(value: string): value is NotificationCategory {
+  return notificationCategories.some((candidate) => candidate === value)
+}
+
+function notificationTargetHref(target: NotificationTarget): string {
+  if (target.kind === 'issue') return `/issues/${target.id}`
+  if (target.kind === 'project') return `/projects/${target.id}`
+  if (target.kind === 'workspace') return `/activity?entity=${target.id}`
+  if (target.kind === 'administration') return '/administration'
+  return `/governance?request=${encodeURIComponent(target.id)}`
+}
+
+function formatCategory(value: NotificationCategory): string {
+  return value.replace(/^./, (character) => character.toUpperCase())
 }
 
 function formatNotificationTime(value: string): string {

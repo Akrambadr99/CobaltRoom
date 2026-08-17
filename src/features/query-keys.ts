@@ -5,7 +5,7 @@ import type {
   WorkspaceInvitationQuery,
   WorkspaceActivityQuery,
 } from '../data'
-import type { IssueId, ProjectId, WorkspaceId } from '../domain'
+import type { IssueId, NotificationCategory, ProjectId, WorkspaceId } from '../domain'
 
 export const atlasQueryKeys = {
   workspaceActivityReports: (workspaceId: WorkspaceId) =>
@@ -58,8 +58,12 @@ export const atlasQueryKeys = {
     ['workspaces', workspaceId, 'issues', 'detail', issueId, 'activity'] as const,
   notifications: (workspaceId: WorkspaceId) =>
     ['workspaces', workspaceId, 'notifications'] as const,
-  notificationInbox: (workspaceId: WorkspaceId) =>
-    [...atlasQueryKeys.notifications(workspaceId), 'inbox'] as const,
+  notificationInbox: (
+    workspaceId: WorkspaceId,
+    category?: NotificationCategory,
+  ) => category
+    ? [...atlasQueryKeys.notifications(workspaceId), 'inbox', { category }] as const
+    : [...atlasQueryKeys.notifications(workspaceId), 'inbox'] as const,
   notificationPreferences: (workspaceId: WorkspaceId) =>
     ['workspaces', workspaceId, 'notifications', 'preferences'] as const,
 }

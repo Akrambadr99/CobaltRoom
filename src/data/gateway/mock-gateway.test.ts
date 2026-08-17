@@ -1284,6 +1284,17 @@ describe('MockAtlasGateway', () => {
     expect(inbox.items).toHaveLength(1)
     expect(inbox).toMatchObject({ pageCount: 2, totalItems: 2 })
     expect(inbox.unreadCount).toBe(1)
+    expect(inbox.categories).toEqual([
+      { value: 'collaboration', count: 1 },
+      { value: 'work', count: 1 },
+    ])
+
+    const collaboration = await gateway.listNotifications({
+      workspaceId,
+      category: 'collaboration',
+    })
+    expect(collaboration).toMatchObject({ totalItems: 1, unreadCount: 1 })
+    expect(collaboration.items[0]?.kind).toBe('comment')
 
     const older = await gateway.listNotifications({
       workspaceId,
@@ -1871,7 +1882,7 @@ describe('MockAtlasGateway', () => {
     await gateway.createComment({ issueId: issue.id, body: 'Please review this update.' })
     expect(store.read().data.notifications.at(-1)).toMatchObject({
       recipientId: issue.assigneeId,
-      issueId: issue.id,
+      target: { kind: 'issue', id: issue.id },
       kind: 'comment',
       readAt: null,
     })
@@ -1885,7 +1896,7 @@ describe('MockAtlasGateway', () => {
     })
     expect(store.read().data.notifications.at(-1)).toMatchObject({
       recipientId: issue.assigneeId,
-      issueId: issue.id,
+      target: { kind: 'issue', id: issue.id },
       kind: 'issue-update',
     })
   })

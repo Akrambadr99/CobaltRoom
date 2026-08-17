@@ -31,6 +31,12 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
   )
   const labels = new Map(snapshot.labels.map((label) => [label.id, label]))
   const issues = new Map(snapshot.issues.map((issue) => [issue.id, issue]))
+  const memberships = new Map<string, (typeof snapshot.memberships)[number]>(
+    snapshot.memberships.map((membership) => [membership.id, membership]),
+  )
+  const invitations = new Map<string, (typeof snapshot.workspaceInvitations)[number]>(
+    snapshot.workspaceInvitations.map((invitation) => [invitation.id, invitation]),
+  )
   const projectKeys = new Set<string>()
 
   for (const membership of snapshot.memberships) {
@@ -202,15 +208,28 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
   }
 
   for (const notification of snapshot.notifications) {
-    const issue = issues.get(notification.issueId)
+    const { target } = notification
+    const targetIsValid =
+      (target.kind === 'issue' &&
+        issues.get(target.id)?.workspaceId === notification.workspaceId) ||
+      (target.kind === 'project' &&
+        projects.get(target.id)?.workspaceId === notification.workspaceId) ||
+      (target.kind === 'workspace' && target.id === notification.workspaceId) ||
+      (target.kind === 'administration' &&
+        (target.id === null ||
+          memberships.get(target.id)?.workspaceId === notification.workspaceId ||
+          invitations.get(target.id)?.workspaceId === notification.workspaceId)) ||
+      (target.kind === 'governance' &&
+        target.id.length > 0 &&
+        target.id.trim() === target.id)
     if (
       !users.has(notification.recipientId) ||
       !workspaces.has(notification.workspaceId) ||
-      issue?.workspaceId !== notification.workspaceId
+      !targetIsValid
     ) {
       throw new DataIntegrityError(
         'notifications',
-        'Notifications must reference an existing recipient, workspace, and issue.',
+        'Notifications must reference an existing recipient, workspace, and valid target.',
       )
     }
   }

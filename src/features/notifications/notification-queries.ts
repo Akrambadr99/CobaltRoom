@@ -7,15 +7,20 @@ import {
 
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { MarkNotificationReadInput, NotificationInbox } from '../../data'
+import type { NotificationCategory } from '../../domain'
 import { atlasQueryKeys } from '../query-keys'
 
-export function useNotificationInbox() {
+export function useNotificationInbox(category?: NotificationCategory) {
   const { gateway, workspaceId } = useAppServices()
   return useInfiniteQuery({
-    queryKey: atlasQueryKeys.notificationInbox(workspaceId),
+    queryKey: atlasQueryKeys.notificationInbox(workspaceId, category),
     queryFn: ({ pageParam, signal }) =>
       gateway.listNotifications(
-        { workspaceId, page: { number: pageParam, size: 20 } },
+        {
+          workspaceId,
+          ...(category ? { category } : {}),
+          page: { number: pageParam, size: 20 },
+        },
         { signal },
       ),
     initialPageParam: 1,
@@ -28,10 +33,11 @@ export function useNotificationInbox() {
 
 type NotificationInboxData = InfiniteData<NotificationInbox, number>
 
-export function useMarkNotificationRead() {
+export function useMarkNotificationRead(category?: NotificationCategory) {
   const { gateway, workspaceId } = useAppServices()
   const queryClient = useQueryClient()
-  const queryKey = atlasQueryKeys.notificationInbox(workspaceId)
+  const queryKey = atlasQueryKeys.notificationInbox(workspaceId, category)
+  const inboxKey = atlasQueryKeys.notificationInbox(workspaceId)
 
   return useMutation<unknown, Error, MarkNotificationReadInput, NotificationInboxData | undefined>(
     {
@@ -72,16 +78,17 @@ export function useMarkNotificationRead() {
         if (previous) queryClient.setQueryData(queryKey, previous)
       },
       onSettled: async () => {
-        await queryClient.invalidateQueries({ queryKey })
+        await queryClient.invalidateQueries({ queryKey: inboxKey })
       },
     },
   )
 }
 
-export function useMarkAllNotificationsRead() {
+export function useMarkAllNotificationsRead(category?: NotificationCategory) {
   const { gateway, workspaceId } = useAppServices()
   const queryClient = useQueryClient()
-  const queryKey = atlasQueryKeys.notificationInbox(workspaceId)
+  const queryKey = atlasQueryKeys.notificationInbox(workspaceId, category)
+  const inboxKey = atlasQueryKeys.notificationInbox(workspaceId)
 
   return useMutation<number, Error, undefined, NotificationInboxData | undefined>({
     mutationFn: () => gateway.markAllNotificationsRead(workspaceId),
@@ -109,7 +116,7 @@ export function useMarkAllNotificationsRead() {
       if (previous) queryClient.setQueryData(queryKey, previous)
     },
     onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey })
+      await queryClient.invalidateQueries({ queryKey: inboxKey })
     },
   })
 }

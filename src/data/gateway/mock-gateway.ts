@@ -102,6 +102,7 @@ import {
   type WorkspaceRole,
   isoDate,
   isoDateTime,
+  notificationCategory,
 } from '../../domain'
 
 const openProjectStatuses: ReadonlySet<Project['status']> = new Set([
@@ -1623,7 +1624,7 @@ export class MockAtlasGateway implements AtlasGateway {
     return this.execute('notification.list', options, () => {
       this.assertPermission('notifications:view-self', query.workspaceId)
       const page = validatePage(query.page ?? { number: 1, size: 20 })
-      const items = this.store
+      const notifications = this.store
         .read()
         .data.notifications.filter(
           (notification) =>
@@ -1635,10 +1636,23 @@ export class MockAtlasGateway implements AtlasGateway {
             right.occurredAt.localeCompare(left.occurredAt) ||
             right.id.localeCompare(left.id),
         )
+      const items = query.category
+        ? notifications.filter(
+            ({ kind }) => notificationCategory(kind) === query.category,
+          )
+        : notifications
+      const categoryCounts = new Map<ReturnType<typeof notificationCategory>, number>()
+      for (const notification of notifications) {
+        const category = notificationCategory(notification.kind)
+        categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1)
+      }
 
       return {
         ...paginate(items, page),
-        unreadCount: items.filter(({ readAt }) => readAt === null).length,
+        unreadCount: notifications.filter(({ readAt }) => readAt === null).length,
+        categories: [...categoryCounts]
+          .map(([value, count]) => ({ value, count }))
+          .sort((left, right) => left.value.localeCompare(right.value)),
       }
     })
   }
@@ -1835,7 +1849,7 @@ export class MockAtlasGateway implements AtlasGateway {
                   workspaceId: issue.workspaceId,
                   recipientId: issue.assigneeId,
                   kind: 'comment',
-                  issueId: issue.id,
+                  target: { kind: 'issue', id: issue.id } as const,
                   title: `New comment on ${this.issueReference(current.data, issue)}`,
                   body: body.slice(0, 160),
                   occurredAt,
@@ -2059,7 +2073,7 @@ export class MockAtlasGateway implements AtlasGateway {
                   workspaceId: issue.workspaceId,
                   recipientId: issue.assigneeId,
                   kind: 'assignment' as const,
-                  issueId: issue.id,
+                  target: { kind: 'issue', id: issue.id } as const,
                   title: `You were assigned ${project.key}-${issue.number.toString()}`,
                   body: issue.title,
                   occurredAt,
@@ -2177,7 +2191,7 @@ export class MockAtlasGateway implements AtlasGateway {
                   workspaceId: issue.workspaceId,
                   recipientId: notificationRecipient,
                   kind: assignmentChanged ? 'assignment' : 'issue-update',
-                  issueId: issue.id,
+                  target: { kind: 'issue', id: issue.id } as const,
                   title: assignmentChanged
                     ? `You were assigned ${this.issueReference(current.data, issue)}`
                     : `${this.issueReference(current.data, issue)} was updated`,
@@ -2234,7 +2248,7 @@ export class MockAtlasGateway implements AtlasGateway {
             entityKind !== 'issue' || entityId !== issue.id,
         ),
         notifications: current.data.notifications.filter(
-          ({ issueId }) => issueId !== issue.id,
+          ({ target }) => target.kind !== 'issue' || target.id !== issue.id,
         ),
       }
 

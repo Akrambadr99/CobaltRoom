@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createAtlasFixtures } from './fixtures'
 import { DataIntegrityError } from './snapshot-validation'
 import { InMemoryDataStore, StaleSnapshotError } from './store'
-import { isoDateTime, userId, workspaceInvitationId } from '../domain'
+import { issueId, isoDateTime, userId, workspaceInvitationId } from '../domain'
 
 describe('InMemoryDataStore', () => {
   it('isolates stored state from caller-owned snapshots', () => {
@@ -120,6 +120,20 @@ describe('InMemoryDataStore', () => {
           ],
         }),
     ).toThrow(DataIntegrityError)
+  })
+
+  it('rejects notifications whose typed target is outside the workspace', () => {
+    const seed = createAtlasFixtures()
+    const notification = seed.notifications[0]
+    if (!notification) throw new Error('Expected a notification fixture.')
+
+    expect(() => new InMemoryDataStore({
+      ...seed,
+      notifications: [{
+        ...notification,
+        target: { kind: 'issue', id: issueId('issue_missing_notification_target') },
+      }],
+    })).toThrow(DataIntegrityError)
   })
 
   it('rejects invalid project revisions and mismatched lead memberships', () => {

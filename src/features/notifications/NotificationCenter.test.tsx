@@ -122,4 +122,69 @@ describe('NotificationCenter', () => {
       await screen.findByRole('button', { name: 'Notifications, 20 unread' }),
     ).toBeVisible()
   })
+
+  it('filters categories and routes generalized entity targets', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const template = fixtures.notifications[0]
+    const project = fixtures.projects[0]
+    const membership = fixtures.memberships[0]
+    if (!template || !project || !membership) {
+      throw new Error('Expected notification routing fixtures.')
+    }
+    const notifications = [
+      ...fixtures.notifications,
+      {
+        ...template,
+        id: notificationId('notification_project_routing_001'),
+        kind: 'project-update' as const,
+        target: { kind: 'project' as const, id: project.id },
+        title: 'Project delivery changed',
+      },
+      {
+        ...template,
+        id: notificationId('notification_admin_routing_001'),
+        kind: 'workspace-administration' as const,
+        target: { kind: 'administration' as const, id: membership.id },
+        title: 'Workspace role changed',
+      },
+      {
+        ...template,
+        id: notificationId('notification_governance_routing_001'),
+        kind: 'governance' as const,
+        target: { kind: 'governance' as const, id: 'fixture-access-check-001' },
+        title: 'Access review requires attention',
+      },
+    ]
+    renderNotificationCenter(
+      new SimulatedNetwork(),
+      new InMemoryDataStore({ ...fixtures, notifications }),
+    )
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Notifications, 4 unread' }),
+    )
+    const category = screen.getByRole('combobox', { name: 'Category' })
+    expect(category).toHaveTextContent('Work (2)')
+    expect(category).toHaveTextContent('Collaboration (1)')
+
+    await user.selectOptions(category, 'administration')
+    const administration = await screen.findByRole('link', {
+      name: /Workspace role changed/,
+    })
+    expect(administration).toHaveAttribute('href', '/administration')
+    expect(screen.queryByText('Project delivery changed')).not.toBeInTheDocument()
+
+    await user.selectOptions(category, 'governance')
+    expect(await screen.findByRole('link', {
+      name: /Access review requires attention/,
+    })).toHaveAttribute(
+      'href',
+      '/governance?request=fixture-access-check-001',
+    )
+
+    await user.selectOptions(category, 'work')
+    expect(await screen.findByRole('link', { name: /Project delivery changed/ }))
+      .toHaveAttribute('href', `/projects/${project.id}`)
+  })
 })
