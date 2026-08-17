@@ -1907,7 +1907,12 @@ export class MockAtlasGateway implements AtlasGateway {
         deletedAt: null,
         deletedById: null,
       }
-      const mentionedUsers = this.resolveCommentMentions(current.data, issue, body)
+      const mentionedUsers = this.resolveCommentMentions(
+        current.data,
+        issue,
+        body,
+        input.mentionedUserIds ?? [],
+      )
       const mentionedUserIds = new Set(mentionedUsers.map(({ id }) => id))
       const commentMentions = mentionedUsers.map(({ id: userId }) => ({
         id: this.ids.commentMention('comment'),
@@ -2577,6 +2582,7 @@ export class MockAtlasGateway implements AtlasGateway {
     data: AtlasDataSnapshot,
     issue: Issue,
     body: string,
+    requestedUserIds: readonly UserId[],
   ) {
     const activeMemberIds = new Set(
       data.memberships
@@ -2587,9 +2593,14 @@ export class MockAtlasGateway implements AtlasGateway {
         .map(({ userId }) => userId),
     )
 
+    const requested = new Set(requestedUserIds)
     return data.users
       .filter(({ id, displayName }) => {
-        if (id === this.actorId || !activeMemberIds.has(id)) return false
+        if (
+          !requested.has(id) ||
+          id === this.actorId ||
+          !activeMemberIds.has(id)
+        ) return false
         const escapedName = displayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         return new RegExp(
           `(^|\\s)@${escapedName}(?=$|[\\s.,!?;:])`,

@@ -330,6 +330,7 @@ export interface SetIssueSubscriptionInput {
 export interface CreateCommentInput {
   readonly issueId: IssueId
   readonly body: string
+  readonly mentionedUserIds?: readonly UserId[]
 }
 
 export interface UpdateCommentInput {

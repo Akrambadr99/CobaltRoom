@@ -15,6 +15,7 @@ import {
   type IssueId,
   type IssuePriority,
   type User,
+  type UserId,
 } from '../../domain'
 import {
   useIssueDetailData,
@@ -396,6 +397,7 @@ function CommentForm({
   const submissionPendingRef = useRef(false)
   const [body, setBody] = useState('')
   const [mentionUserId, setMentionUserId] = useState('')
+  const [selectedMentionUserIds, setSelectedMentionUserIds] = useState<readonly UserId[]>([])
   const [validationError, setValidationError] = useState('')
   const [status, setStatus] = useState('')
 
@@ -411,9 +413,14 @@ function CommentForm({
 
     setValidationError('')
     submissionPendingRef.current = true
-    createComment.mutate(normalized, {
+    const mentionedUserIds = selectedMentionUserIds.filter((userId) => {
+      const user = mentionableUsers.find(({ id }) => id === userId)
+      return user ? normalized.includes(`@${user.displayName}`) : false
+    })
+    createComment.mutate({ body: normalized, mentionedUserIds }, {
       onSuccess: () => {
         setBody('')
+        setSelectedMentionUserIds([])
         setStatus('Comment added.')
         textAreaRef.current?.focus()
       },
@@ -463,6 +470,9 @@ function CommentForm({
                 current.includes(token)
                   ? current
                   : `${current}${current.length > 0 && !current.endsWith(' ') ? ' ' : ''}${token} `,
+              )
+              setSelectedMentionUserIds((current) =>
+                current.includes(user.id) ? current : [...current, user.id],
               )
               setMentionUserId('')
               textAreaRef.current?.focus()

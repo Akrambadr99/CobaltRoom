@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { MutableIssueFields } from '../../data'
-import type { Issue, IssueId } from '../../domain'
+import type { Issue, IssueId, UserId } from '../../domain'
 import { atlasQueryKeys } from '../query-keys'
 import {
   cancelIssueDerivedReads,
@@ -33,13 +33,19 @@ export function useIssueActivityData(issueId: IssueId) {
   })
 }
 
+interface CreateIssueCommentVariables {
+  readonly body: string
+  readonly mentionedUserIds: readonly UserId[]
+}
+
 export function useCreateIssueComment(issueId: IssueId) {
   const { gateway, workspaceId } = useAppServices()
   const queryClient = useQueryClient()
 
   return useMutation({
     scope: { id: `comment-create:${issueId}` },
-    mutationFn: (body: string) => gateway.createComment({ issueId, body }),
+    mutationFn: ({ body, mentionedUserIds }: CreateIssueCommentVariables) =>
+      gateway.createComment({ issueId, body, mentionedUserIds }),
     onMutate: async () => {
       await Promise.all([
         queryClient.cancelQueries({

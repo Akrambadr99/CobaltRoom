@@ -2022,10 +2022,20 @@ describe('MockAtlasGateway', () => {
     const issue = fixtures.issues[1]
     const mentioned = fixtures.users.find(({ displayName }) => displayName === 'Lena Ortiz')
     if (!issue || !mentioned) throw new Error('Expected mention fixtures.')
+    const duplicateName = fixtures.users.find(({ displayName }) => displayName === 'Theo Martin')
+    if (!duplicateName) throw new Error('Expected a duplicate-name candidate.')
+    const beforeMention = store.read()
+    store.commit(beforeMention.version, {
+      ...beforeMention.data,
+      users: beforeMention.data.users.map((user) =>
+        user.id === duplicateName.id ? { ...user, displayName: mentioned.displayName } : user,
+      ),
+    })
 
     const comment = await gateway.createComment({
       issueId: issue.id,
       body: 'Please review @Lena Ortiz, then ask @Lena Ortiz for approval.',
+      mentionedUserIds: [mentioned.id, mentioned.id],
     })
     expect(store.read().data.commentMentions).toEqual([
       expect.objectContaining({ commentId: comment.id, userId: mentioned.id }),
