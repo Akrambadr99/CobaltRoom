@@ -10,6 +10,9 @@ describe('DeterministicIdGenerator', () => {
     expect(ids.issue('launch')).toBe('issue_atlas_launch_002')
     expect(ids.issue('reliability')).toBe('issue_atlas_reliability_001')
     expect(ids.project('launch')).toBe('prj_atlas_launch_001')
+    expect(ids.projectSubscription('launch')).toBe(
+      'project_subscription_atlas_launch_001',
+    )
     expect(ids.issueSubscription('launch')).toBe(
       'subscription_atlas_launch_001',
     )

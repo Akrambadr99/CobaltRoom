@@ -8,6 +8,7 @@ import {
   issueId,
   issueSubscriptionId,
   isoDateTime,
+  projectSubscriptionId,
   userId,
   workspaceInvitationId,
 } from '../domain'
@@ -170,6 +171,39 @@ describe('InMemoryDataStore', () => {
             {
               ...subscription,
               id: issueSubscriptionId('subscription_store_duplicate_001'),
+            },
+          ],
+        }),
+    ).toThrow(DataIntegrityError)
+  })
+
+  it('rejects orphaned and duplicate project subscriptions', () => {
+    const seed = createAtlasFixtures()
+    const subscription = seed.projectSubscriptions[0]
+    if (!subscription) throw new Error('Expected a project subscription fixture.')
+
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          projectSubscriptions: [
+            {
+              ...subscription,
+              id: projectSubscriptionId('project_subscription_store_orphan_001'),
+              userId: userId('usr_missing_project_subscription_owner'),
+            },
+          ],
+        }),
+    ).toThrow(DataIntegrityError)
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          projectSubscriptions: [
+            ...seed.projectSubscriptions,
+            {
+              ...subscription,
+              id: projectSubscriptionId('project_subscription_store_duplicate_001'),
             },
           ],
         }),

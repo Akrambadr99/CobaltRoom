@@ -137,6 +137,23 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
     }
   }
 
+  const projectSubscriptionOwners = new Set<string>()
+  for (const subscription of snapshot.projectSubscriptions) {
+    const project = projects.get(subscription.projectId)
+    const ownerKey = `${subscription.projectId}:${subscription.userId}`
+    if (
+      !project ||
+      !workspaceMembershipUsers.has(`${project.workspaceId}:${subscription.userId}`) ||
+      projectSubscriptionOwners.has(ownerKey)
+    ) {
+      throw new DataIntegrityError(
+        'projectSubscriptions',
+        'Project subscriptions require a unique workspace member per project.',
+      )
+    }
+    projectSubscriptionOwners.add(ownerKey)
+  }
+
   for (const label of snapshot.labels) {
     if (!workspaces.has(label.workspaceId)) {
       throw new DataIntegrityError('labels', 'Labels must belong to a workspace.')
@@ -302,6 +319,7 @@ const collectionNames = [
   'workspaceInvitations',
   'projects',
   'projectMembers',
+  'projectSubscriptions',
   'workflowStatuses',
   'labels',
   'issues',

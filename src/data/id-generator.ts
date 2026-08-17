@@ -13,6 +13,7 @@ import {
   notificationPreferenceId,
   projectId,
   projectMemberId,
+  projectSubscriptionId,
   userId,
   workflowStatusId,
   workspaceId,
@@ -30,6 +31,7 @@ import {
   type NotificationPreferenceId,
   type ProjectId,
   type ProjectMemberId,
+  type ProjectSubscriptionId,
   type UserId,
   type WorkflowStatusId,
   type WorkspaceId,
@@ -71,6 +73,10 @@ export class DeterministicIdGenerator {
 
   projectMember(scope: string): ProjectMemberId {
     return projectMemberId(this.next('pm', scope))
+  }
+
+  projectSubscription(scope: string): ProjectSubscriptionId {
+    return projectSubscriptionId(this.next('project_subscription', scope))
   }
 
   workflowStatus(scope: string): WorkflowStatusId {

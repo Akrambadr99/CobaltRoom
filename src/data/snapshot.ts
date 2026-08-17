@@ -12,6 +12,7 @@ import type {
   NotificationPreferences,
   Project,
   ProjectMember,
+  ProjectSubscription,
   User,
   WorkflowStatus,
   Workspace,
@@ -25,6 +26,7 @@ export interface AtlasDataSnapshot {
   readonly workspaceInvitations: readonly WorkspaceInvitation[]
   readonly projects: readonly Project[]
   readonly projectMembers: readonly ProjectMember[]
+  readonly projectSubscriptions: readonly ProjectSubscription[]
   readonly workflowStatuses: readonly WorkflowStatus[]
   readonly labels: readonly Label[]
   readonly issues: readonly Issue[]

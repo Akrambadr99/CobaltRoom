@@ -1,6 +1,7 @@
 import type {
   ProjectId,
   ProjectMemberId,
+  ProjectSubscriptionId,
   UserId,
   WorkflowStatusId,
   WorkspaceId,
@@ -34,6 +35,13 @@ export interface ProjectMember {
   readonly projectId: ProjectId
   readonly userId: UserId
   readonly role: ProjectMemberRole
+}
+
+export interface ProjectSubscription {
+  readonly id: ProjectSubscriptionId
+  readonly projectId: ProjectId
+  readonly userId: UserId
+  readonly createdAt: IsoDateTime
 }
 
 export interface WorkflowStatus {

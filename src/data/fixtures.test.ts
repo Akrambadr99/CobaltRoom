@@ -19,6 +19,7 @@ describe('Atlas fixtures', () => {
       true,
     )
     expect(fixtures.issueRelations).toHaveLength(2)
+    expect(fixtures.projectSubscriptions).toHaveLength(1)
   })
 
   it('is byte-for-byte deterministic for equivalent inputs', () => {

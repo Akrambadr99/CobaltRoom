@@ -10,6 +10,7 @@ export type MembershipId = DomainId<'MembershipId'>
 export type WorkspaceInvitationId = DomainId<'WorkspaceInvitationId'>
 export type ProjectId = DomainId<'ProjectId'>
 export type ProjectMemberId = DomainId<'ProjectMemberId'>
+export type ProjectSubscriptionId = DomainId<'ProjectSubscriptionId'>
 export type WorkflowStatusId = DomainId<'WorkflowStatusId'>
 export type IssueId = DomainId<'IssueId'>
 export type IssueSubscriptionId = DomainId<'IssueSubscriptionId'>
@@ -63,6 +64,8 @@ export const projectId = (value: string) =>
   createDomainId(value, 'prj', 'ProjectId')
 export const projectMemberId = (value: string) =>
   createDomainId(value, 'pm', 'ProjectMemberId')
+export const projectSubscriptionId = (value: string) =>
+  createDomainId(value, 'project_subscription', 'ProjectSubscriptionId')
 export const workflowStatusId = (value: string) =>
   createDomainId(value, 'status', 'WorkflowStatusId')
 export const issueId = (value: string) =>

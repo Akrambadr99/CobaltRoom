@@ -304,6 +304,14 @@ export function createAtlasFixtures(
         role: 'lead',
       },
     ],
+    projectSubscriptions: [
+      {
+        id: ids.projectSubscription('launch_product'),
+        projectId: launchProject.id,
+        userId: productLead.id,
+        createdAt,
+      },
+    ],
     workflowStatuses: [
       launchBacklog,
       launchActive,
