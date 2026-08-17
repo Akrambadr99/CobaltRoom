@@ -1,0 +1,34 @@
+import type {
+  ActivityEvent,
+  AuditEvent,
+  Comment,
+  Issue,
+  IssueRelation,
+  Label,
+  Membership,
+  Project,
+  ProjectMember,
+  User,
+  WorkflowStatus,
+  Workspace,
+} from '../domain'
+
+export interface AtlasDataSnapshot {
+  readonly workspaces: readonly Workspace[]
+  readonly users: readonly User[]
+  readonly memberships: readonly Membership[]
+  readonly projects: readonly Project[]
+  readonly projectMembers: readonly ProjectMember[]
+  readonly workflowStatuses: readonly WorkflowStatus[]
+  readonly labels: readonly Label[]
+  readonly issues: readonly Issue[]
+  readonly issueRelations: readonly IssueRelation[]
+  readonly comments: readonly Comment[]
+  readonly activityEvents: readonly ActivityEvent[]
+  readonly auditEvents: readonly AuditEvent[]
+}
+
+export interface VersionedSnapshot {
+  readonly version: number
+  readonly data: AtlasDataSnapshot
+}
