@@ -63,8 +63,12 @@ export const atlasQueryKeys = {
   notificationInbox: (
     workspaceId: WorkspaceId,
     category?: NotificationCategory,
-  ) => category
-    ? [...atlasQueryKeys.notifications(workspaceId), 'inbox', { category }] as const
+    read?: boolean,
+  ) => category !== undefined || read !== undefined
+    ? [...atlasQueryKeys.notifications(workspaceId), 'inbox', {
+        ...(category ? { category } : {}),
+        ...(read !== undefined ? { read } : {}),
+      }] as const
     : [...atlasQueryKeys.notifications(workspaceId), 'inbox'] as const,
   notificationPreferences: (workspaceId: WorkspaceId) =>
     ['workspaces', workspaceId, 'notifications', 'preferences'] as const,

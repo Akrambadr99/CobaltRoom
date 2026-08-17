@@ -11,7 +11,7 @@ import {
   InMemoryDataStore,
   SimulatedNetwork,
 } from '../../data'
-import { isoDateTime, notificationId } from '../../domain'
+import { isoDateTime, notificationCategory, notificationId } from '../../domain'
 import { render, screen, within } from '../../test/render'
 
 function renderNotificationCenter(
@@ -186,5 +186,59 @@ describe('NotificationCenter', () => {
     await user.selectOptions(category, 'work')
     expect(await screen.findByRole('link', { name: /Project delivery changed/ }))
       .toHaveAttribute('href', `/projects/${project.id}`)
+  })
+
+  it('filters read state and scopes bulk updates to matching or selected notifications', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const actorId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    const actorNotifications = fixtures.notifications.filter(
+      ({ recipientId }) => recipientId === actorId,
+    )
+    if (!actorId || actorNotifications.length !== 2) {
+      throw new Error('Expected two actor notification fixtures.')
+    }
+    const notifications = fixtures.notifications.map((notification) =>
+      notification.recipientId === actorId
+        ? { ...notification, readAt: null }
+        : notification,
+    )
+    const dataStore = new InMemoryDataStore({ ...fixtures, notifications })
+    renderNotificationCenter(new SimulatedNetwork(), dataStore)
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Notifications, 2 unread' }),
+    )
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Category' }), 'collaboration')
+    await user.click(screen.getByRole('button', { name: 'Mark matching read' }))
+    expect(
+      await screen.findByRole('button', { name: 'Notifications, 1 unread' }),
+    ).toBeVisible()
+    expect(
+      dataStore.read().data.notifications.filter(
+        ({ recipientId, readAt }) => recipientId === actorId && readAt === null,
+      ),
+    ).toHaveLength(1)
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Category' }), '')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Status' }), 'unread')
+    const unread = actorNotifications.find(
+      ({ kind }) => notificationCategory(kind) === 'work',
+    )
+    if (!unread) throw new Error('Expected an unread work notification.')
+    expect(await screen.findByText(unread.title)).toBeVisible()
+    expect(screen.queryByText(actorNotifications.find(({ id }) => id !== unread.id)?.title ?? ''))
+      .not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('checkbox', { name: `Select ${unread.title}` }))
+    await user.click(screen.getByRole('button', { name: 'Mark selected read' }))
+    expect(
+      await screen.findByRole('button', { name: 'Notifications, 0 unread' }),
+    ).toBeVisible()
+    expect(await screen.findByText('1 selected notifications marked as read.'))
+      .toHaveAttribute('role', 'status')
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Status' }), 'read')
+    expect(await screen.findAllByRole('listitem')).toHaveLength(2)
   })
 })

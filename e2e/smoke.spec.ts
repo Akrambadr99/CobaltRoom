@@ -460,9 +460,9 @@ test('reviews and clears the notification inbox', async ({ page }) => {
   await expect(category).toContainText('Work (1)')
   await expect(category).toContainText('Collaboration (1)')
   await category.selectOption('collaboration')
-  await expect(inbox.getByText('New comment on OPS-1')).toBeVisible()
-  await expect(inbox.getByText('OPS-3 was updated')).not.toBeVisible()
-  await inbox.getByRole('button', { name: 'Mark all read' }).click()
+  await expect(inbox.getByRole('link', { name: /New comment on OPS-1/ })).toBeVisible()
+  await expect(inbox.getByRole('link', { name: /OPS-3 was updated/ })).not.toBeVisible()
+  await inbox.getByRole('button', { name: 'Mark matching read' }).click()
 
   await expect(
     page.getByRole('button', { name: 'Notifications, 0 unread' }),

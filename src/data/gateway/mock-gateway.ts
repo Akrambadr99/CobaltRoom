@@ -38,6 +38,7 @@ import type {
   UpdateIssueInput,
   UpdateCommentInput,
   UpdateNotificationPreferencesInput,
+  UpdateNotificationsReadStateInput,
   UpdateProjectInput,
   UpdateProjectMemberInput,
   UpdateProjectWorkflowInput,
@@ -1742,11 +1743,14 @@ export class MockAtlasGateway implements AtlasGateway {
             right.occurredAt.localeCompare(left.occurredAt) ||
             right.id.localeCompare(left.id),
         )
-      const items = query.category
+      const categoryItems = query.category
         ? notifications.filter(
             ({ kind }) => notificationCategory(kind) === query.category,
           )
         : notifications
+      const items = query.read === undefined
+        ? categoryItems
+        : categoryItems.filter(({ readAt }) => (readAt !== null) === query.read)
       const categoryCounts = new Map<ReturnType<typeof notificationCategory>, number>()
       for (const notification of notifications) {
         const category = notificationCategory(notification.kind)
@@ -1756,6 +1760,8 @@ export class MockAtlasGateway implements AtlasGateway {
       return {
         ...paginate(items, page),
         unreadCount: notifications.filter(({ readAt }) => readAt === null).length,
+        readCount: notifications.filter(({ readAt }) => readAt !== null).length,
+        matchingUnreadCount: items.filter(({ readAt }) => readAt === null).length,
         categories: [...categoryCounts]
           .map(([value, count]) => ({ value, count }))
           .sort((left, right) => left.value.localeCompare(right.value)),
@@ -1785,25 +1791,45 @@ export class MockAtlasGateway implements AtlasGateway {
     })
   }
 
-  markAllNotificationsRead(
-    workspaceId: WorkspaceId,
+  updateNotificationsReadState(
+    input: UpdateNotificationsReadStateInput,
     options?: RequestOptions,
   ): Promise<number> {
-    return this.execute('notification.mark-all-read', options, () => {
-      this.assertPermission('notifications:view-self', workspaceId)
+    return this.execute('notification.update-read-state', options, () => {
+      this.assertPermission('notifications:view-self', input.workspaceId)
       const current = this.store.read()
       const occurredAt = this.clock.now()
+      const requestedIds = input.ids ? new Set(input.ids) : null
+      if (requestedIds) {
+        for (const id of requestedIds) {
+          const notification = current.data.notifications.find(
+            (candidate) => candidate.id === id,
+          )
+          if (!notification) throw new EntityNotFoundError('Notification')
+          if (notification.workspaceId !== input.workspaceId) {
+            throw new ForbiddenGatewayError(
+              'Notification does not belong to this workspace inbox.',
+            )
+          }
+          this.assertNotificationRecipient(notification)
+        }
+      }
       let updatedCount = 0
       const notifications = current.data.notifications.map((notification) => {
         if (
-          notification.workspaceId !== workspaceId ||
+          notification.workspaceId !== input.workspaceId ||
           notification.recipientId !== this.actorId ||
-          notification.readAt !== null
+          (requestedIds && !requestedIds.has(notification.id)) ||
+          (input.category &&
+            notificationCategory(notification.kind) !== input.category) ||
+          (input.currentRead !== undefined &&
+            (notification.readAt !== null) !== input.currentRead) ||
+          (notification.readAt !== null) === input.read
         ) {
           return notification
         }
         updatedCount += 1
-        return { ...notification, readAt: occurredAt }
+        return { ...notification, readAt: input.read ? occurredAt : null }
       })
 
       if (updatedCount > 0) {

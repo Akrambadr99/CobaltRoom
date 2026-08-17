@@ -1300,6 +1300,14 @@ describe('MockAtlasGateway', () => {
     })
     expect(collaboration).toMatchObject({ totalItems: 1, unreadCount: 1 })
     expect(collaboration.items[0]?.kind).toBe('comment')
+    expect(collaboration.matchingUnreadCount).toBe(1)
+
+    const read = await gateway.listNotifications({ workspaceId, read: true })
+    expect(read).toMatchObject({ totalItems: 1, unreadCount: 1, readCount: 1 })
+    expect(read.items.every(({ readAt }) => readAt !== null)).toBe(true)
+
+    const unreadOnly = await gateway.listNotifications({ workspaceId, read: false })
+    expect(unreadOnly.items.map(({ id }) => id)).toEqual([unread.id])
 
     const older = await gateway.listNotifications({
       workspaceId,
@@ -1316,8 +1324,23 @@ describe('MockAtlasGateway', () => {
     )
 
     await gateway.markNotificationRead({ id: unread.id, read: false })
-    await expect(gateway.markAllNotificationsRead(workspaceId)).resolves.toBe(1)
+    await expect(
+      gateway.updateNotificationsReadState({
+        workspaceId,
+        category: 'collaboration',
+        currentRead: false,
+        read: true,
+      }),
+    ).resolves.toBe(1)
     expect((await gateway.listNotifications({ workspaceId })).unreadCount).toBe(0)
+    await gateway.markNotificationRead({ id: unread.id, read: false })
+    await expect(
+      gateway.updateNotificationsReadState({
+        workspaceId,
+        ids: [unread.id, unread.id],
+        read: true,
+      }),
+    ).resolves.toBe(1)
     expect(tracer.read().some(({ operation }) => operation === 'notification.list')).toBe(
       true,
     )
@@ -1349,6 +1372,13 @@ describe('MockAtlasGateway', () => {
     await expect(
       gateway.markNotificationRead({
         id: administrativeNotification.id,
+        read: true,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+    await expect(
+      gateway.updateNotificationsReadState({
+        workspaceId: fixtures.workspaces[0]?.id ?? administrativeNotification.workspaceId,
+        ids: [administrativeNotification.id],
         read: true,
       }),
     ).rejects.toBeInstanceOf(ForbiddenGatewayError)

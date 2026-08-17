@@ -6,19 +6,27 @@ import {
 } from '@tanstack/react-query'
 
 import { useAppServices } from '../../app/providers/app-services-context'
-import type { MarkNotificationReadInput, NotificationInbox } from '../../data'
+import type {
+  MarkNotificationReadInput,
+  NotificationInbox,
+  UpdateNotificationsReadStateInput,
+} from '../../data'
 import type { NotificationCategory } from '../../domain'
 import { atlasQueryKeys } from '../query-keys'
 
-export function useNotificationInbox(category?: NotificationCategory) {
+export function useNotificationInbox(
+  category?: NotificationCategory,
+  read?: boolean,
+) {
   const { gateway, workspaceId } = useAppServices()
   return useInfiniteQuery({
-    queryKey: atlasQueryKeys.notificationInbox(workspaceId, category),
+    queryKey: atlasQueryKeys.notificationInbox(workspaceId, category, read),
     queryFn: ({ pageParam, signal }) =>
       gateway.listNotifications(
         {
           workspaceId,
           ...(category ? { category } : {}),
+          ...(read !== undefined ? { read } : {}),
           page: { number: pageParam, size: 20 },
         },
         { signal },
@@ -33,10 +41,13 @@ export function useNotificationInbox(category?: NotificationCategory) {
 
 type NotificationInboxData = InfiniteData<NotificationInbox, number>
 
-export function useMarkNotificationRead(category?: NotificationCategory) {
+export function useMarkNotificationRead(
+  category?: NotificationCategory,
+  read?: boolean,
+) {
   const { gateway, workspaceId } = useAppServices()
   const queryClient = useQueryClient()
-  const queryKey = atlasQueryKeys.notificationInbox(workspaceId, category)
+  const queryKey = atlasQueryKeys.notificationInbox(workspaceId, category, read)
   const inboxKey = atlasQueryKeys.notificationInbox(workspaceId)
 
   return useMutation<unknown, Error, MarkNotificationReadInput, NotificationInboxData | undefined>(
@@ -84,37 +95,14 @@ export function useMarkNotificationRead(category?: NotificationCategory) {
   )
 }
 
-export function useMarkAllNotificationsRead(category?: NotificationCategory) {
+export function useUpdateNotificationsReadState() {
   const { gateway, workspaceId } = useAppServices()
   const queryClient = useQueryClient()
-  const queryKey = atlasQueryKeys.notificationInbox(workspaceId, category)
   const inboxKey = atlasQueryKeys.notificationInbox(workspaceId)
 
-  return useMutation<number, Error, undefined, NotificationInboxData | undefined>({
-    mutationFn: () => gateway.markAllNotificationsRead(workspaceId),
-    onMutate: async () => {
-      await queryClient.cancelQueries({ queryKey })
-      const previous = queryClient.getQueryData<NotificationInboxData>(queryKey)
-      queryClient.setQueryData<NotificationInboxData>(queryKey, (current) =>
-        current
-          ? {
-              ...current,
-              pages: current.pages.map((page) => ({
-                ...page,
-                items: page.items.map((notification) => ({
-                  ...notification,
-                  readAt: notification.readAt ?? notification.occurredAt,
-                })),
-                unreadCount: 0,
-              })),
-            }
-          : current,
-      )
-      return previous
-    },
-    onError: (_error, _variables, previous) => {
-      if (previous) queryClient.setQueryData(queryKey, previous)
-    },
+  return useMutation<number, Error, Omit<UpdateNotificationsReadStateInput, 'workspaceId'>>({
+    mutationFn: (input) =>
+      gateway.updateNotificationsReadState({ ...input, workspaceId }),
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: inboxKey })
     },

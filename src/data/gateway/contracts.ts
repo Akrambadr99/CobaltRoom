@@ -351,17 +351,28 @@ export interface DeleteCommentInput {
 export interface NotificationQuery {
   readonly workspaceId: WorkspaceId
   readonly category?: NotificationCategory
+  readonly read?: boolean
   readonly page?: PageRequest
 }
 
 export interface NotificationInbox extends Page<Notification> {
   readonly unreadCount: number
+  readonly readCount: number
+  readonly matchingUnreadCount: number
   readonly categories: readonly AnalyticsBreakdown<NotificationCategory>[]
 }
 
 export interface MarkNotificationReadInput {
   readonly id: NotificationId
   readonly read: boolean
+}
+
+export interface UpdateNotificationsReadStateInput {
+  readonly workspaceId: WorkspaceId
+  readonly read: boolean
+  readonly category?: NotificationCategory
+  readonly currentRead?: boolean
+  readonly ids?: readonly NotificationId[]
 }
 
 export interface UpdateNotificationPreferencesInput {
@@ -707,8 +718,8 @@ export interface AtlasGateway {
     input: MarkNotificationReadInput,
     options?: RequestOptions,
   ): Promise<Notification>
-  markAllNotificationsRead(
-    workspaceId: WorkspaceId,
+  updateNotificationsReadState(
+    input: UpdateNotificationsReadStateInput,
     options?: RequestOptions,
   ): Promise<number>
   getNotificationPreferences(
