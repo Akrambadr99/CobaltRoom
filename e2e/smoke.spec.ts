@@ -198,3 +198,20 @@ test('opens a permission-aware command palette and starts issue creation', async
   await expect(page).toHaveURL('/issues?create=1')
   await expect(page.getByRole('dialog', { name: 'Create issue' })).toBeVisible()
 })
+
+test('reviews and clears the notification inbox', async ({ page }) => {
+  await page.goto('/')
+  const trigger = page.getByRole('button', { name: 'Notifications, 1 unread' })
+  await expect(trigger).toBeVisible()
+  await trigger.click()
+
+  const inbox = page.getByRole('region', { name: 'Notifications' })
+  await expect(inbox).toBeVisible()
+  await expect(inbox.getByText('New comment on OPS-1')).toBeVisible()
+  await inbox.getByRole('button', { name: 'Mark all read' }).click()
+
+  await expect(
+    page.getByRole('button', { name: 'Notifications, 0 unread' }),
+  ).toBeVisible()
+  await expect(page.getByText('1 notification marked as read.')).toBeAttached()
+})

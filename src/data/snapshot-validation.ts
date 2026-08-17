@@ -137,6 +137,20 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
       )
     }
   }
+
+  for (const notification of snapshot.notifications) {
+    const issue = issues.get(notification.issueId)
+    if (
+      !users.has(notification.recipientId) ||
+      !workspaces.has(notification.workspaceId) ||
+      issue?.workspaceId !== notification.workspaceId
+    ) {
+      throw new DataIntegrityError(
+        'notifications',
+        'Notifications must reference an existing recipient, workspace, and issue.',
+      )
+    }
+  }
 }
 
 const collectionNames = [
@@ -152,6 +166,7 @@ const collectionNames = [
   'comments',
   'activityEvents',
   'auditEvents',
+  'notifications',
 ] as const satisfies readonly (keyof AtlasDataSnapshot)[]
 
 function assertUniqueIds(

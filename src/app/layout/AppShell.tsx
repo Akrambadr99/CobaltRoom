@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, Outlet } from 'react-router-dom'
 
 import { CommandPalette } from '../../features/commands/CommandPalette'
+import { NotificationCenter } from '../../features/notifications/NotificationCenter'
 import { GlobalSearch } from '../../features/search/GlobalSearch'
 import { useKeyboardShortcuts } from '../../interactions/keyboard-shortcuts'
 import { PrimaryNavigation } from '../navigation/PrimaryNavigation'
@@ -64,6 +65,7 @@ export function AppShell() {
             <p className="app-topbar__name">Atlas Operations</p>
           </div>
           <GlobalSearch />
+          <NotificationCenter />
           <div
             className="user-summary"
             aria-label={`Signed in as ${session.user.displayName}`}

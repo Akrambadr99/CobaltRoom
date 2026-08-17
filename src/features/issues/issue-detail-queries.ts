@@ -35,9 +35,14 @@ export function useCreateIssueComment(issueId: IssueId) {
   return useMutation({
     mutationFn: (body: string) => gateway.createComment({ issueId, body }),
     onSettled: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: atlasQueryKeys.issueActivity(workspaceId, issueId),
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.issueActivity(workspaceId, issueId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.notifications(workspaceId),
+        }),
+      ])
     },
   })
 }
@@ -84,6 +89,9 @@ export function useOptimisticIssueUpdate(issueId: IssueId) {
         queryClient.invalidateQueries({ queryKey: detailKey }),
         queryClient.invalidateQueries({
           queryKey: atlasQueryKeys.workspaceIssues(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.notifications(workspaceId),
         }),
       ])
     },

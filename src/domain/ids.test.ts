@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   InvalidDomainIdError,
   issueId,
+  notificationId,
   projectId,
   userId,
   workspaceId,
@@ -14,6 +15,7 @@ describe('domain identifiers', () => {
     [userId, 'usr_akram'],
     [projectId, 'prj_launch'],
     [issueId, 'issue_launch_42'],
+    [notificationId, 'notification_launch_42'],
   ])('constructs a valid prefixed identifier', (factory, value) => {
     expect(factory(value)).toBe(value)
   })
@@ -23,6 +25,7 @@ describe('domain identifiers', () => {
     [userId, 'usr_Akram'],
     [projectId, 'prj_'],
     [issueId, ' issue_launch_42'],
+    [notificationId, 'notice_launch_42'],
   ])('rejects an invalid prefixed identifier', (factory, value) => {
     expect(() => factory(value)).toThrow(InvalidDomainIdError)
   })

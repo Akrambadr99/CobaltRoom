@@ -55,9 +55,14 @@ export function useCreateIssue() {
       )
     },
     onSettled: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: atlasQueryKeys.workspaceIssues(workspaceId),
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.workspaceIssues(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.notifications(workspaceId),
+        }),
+      ])
     },
   })
 }
@@ -85,9 +90,14 @@ export function useBulkUpdateIssuePriority() {
       priority: IssuePriority
     }) => updateIssuePriorities(gateway, issues, priority),
     onSettled: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: atlasQueryKeys.workspaceIssues(workspaceId),
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.workspaceIssues(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.notifications(workspaceId),
+        }),
+      ])
     },
   })
 }

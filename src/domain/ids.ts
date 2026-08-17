@@ -16,6 +16,7 @@ export type LabelId = DomainId<'LabelId'>
 export type CommentId = DomainId<'CommentId'>
 export type ActivityEventId = DomainId<'ActivityEventId'>
 export type AuditEventId = DomainId<'AuditEventId'>
+export type NotificationId = DomainId<'NotificationId'>
 
 export class InvalidDomainIdError extends Error {
   readonly kind: string
@@ -70,3 +71,5 @@ export const activityEventId = (value: string) =>
   createDomainId(value, 'activity', 'ActivityEventId')
 export const auditEventId = (value: string) =>
   createDomainId(value, 'audit', 'AuditEventId')
+export const notificationId = (value: string) =>
+  createDomainId(value, 'notification', 'NotificationId')

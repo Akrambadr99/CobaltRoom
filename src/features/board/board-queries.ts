@@ -113,6 +113,9 @@ export function useMoveBoardIssue(projectId: ProjectId | null) {
         queryClient.invalidateQueries({
           queryKey: atlasQueryKeys.issueActivity(workspaceId, variables.issue.id),
         }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.notifications(workspaceId),
+        }),
       ])
     },
   })

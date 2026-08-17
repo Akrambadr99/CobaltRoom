@@ -11,6 +11,9 @@ export type GatewayOperation =
   | 'issue.creation-metadata'
   | 'issue.list'
   | 'issue.update'
+  | 'notification.list'
+  | 'notification.mark-all-read'
+  | 'notification.mark-read'
   | 'project.list'
 
 export type RequestPhase = 'cancelled' | 'failed' | 'started' | 'succeeded'

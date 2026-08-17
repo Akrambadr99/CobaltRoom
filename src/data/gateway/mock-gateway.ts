@@ -7,6 +7,8 @@ import type {
   IssueCreationMetadata,
   IssueActivityData,
   IssueQuery,
+  MarkNotificationReadInput,
+  NotificationInbox,
   Page,
   RequestOptions,
   UpdateIssueInput,
@@ -36,6 +38,7 @@ import {
   type Comment,
   type Issue,
   type IssueId,
+  type Notification,
   type Permission,
   type Project,
   type ProjectId,
@@ -236,6 +239,82 @@ export class MockAtlasGateway implements AtlasGateway {
     })
   }
 
+  listNotifications(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<NotificationInbox> {
+    return this.execute('notification.list', options, () => {
+      this.assertPermission('workspace:view', workspaceId)
+      const items = this.store
+        .read()
+        .data.notifications.filter(
+          (notification) =>
+            notification.workspaceId === workspaceId &&
+            notification.recipientId === this.actorId,
+        )
+        .sort(
+          (left, right) =>
+            right.occurredAt.localeCompare(left.occurredAt) ||
+            right.id.localeCompare(left.id),
+        )
+
+      return {
+        items,
+        unreadCount: items.filter(({ readAt }) => readAt === null).length,
+      }
+    })
+  }
+
+  markNotificationRead(
+    input: MarkNotificationReadInput,
+    options?: RequestOptions,
+  ): Promise<Notification> {
+    return this.execute('notification.mark-read', options, () => {
+      const current = this.store.read()
+      const index = current.data.notifications.findIndex(({ id }) => id === input.id)
+      const notification = current.data.notifications[index]
+
+      if (!notification) throw new EntityNotFoundError('Notification')
+      this.assertNotificationRecipient(notification)
+      const readAt = input.read ? (notification.readAt ?? this.clock.now()) : null
+      if (readAt === notification.readAt) return notification
+
+      const updated = { ...notification, readAt }
+      const notifications = [...current.data.notifications]
+      notifications[index] = updated
+      this.commit(current.version, { ...current.data, notifications })
+      return updated
+    })
+  }
+
+  markAllNotificationsRead(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<number> {
+    return this.execute('notification.mark-all-read', options, () => {
+      this.assertPermission('workspace:view', workspaceId)
+      const current = this.store.read()
+      const occurredAt = this.clock.now()
+      let updatedCount = 0
+      const notifications = current.data.notifications.map((notification) => {
+        if (
+          notification.workspaceId !== workspaceId ||
+          notification.recipientId !== this.actorId ||
+          notification.readAt !== null
+        ) {
+          return notification
+        }
+        updatedCount += 1
+        return { ...notification, readAt: occurredAt }
+      })
+
+      if (updatedCount > 0) {
+        this.commit(current.version, { ...current.data, notifications })
+      }
+      return updatedCount
+    })
+  }
+
   createComment(
     input: CreateCommentInput,
     options?: RequestOptions,
@@ -292,6 +371,23 @@ export class MockAtlasGateway implements AtlasGateway {
             metadata: { issueId: issue.id, commentId: comment.id },
           },
         ],
+        notifications:
+          issue.assigneeId && issue.assigneeId !== this.actorId
+            ? [
+                ...current.data.notifications,
+                {
+                  id: this.ids.notification('comment_created'),
+                  workspaceId: issue.workspaceId,
+                  recipientId: issue.assigneeId,
+                  kind: 'comment',
+                  issueId: issue.id,
+                  title: `New comment on ${this.issueReference(current.data, issue)}`,
+                  body: body.slice(0, 160),
+                  occurredAt,
+                  readAt: null,
+                },
+              ]
+            : current.data.notifications,
       }
 
       this.commit(current.version, nextData)
@@ -325,6 +421,7 @@ export class MockAtlasGateway implements AtlasGateway {
       const projectIssues = current.data.issues.filter(
         ({ projectId }) => projectId === project.id,
       )
+      const occurredAt = this.clock.now()
       const issue: Issue = {
         ...input,
         id: this.ids.issue(project.key.toLocaleLowerCase()),
@@ -336,12 +433,29 @@ export class MockAtlasGateway implements AtlasGateway {
             0,
           ) + 1,
         revision: 1,
-        createdAt: this.clock.now(),
-        updatedAt: this.clock.now(),
+        createdAt: occurredAt,
+        updatedAt: occurredAt,
       }
       const nextData = {
         ...current.data,
         issues: [...current.data.issues, issue],
+        notifications:
+          issue.assigneeId && issue.assigneeId !== this.actorId
+            ? [
+                ...current.data.notifications,
+                {
+                  id: this.ids.notification('issue_assigned'),
+                  workspaceId: issue.workspaceId,
+                  recipientId: issue.assigneeId,
+                  kind: 'assignment' as const,
+                  issueId: issue.id,
+                  title: `You were assigned ${project.key}-${issue.number.toString()}`,
+                  body: issue.title,
+                  occurredAt,
+                  readAt: null,
+                },
+              ]
+            : current.data.notifications,
       }
 
       this.commit(current.version, nextData)
@@ -396,6 +510,8 @@ export class MockAtlasGateway implements AtlasGateway {
       const issues = [...current.data.issues]
       issues[issueIndex] = updatedIssue
       const statusChanged = updatedIssue.statusId !== issue.statusId
+      const notificationRecipient = updatedIssue.assigneeId
+      const assignmentChanged = updatedIssue.assigneeId !== issue.assigneeId
       const nextData: AtlasDataSnapshot = {
         ...current.data,
         issues,
@@ -431,6 +547,27 @@ export class MockAtlasGateway implements AtlasGateway {
             },
           },
         ],
+        notifications:
+          notificationRecipient && notificationRecipient !== this.actorId
+            ? [
+                ...current.data.notifications,
+                {
+                  id: this.ids.notification(
+                    assignmentChanged ? 'issue_assigned' : 'issue_updated',
+                  ),
+                  workspaceId: issue.workspaceId,
+                  recipientId: notificationRecipient,
+                  kind: assignmentChanged ? 'assignment' : 'issue-update',
+                  issueId: issue.id,
+                  title: assignmentChanged
+                    ? `You were assigned ${this.issueReference(current.data, issue)}`
+                    : `${this.issueReference(current.data, issue)} was updated`,
+                  body: updatedIssue.title,
+                  occurredAt,
+                  readAt: null,
+                },
+              ]
+            : current.data.notifications,
       }
 
       this.commit(current.version, nextData)
@@ -476,6 +613,9 @@ export class MockAtlasGateway implements AtlasGateway {
           ({ entityKind, entityId }) =>
             entityKind !== 'issue' || entityId !== issue.id,
         ),
+        notifications: current.data.notifications.filter(
+          ({ issueId }) => issueId !== issue.id,
+        ),
       }
 
       this.commit(current.version, nextData)
@@ -518,6 +658,13 @@ export class MockAtlasGateway implements AtlasGateway {
     projectId?: ProjectId,
   ): void {
     if (!this.hasPermission(permission, workspaceId, projectId)) {
+      throw new ForbiddenGatewayError()
+    }
+  }
+
+  private assertNotificationRecipient(notification: Notification): void {
+    this.assertPermission('workspace:view', notification.workspaceId)
+    if (notification.recipientId !== this.actorId) {
       throw new ForbiddenGatewayError()
     }
   }
@@ -632,6 +779,11 @@ export class MockAtlasGateway implements AtlasGateway {
       data.workflowStatuses.find(({ id }) => id === statusId)?.name ??
       'Unknown status'
     )
+  }
+
+  private issueReference(data: AtlasDataSnapshot, issue: Issue): string {
+    const key = data.projects.find(({ id }) => id === issue.projectId)?.key ?? 'Issue'
+    return `${key}-${issue.number.toString()}`
   }
 
   private commit(version: number, data: AtlasDataSnapshot): void {

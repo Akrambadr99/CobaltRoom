@@ -72,6 +72,55 @@ describe('MockAtlasGateway', () => {
     ])
   })
 
+  it('isolates the actor notification inbox and persists read state', async () => {
+    const { fixtures, gateway, store, tracer } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    const actorId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    const unread = fixtures.notifications.find(
+      (notification) =>
+        notification.recipientId === actorId && notification.readAt === null,
+    )
+
+    if (!workspaceId || !unread) {
+      throw new Error('Expected an unread administrative notification fixture.')
+    }
+
+    const inbox = await gateway.listNotifications(workspaceId)
+    expect(inbox.items).toHaveLength(2)
+    expect(inbox.unreadCount).toBe(1)
+
+    const marked = await gateway.markNotificationRead({ id: unread.id, read: true })
+    expect(marked.readAt).toBe('2026-02-01T08:00:00.000Z')
+    expect(store.read().data.notifications.find(({ id }) => id === unread.id)?.readAt).toBe(
+      '2026-02-01T08:00:00.000Z',
+    )
+
+    await gateway.markNotificationRead({ id: unread.id, read: false })
+    await expect(gateway.markAllNotificationsRead(workspaceId)).resolves.toBe(1)
+    expect((await gateway.listNotifications(workspaceId)).unreadCount).toBe(0)
+    expect(tracer.read().some(({ operation }) => operation === 'notification.list')).toBe(
+      true,
+    )
+  })
+
+  it('prevents actors from changing another recipient notification', async () => {
+    const fixtures = createAtlasFixtures()
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    const administrativeNotification = fixtures.notifications[0]
+
+    if (!viewerId || !administrativeNotification) {
+      throw new Error('Expected viewer and notification fixtures.')
+    }
+
+    const { gateway } = createGateway(new SimulatedNetwork(), viewerId)
+    await expect(
+      gateway.markNotificationRead({
+        id: administrativeNotification.id,
+        read: true,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+  })
+
   it('cancels in-flight reads and records a cancellation trace', async () => {
     vi.useFakeTimers()
     const simulator = new SimulatedNetwork({ latency: () => 5_000 })
@@ -428,6 +477,39 @@ describe('MockAtlasGateway', () => {
     expect(activity.comments[0]).toEqual(comment)
     expect(activity.activityEvents[0]?.action).toBe('comment.created')
     expect(activity.users.some(({ id }) => id === comment.authorId)).toBe(true)
+  })
+
+  it('creates notifications at the mutation boundary for non-actor assignees', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const adminId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    const issue = fixtures.issues.find(
+      ({ assigneeId }) => assigneeId !== null && assigneeId !== adminId,
+    )
+
+    if (!issue?.assigneeId) {
+      throw new Error('Expected an issue assigned to another fixture user.')
+    }
+
+    await gateway.createComment({ issueId: issue.id, body: 'Please review this update.' })
+    expect(store.read().data.notifications.at(-1)).toMatchObject({
+      recipientId: issue.assigneeId,
+      issueId: issue.id,
+      kind: 'comment',
+      readAt: null,
+    })
+
+    const current = store.read().data.issues.find(({ id }) => id === issue.id)
+    if (!current) throw new Error('Expected the issue after comment creation.')
+    await gateway.updateIssue({
+      id: current.id,
+      expectedRevision: current.revision,
+      changes: { priority: 'urgent' },
+    })
+    expect(store.read().data.notifications.at(-1)).toMatchObject({
+      recipientId: issue.assigneeId,
+      issueId: issue.id,
+      kind: 'issue-update',
+    })
   })
 
   it('rejects invalid and permission-bypassing comment submissions', async () => {

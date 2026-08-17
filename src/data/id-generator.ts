@@ -6,6 +6,7 @@ import {
   issueRelationId,
   labelId,
   membershipId,
+  notificationId,
   projectId,
   projectMemberId,
   userId,
@@ -18,6 +19,7 @@ import {
   type IssueRelationId,
   type LabelId,
   type MembershipId,
+  type NotificationId,
   type ProjectId,
   type ProjectMemberId,
   type UserId,
@@ -85,6 +87,10 @@ export class DeterministicIdGenerator {
 
   audit(scope: string): AuditEventId {
     return auditEventId(this.next('audit', scope))
+  }
+
+  notification(scope: string): NotificationId {
+    return notificationId(this.next('notification', scope))
   }
 
   private next(prefix: string, scope: string): string {

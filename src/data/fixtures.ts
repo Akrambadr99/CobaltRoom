@@ -362,5 +362,29 @@ export function createAtlasFixtures(
         metadata: { projectCount: 2, issueCount: 6 },
       },
     ],
+    notifications: [
+      {
+        id: ids.notification('launch_comment'),
+        workspaceId: workspace.id,
+        recipientId: operationsLead.id,
+        kind: 'comment',
+        issueId: launchBrief.id,
+        title: 'New comment on OPS-1',
+        body: 'Maya Chen commented on Publish the launch readiness brief.',
+        occurredAt: createdAt,
+        readAt: null,
+      },
+      {
+        id: ids.notification('support_update'),
+        workspaceId: workspace.id,
+        recipientId: operationsLead.id,
+        kind: 'issue-update',
+        issueId: supportRunbook.id,
+        title: 'OPS-3 was updated',
+        body: 'Validate the support escalation runbook has new activity.',
+        occurredAt: createdAt,
+        readAt: createdAt,
+      },
+    ],
   }
 }

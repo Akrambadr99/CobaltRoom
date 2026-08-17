@@ -52,9 +52,14 @@ export function useUpdateIssuePriority() {
             : current,
       )
 
-      await queryClient.invalidateQueries({
-        queryKey: atlasQueryKeys.dashboardIssues(workspaceId),
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.dashboardIssues(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.notifications(workspaceId),
+        }),
+      ])
     },
   })
 }

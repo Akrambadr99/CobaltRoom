@@ -8,6 +8,8 @@ import type {
   IsoDate,
   Label,
   LabelId,
+  Notification,
+  NotificationId,
   Project,
   ProjectId,
   UserId,
@@ -107,6 +109,16 @@ export interface CreateCommentInput {
   readonly body: string
 }
 
+export interface NotificationInbox {
+  readonly items: readonly Notification[]
+  readonly unreadCount: number
+}
+
+export interface MarkNotificationReadInput {
+  readonly id: NotificationId
+  readonly read: boolean
+}
+
 export type MutableIssueFields = Pick<
   Issue,
   | 'assigneeId'
@@ -154,6 +166,18 @@ export interface AtlasGateway {
     input: CreateCommentInput,
     options?: RequestOptions,
   ): Promise<Comment>
+  listNotifications(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<NotificationInbox>
+  markNotificationRead(
+    input: MarkNotificationReadInput,
+    options?: RequestOptions,
+  ): Promise<Notification>
+  markAllNotificationsRead(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<number>
   createIssue(input: CreateIssueInput, options?: RequestOptions): Promise<Issue>
   updateIssue(input: UpdateIssueInput, options?: RequestOptions): Promise<Issue>
   deleteIssue(input: DeleteIssueInput, options?: RequestOptions): Promise<void>
