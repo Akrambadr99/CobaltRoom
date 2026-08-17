@@ -9,12 +9,17 @@ import {
 
 interface SavedIssueViewsProps {
   readonly currentState: IssueWorkspaceState
-  readonly onApply: (state: IssueWorkspaceState) => void
+  readonly canApply: boolean
+  readonly onApply: (state: IssueWorkspaceState) => {
+    readonly state: IssueWorkspaceState
+    readonly adjusted: boolean
+  }
   readonly onPageSizeChange: () => void
 }
 
 export function SavedIssueViews({
   currentState,
+  canApply,
   onApply,
   onPageSizeChange,
 }: SavedIssueViewsProps) {
@@ -98,6 +103,7 @@ export function SavedIssueViews({
           <span>Open saved view</span>
           <select
             value={selectedId}
+            disabled={!canApply}
             onChange={(event) => {
               const id = event.currentTarget.value
               setSelectedId(id)
@@ -105,9 +111,27 @@ export function SavedIssueViews({
                 (candidate) => candidate.id === id,
               )
               if (view) {
-                onApply(view.state)
-                setMessage(`${view.name} applied.`)
-                setIsError(false)
+                const application = onApply(view.state)
+                if (!application.adjusted) {
+                  setMessage(`${view.name} applied.`)
+                  setIsError(false)
+                  return
+                }
+
+                try {
+                  repository.updateIssueViewState(view.id, application.state)
+                  setMessage(
+                    `${view.name} applied. Unavailable workflow filters were removed and the saved view was updated.`,
+                  )
+                  setIsError(false)
+                } catch (error) {
+                  setMessage(
+                    error instanceof Error
+                      ? `${view.name} applied, but ${error.message.toLocaleLowerCase()}`
+                      : `${view.name} applied, but its saved definition could not be updated.`,
+                  )
+                  setIsError(true)
+                }
               }
             }}
           >

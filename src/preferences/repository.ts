@@ -128,6 +128,25 @@ export class UserPreferenceRepository {
     return view
   }
 
+  updateIssueViewState(
+    id: string,
+    state: IssueWorkspaceState,
+  ): SavedIssueView | null {
+    const index = this.current.savedIssueViews.findIndex((view) => view.id === id)
+    const currentView = this.current.savedIssueViews[index]
+    if (!currentView) return null
+
+    const updatedView: SavedIssueView = {
+      ...currentView,
+      state: { ...state, page: 1 },
+      updatedAt: this.clock.now(),
+    }
+    const savedIssueViews = [...this.current.savedIssueViews]
+    savedIssueViews[index] = updatedView
+    this.commit({ ...this.current, savedIssueViews })
+    return updatedView
+  }
+
   deleteIssueView(id: string): void {
     const savedIssueViews = this.current.savedIssueViews.filter(
       (view) => view.id !== id,

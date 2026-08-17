@@ -6,7 +6,11 @@ import { IssuesPage } from './IssuesPage'
 import { AppProviders } from '../providers/AppProviders'
 import { createAtlasQueryClient } from '../query-client'
 import { createAppServices } from '../services'
-import { createAtlasFixtures, SimulatedNetwork } from '../../data'
+import {
+  createAtlasFixtures,
+  InMemoryDataStore,
+  SimulatedNetwork,
+} from '../../data'
 import type { UserId } from '../../domain'
 import { MemoryPreferenceStorage, type PreferenceStorage } from '../../preferences'
 import { fireEvent, render, screen, waitFor, within } from '../../test/render'
@@ -26,11 +30,13 @@ function renderIssues(
   simulator = new SimulatedNetwork(),
   actorId?: UserId,
   preferenceStorage?: PreferenceStorage,
+  dataStore?: InMemoryDataStore,
 ) {
   const services = createAppServices({
     simulator,
     ...(actorId ? { actorId } : {}),
     ...(preferenceStorage ? { preferenceStorage } : {}),
+    ...(dataStore ? { dataStore } : {}),
   })
 
   return {
@@ -345,6 +351,74 @@ describe('IssuesPage', () => {
     expect(
       screen.queryByRole('option', { name: 'High priority' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('repairs a saved workflow view after its status is retired', async () => {
+    const user = userEvent.setup()
+    const storage = new MemoryPreferenceStorage()
+    const fixtures = createAtlasFixtures()
+    const dataStore = new InMemoryDataStore(fixtures)
+    const project = fixtures.projects.find(({ key }) => key === 'OPS')
+    const statuses = fixtures.workflowStatuses
+      .filter(({ projectId }) => projectId === project?.id)
+      .sort((left, right) => left.order - right.order)
+    const active = statuses.find(({ name }) => name === 'In progress')
+    const retired = statuses.find(({ name }) => name === 'Done')
+    if (!project || !active || !retired) {
+      throw new Error('Expected launch workflow fixtures.')
+    }
+
+    const first = renderIssues(
+      `/issues?project=${project.id}&status=${retired.id}`,
+      new SimulatedNetwork(),
+      undefined,
+      storage,
+      dataStore,
+    )
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.type(screen.getByLabelText('View name'), 'Completed launch')
+    await user.click(screen.getByRole('button', { name: 'Save current view' }))
+    first.unmount()
+
+    await first.services.gateway.updateProjectWorkflow({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      statuses: [
+        ...statuses
+          .filter(({ id }) => id !== retired.id)
+          .map(({ id, name, category }) => ({ id, name, category })),
+        { id: null, name: 'Verified', category: 'completed' },
+      ],
+      migrations: [{ statusId: retired.id, reassignToStatusId: active.id }],
+    })
+
+    const second = renderIssues(
+      '/issues',
+      new SimulatedNetwork(),
+      undefined,
+      storage,
+      dataStore,
+    )
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.selectOptions(
+      screen.getByLabelText('Open saved view'),
+      screen.getByRole('option', { name: 'Completed launch' }),
+    )
+
+    expect(
+      await screen.findByText(
+        'Completed launch applied. Unavailable workflow filters were removed and the saved view was updated.',
+      ),
+    ).toHaveAttribute('role', 'status')
+    expect(screen.getByLabelText('Project')).toHaveDisplayValue('Launch readiness')
+    expect(screen.getByLabelText('Workflow status')).toHaveDisplayValue(
+      'All statuses',
+    )
+    expect(screen.getByTestId('location')).toHaveTextContent(`project=${project.id}`)
+    expect(screen.getByTestId('location')).not.toHaveTextContent('status=')
+    expect(
+      second.services.preferences.getSnapshot().savedIssueViews[0]?.state,
+    ).toMatchObject({ projectId: project.id, statusId: null, page: 1 })
   })
 
   it('persists accessible column visibility, order, and density preferences', async () => {

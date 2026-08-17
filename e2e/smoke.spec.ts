@@ -289,6 +289,53 @@ test('evolves a project workflow without orphaning active work', async ({ page }
   await expect(page.getByRole('heading', { name: 'Done' })).toHaveCount(0)
 })
 
+test('repairs a saved issue view after its workflow status is retired', async ({ page }) => {
+  await page.goto('/issues')
+  await expect(page.getByRole('table', { name: 'Workspace issues' })).toBeVisible()
+  await page.getByRole('combobox', { name: 'Project', exact: true }).selectOption({
+    label: 'Launch readiness',
+  })
+  await page.getByLabel('Workflow status').selectOption({ label: 'Done' })
+  await expect(page.getByText('1 matching issue')).toBeVisible()
+  await page.getByLabel('View name').fill('Completed launch')
+  await page.getByRole('button', { name: 'Save current view' }).click()
+  await expect(
+    page.getByText('Completed launch saved as a private view.'),
+  ).toBeVisible()
+
+  await page.getByRole('link', { name: 'Projects' }).click()
+  await page.getByRole('link', { name: 'Launch readiness' }).click()
+  await page.getByRole('button', { name: 'Configure workflow' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Configure project workflow' })
+  await dialog.getByRole('button', { name: 'Add status' }).click()
+  await dialog.getByLabel('Status 4 name').fill('Verified')
+  await dialog.getByLabel('Status 4 category').selectOption('completed')
+  await dialog.getByRole('button', { name: 'Retire Done' }).click()
+  await expect(dialog.getByLabel('Move 1 issue from Done to')).toHaveValue(
+    /status_.*launch_backlog/,
+  )
+  await dialog.getByRole('button', { name: 'Save workflow' }).click()
+  await expect(dialog).not.toBeVisible()
+
+  await page.getByRole('link', { name: 'Issues' }).click()
+  await expect(page.getByRole('table', { name: 'Workspace issues' })).toBeVisible()
+  await page.getByLabel('Open saved view').selectOption({
+    label: 'Completed launch',
+  })
+
+  await expect(
+    page.getByText(
+      'Completed launch applied. Unavailable workflow filters were removed and the saved view was updated.',
+    ),
+  ).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Project', exact: true })).toHaveValue(
+    /prj_.*launch/,
+  )
+  await expect(page.getByLabel('Workflow status')).toHaveValue('')
+  await expect(page).toHaveURL(/project=prj_.*launch/)
+  await expect(page).not.toHaveURL(/status=/)
+})
+
 test('creates a permission-aware issue with workflow metadata', async ({ page }) => {
   await page.goto('/issues')
   await expect(page.getByRole('table', { name: 'Workspace issues' })).toBeVisible()

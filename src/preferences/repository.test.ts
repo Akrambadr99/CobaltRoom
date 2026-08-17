@@ -10,10 +10,11 @@ import { defaultUserPreferences } from './types'
 const storageKey = 'atlas-ops:test:preferences'
 
 function createRepository(storage: PreferenceStorage = new MemoryPreferenceStorage()) {
+  const clock = new FixedClock(isoDateTime('2026-02-01T08:00:00.000Z'))
   return new UserPreferenceRepository({
     storage,
     storageKey,
-    clock: new FixedClock(isoDateTime('2026-02-01T08:00:00.000Z')),
+    clock,
     idFactory: () => 'view_test_001',
   })
 }
@@ -109,6 +110,41 @@ describe('UserPreferenceRepository', () => {
     expect(invalidIdRepository.getSnapshot().savedIssueViews).toHaveLength(0)
   })
 
+  it('repairs a saved view without changing its identity or creation time', () => {
+    const storage = new MemoryPreferenceStorage()
+    const clock = new FixedClock(isoDateTime('2026-02-01T08:00:00.000Z'))
+    const repository = new UserPreferenceRepository({
+      storage,
+      storageKey,
+      clock,
+      idFactory: () => 'view_test_001',
+    })
+    const saved = repository.saveIssueView('Completed launch', {
+      ...issueWorkspaceDefaults,
+      search: 'launch',
+      page: 4,
+    })
+    clock.advanceBy(60_000)
+
+    const updated = repository.updateIssueViewState(saved.id, {
+      ...saved.state,
+      search: '',
+      page: 8,
+    })
+
+    expect(updated).toMatchObject({
+      id: saved.id,
+      name: saved.name,
+      state: { search: '', page: 1 },
+      createdAt: '2026-02-01T08:00:00.000Z',
+      updatedAt: '2026-02-01T08:01:00.000Z',
+    })
+    expect(createRepository(storage).getSnapshot().savedIssueViews[0]).toEqual(
+      updated,
+    )
+    expect(repository.updateIssueViewState('view_unknown', saved.state)).toBeNull()
+  })
+
   it('keeps the prior snapshot when durable storage rejects a write', () => {
     const storage: PreferenceStorage = {
       get: () => null,
@@ -124,5 +160,26 @@ describe('UserPreferenceRepository', () => {
       PreferencePersistenceError,
     )
     expect(repository.getSnapshot().issuePageSize).toBe(5)
+  })
+
+  it('keeps the prior saved view when a repair cannot be persisted', () => {
+    const memory = new MemoryPreferenceStorage()
+    const repository = createRepository(memory)
+    const saved = repository.saveIssueView('Launch', {
+      ...issueWorkspaceDefaults,
+      search: 'launch',
+    })
+    const failingStorage: PreferenceStorage = {
+      get: (key) => memory.get(key),
+      set: () => {
+        throw new DOMException('Quota exceeded', 'QuotaExceededError')
+      },
+    }
+    const restored = createRepository(failingStorage)
+
+    expect(() => {
+      restored.updateIssueViewState(saved.id, issueWorkspaceDefaults)
+    }).toThrow(PreferencePersistenceError)
+    expect(restored.getSnapshot().savedIssueViews[0]).toEqual(saved)
   })
 })

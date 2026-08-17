@@ -192,10 +192,19 @@ export function IssuesPage() {
 
       <SavedIssueViews
         currentState={state}
+        canApply={filterMetadata.isSuccess && !filterMetadata.isFetching}
         onApply={(savedState) => {
+          const reconciled = reconcileIssueWorkspaceState(
+            savedState,
+            projectFilters,
+          )
           setSelectedIssues(new Map())
           setBulkStatus('')
-          setParameters(serializeIssueWorkspaceState(savedState))
+          setParameters(serializeIssueWorkspaceState(reconciled), { state: null })
+          return {
+            state: reconciled,
+            adjusted: reconciled !== savedState,
+          }
         }}
         onPageSizeChange={() => {
           updateState({ page: 1 })
