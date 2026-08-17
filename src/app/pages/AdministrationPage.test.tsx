@@ -64,13 +64,28 @@ describe('AdministrationPage', () => {
     dialog = await screen.findByRole('dialog', { name: 'Edit Theo Martin' })
     await user.selectOptions(within(dialog).getByLabelText('Access status'), 'suspended')
     await user.click(within(dialog).getByRole('button', { name: 'Review suspension' }))
-    const confirmation = await screen.findByRole('dialog', {
+    let confirmation = await screen.findByRole('dialog', {
       name: 'Suspend Theo Martin?',
     })
-    const suspend = within(confirmation).getByRole('button', {
+    let suspend = within(confirmation).getByRole('button', {
       name: 'Suspend member',
     })
     expect(suspend).toHaveFocus()
+    await user.click(
+      within(confirmation).getByRole('button', { name: 'Keep editing' }),
+    )
+    dialog = await screen.findByRole('dialog', { name: 'Edit Theo Martin' })
+    const reviewSuspension = within(dialog).getByRole('button', {
+      name: 'Review suspension',
+    })
+    expect(reviewSuspension).toHaveFocus()
+    await user.click(reviewSuspension)
+    confirmation = await screen.findByRole('dialog', {
+      name: 'Suspend Theo Martin?',
+    })
+    suspend = within(confirmation).getByRole('button', {
+      name: 'Suspend member',
+    })
     await user.click(suspend)
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()

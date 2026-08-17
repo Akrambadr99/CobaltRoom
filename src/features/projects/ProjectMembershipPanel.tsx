@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
+import { useState, type SyntheticEvent } from 'react'
 
 import { ModalDialog } from '../../components/dialog/ModalDialog'
 import type {
@@ -7,6 +7,7 @@ import type {
   ProjectMembershipEntry,
 } from '../../data'
 import type { ProjectId, ProjectMemberId, UserId } from '../../domain'
+import { useConfirmationFocus } from '../../interactions/use-confirmation-focus'
 import {
   useAddProjectMember,
   useProjectMembershipAdministration,
@@ -204,11 +205,7 @@ function ManageProjectMemberDialog({
   const [confirmRemove, setConfirmRemove] = useState(false)
   const candidates = data.reassignmentUsers.filter(({ id }) => id !== entry.user.id)
   const [reassignTo, setReassignTo] = useState<UserId | null>(candidates[0]?.id ?? null)
-  const removeButton = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    if (confirmRemove) removeButton.current?.focus()
-  }, [confirmRemove])
+  const { confirmationRef, triggerRef } = useConfirmationFocus(confirmRemove)
 
   if (confirmRemove) {
     return (
@@ -217,7 +214,7 @@ function ManageProjectMemberDialog({
           <div><p className="page-eyebrow">Confirm project removal</p><h2 id="remove-project-member-title">Remove {entry.user.displayName}?</h2><p id="remove-project-member-description">Their project access ends immediately. Assigned work must remain owned.</p></div>
           {entry.assignedIssueCount > 0 ? <label className="settings-field"><span>Reassign {entry.assignedIssueCount} assigned {entry.assignedIssueCount === 1 ? 'issue' : 'issues'} to</span><select value={reassignTo ?? ''} onChange={(event) => { setReassignTo(event.currentTarget.value as UserId); }}>{candidates.map((user) => <option key={user.id} value={user.id}>{user.displayName}</option>)}</select></label> : null}
           {remove.isError ? <p className="form-error" role="alert">{gatewayMessage(remove.error)}</p> : null}
-          <div className="project-create-form__actions"><button ref={removeButton} className="danger-button" type="button" disabled={remove.isPending || (entry.assignedIssueCount > 0 && !reassignTo)} onClick={() => { remove.mutate({ id: entry.membership.id, expectedProjectRevision: data.project.revision, reassignIssuesTo: entry.assignedIssueCount > 0 ? reassignTo : null }, { onSuccess: () => { onChanged(`${entry.user.displayName} was removed from the project.`); } }); }}>{remove.isPending ? 'Removing…' : 'Remove member'}</button><button className="secondary-button" type="button" disabled={remove.isPending} onClick={() => { setConfirmRemove(false); }}>Keep member</button></div>
+          <div className="project-create-form__actions"><button ref={confirmationRef} className="danger-button" type="button" disabled={remove.isPending || (entry.assignedIssueCount > 0 && !reassignTo)} onClick={() => { remove.mutate({ id: entry.membership.id, expectedProjectRevision: data.project.revision, reassignIssuesTo: entry.assignedIssueCount > 0 ? reassignTo : null }, { onSuccess: () => { onChanged(`${entry.user.displayName} was removed from the project.`); } }); }}>{remove.isPending ? 'Removing…' : 'Remove member'}</button><button className="secondary-button" type="button" disabled={remove.isPending} onClick={() => { setConfirmRemove(false); }}>Keep member</button></div>
         </div>
       </ModalDialog>
     )
@@ -229,7 +226,7 @@ function ManageProjectMemberDialog({
         <div><p className="page-eyebrow">Project access</p><h2 id="manage-project-member-title">Manage {entry.user.displayName}</h2><p id="manage-project-member-description">Role changes use project revision {data.project.revision}.</p></div>
         <label className="settings-field"><span>Project role</span><select value={role} onChange={(event) => { setRole(event.currentTarget.value as AssignableProjectRole); }}>{roles.map((value) => <option key={value} value={value}>{formatRole(value)}</option>)}</select></label>
         {update.isError ? <p className="form-error" role="alert">{gatewayMessage(update.error)}</p> : null}
-        <div className="project-create-form__actions"><button className="primary-button" type="submit" disabled={update.isPending || role === entry.membership.role}>{update.isPending ? 'Saving…' : 'Save role'}</button><button className="danger-button" type="button" disabled={update.isPending} onClick={() => { setConfirmRemove(true); }}>Remove from project</button><button className="secondary-button" type="button" disabled={update.isPending} onClick={onClose}>Cancel</button></div>
+        <div className="project-create-form__actions"><button className="primary-button" type="submit" disabled={update.isPending || role === entry.membership.role}>{update.isPending ? 'Saving…' : 'Save role'}</button><button ref={triggerRef} className="danger-button" type="button" disabled={update.isPending} onClick={() => { setConfirmRemove(true); }}>Remove from project</button><button className="secondary-button" type="button" disabled={update.isPending} onClick={onClose}>Cancel</button></div>
       </form>
     </ModalDialog>
   )

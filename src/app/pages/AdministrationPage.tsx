@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
+import { useEffect, useState, type SyntheticEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { ModalDialog } from '../../components/dialog/ModalDialog'
@@ -9,6 +9,7 @@ import {
   useWorkspaceAdministration,
 } from '../../features/administration/administration-queries'
 import { WorkspaceInvitationPanel } from '../../features/administration/WorkspaceInvitationPanel'
+import { useConfirmationFocus } from '../../interactions/use-confirmation-focus'
 import { hasAppErrorKind } from '../errors/classify-app-error'
 import { useAppServices } from '../providers/app-services-context'
 import './pages.css'
@@ -192,13 +193,9 @@ function MembershipDialog({
   const [role, setRole] = useState(entry.membership.role)
   const [status, setStatus] = useState(entry.membership.status)
   const [confirmSuspension, setConfirmSuspension] = useState(false)
-  const confirmButton = useRef<HTMLButtonElement>(null)
+  const { confirmationRef, triggerRef } = useConfirmationFocus(confirmSuspension)
   const isSuspension =
     status === 'suspended' && entry.membership.status !== 'suspended'
-
-  useEffect(() => {
-    if (confirmSuspension) confirmButton.current?.focus()
-  }, [confirmSuspension])
 
   const submitUpdate = (): void => {
     mutation.mutate(
@@ -227,7 +224,7 @@ function MembershipDialog({
           </div>
           {mutation.isError ? <p className="form-error" role="alert">{mutation.error.message}</p> : null}
           <div className="project-create-form__actions">
-            <button ref={confirmButton} className="danger-button" type="button" disabled={mutation.isPending} onClick={submitUpdate}>
+            <button ref={confirmationRef} className="danger-button" type="button" disabled={mutation.isPending} onClick={submitUpdate}>
               {mutation.isPending ? 'Suspending…' : 'Suspend member'}
             </button>
             <button className="secondary-button" type="button" disabled={mutation.isPending} onClick={() => { setConfirmSuspension(false) }}>Keep editing</button>
@@ -261,7 +258,7 @@ function MembershipDialog({
           </label>
           {mutation.isError ? <p className="form-error" role="alert">{mutation.error.message}</p> : null}
           <div className="project-create-form__actions">
-            <button className="primary-button" type="submit" disabled={mutation.isPending || (role === entry.membership.role && status === entry.membership.status)}>
+            <button ref={triggerRef} className="primary-button" type="submit" disabled={mutation.isPending || (role === entry.membership.role && status === entry.membership.status)}>
               {isSuspension ? 'Review suspension' : mutation.isPending ? 'Saving…' : 'Save access'}
             </button>
             <button className="secondary-button" type="button" disabled={mutation.isPending} onClick={onClose}>Cancel</button>

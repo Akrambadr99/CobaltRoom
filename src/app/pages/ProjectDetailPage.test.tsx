@@ -424,13 +424,26 @@ describe('ProjectDetailPage', () => {
     await user.click(
       within(dialog).getByRole('button', { name: 'Remove from project' }),
     )
-    const confirmation = await screen.findByRole('dialog', {
+    let confirmation = await screen.findByRole('dialog', {
       name: 'Remove Maya Chen?',
     })
     expect(within(confirmation).getByLabelText('Reassign 1 assigned issue to'))
       .toHaveValue(lead.id)
-    const remove = within(confirmation).getByRole('button', { name: 'Remove member' })
+    let remove = within(confirmation).getByRole('button', { name: 'Remove member' })
     expect(remove).toHaveFocus()
+    await user.click(
+      within(confirmation).getByRole('button', { name: 'Keep member' }),
+    )
+    dialog = await screen.findByRole('dialog', { name: 'Manage Maya Chen' })
+    const removeFromProject = within(dialog).getByRole('button', {
+      name: 'Remove from project',
+    })
+    expect(removeFromProject).toHaveFocus()
+    await user.click(removeFromProject)
+    confirmation = await screen.findByRole('dialog', {
+      name: 'Remove Maya Chen?',
+    })
+    remove = within(confirmation).getByRole('button', { name: 'Remove member' })
     await user.click(remove)
     await waitFor(() => {
       expect(within(memberTable).queryByRole('row', { name: /Maya Chen/ }))
