@@ -70,16 +70,18 @@ describe('PrimaryNavigation', () => {
     expect(dashboard).toHaveFocus()
   })
 
-  it('only reveals governance navigation to authorized roles', () => {
+  it('only reveals governance and administration navigation to authorized roles', () => {
     const fixtures = createAtlasFixtures()
     const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
     if (!viewerId) throw new Error('Expected a fixture viewer.')
 
     const { unmount } = renderNavigation('/', viewerId)
     expect(screen.queryByRole('link', { name: 'Governance' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Administration' })).not.toBeInTheDocument()
     unmount()
 
     renderNavigation()
     expect(screen.getByRole('link', { name: 'Governance' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Administration' })).toBeVisible()
   })
 })

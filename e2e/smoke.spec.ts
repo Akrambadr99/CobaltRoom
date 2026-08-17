@@ -386,6 +386,42 @@ test('configures notification delivery and device settings', async ({ page }) =>
   await expect(page.getByRole('combobox', { name: 'Issues per page' })).toHaveValue('10')
 })
 
+test('administers revisioned workspace access with suspension confirmation', async ({
+  page,
+}) => {
+  await page.goto('/administration')
+  const directory = page.getByRole('table', {
+    name: 'Workspace membership administration',
+  })
+  await expect(directory).toBeVisible()
+
+  await directory.getByRole('button', { name: 'Edit Lena Ortiz' }).click()
+  let dialog = page.getByRole('dialog', { name: 'Edit Lena Ortiz' })
+  await dialog.getByLabel('Workspace role').selectOption('admin')
+  await dialog.getByRole('button', { name: 'Save access' }).click()
+  await expect(dialog).not.toBeVisible()
+  await expect(directory.getByRole('row', { name: /Lena Ortiz/ })).toContainText('Admin')
+
+  await directory.getByRole('button', { name: 'Edit Theo Martin' }).click()
+  dialog = page.getByRole('dialog', { name: 'Edit Theo Martin' })
+  await dialog.getByLabel('Access status').selectOption('suspended')
+  await dialog.getByRole('button', { name: 'Review suspension' }).click()
+  const confirmation = page.getByRole('dialog', { name: 'Suspend Theo Martin?' })
+  const suspend = confirmation.getByRole('button', { name: 'Suspend member' })
+  await expect(suspend).toBeFocused()
+  await suspend.click()
+  await expect(confirmation).not.toBeVisible()
+  await expect(directory.getByRole('row', { name: /Theo Martin/ })).toContainText(
+    'Suspended',
+  )
+
+  await page.getByRole('link', { name: 'Governance' }).click()
+  await page.getByRole('combobox', { name: 'Action' }).selectOption('membership.updated')
+  await expect(
+    page.getByRole('table', { name: 'Authoritative workspace audit events' }),
+  ).toContainText('membership.updated')
+})
+
 test('reviews the protected governance audit report', async ({ page }) => {
   await page.goto('/governance')
   await expect(page.getByRole('heading', { name: 'Governance' })).toBeVisible()

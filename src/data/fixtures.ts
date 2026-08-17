@@ -252,6 +252,7 @@ export function createAtlasFixtures(
         role: 'owner',
         status: 'active',
         joinedAt: createdAt,
+        revision: 1,
       },
       {
         id: ids.membership('operations_lead'),
@@ -260,6 +261,7 @@ export function createAtlasFixtures(
         role: 'admin',
         status: 'active',
         joinedAt: createdAt,
+        revision: 1,
       },
       {
         id: ids.membership('engineer'),
@@ -268,6 +270,7 @@ export function createAtlasFixtures(
         role: 'member',
         status: 'active',
         joinedAt: createdAt,
+        revision: 1,
       },
       {
         id: ids.membership('observer'),
@@ -276,6 +279,7 @@ export function createAtlasFixtures(
         role: 'viewer',
         status: 'active',
         joinedAt: createdAt,
+        revision: 1,
       },
     ],
     projects: [launchProject, reliabilityProject],

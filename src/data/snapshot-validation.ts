@@ -34,10 +34,15 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
   const projectKeys = new Set<string>()
 
   for (const membership of snapshot.memberships) {
-    if (!workspaces.has(membership.workspaceId) || !users.has(membership.userId)) {
+    if (
+      !workspaces.has(membership.workspaceId) ||
+      !users.has(membership.userId) ||
+      !Number.isSafeInteger(membership.revision) ||
+      membership.revision < 1
+    ) {
       throw new DataIntegrityError(
         'memberships',
-        'Memberships must reference an existing workspace and user.',
+        'Memberships must reference an existing workspace and user with a valid revision.',
       )
     }
   }

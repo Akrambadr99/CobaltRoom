@@ -18,6 +18,7 @@ const navigationItems: readonly NavigationItem[] = [
   { label: 'Projects', shortLabel: 'P', to: '/projects' },
   { label: 'Issues', shortLabel: 'I', to: '/issues' },
   { label: 'Board', shortLabel: 'B', to: '/board' },
+  { label: 'Administration', shortLabel: 'M', to: '/administration', permission: 'members:manage' },
   { label: 'Analytics', shortLabel: 'A', to: '/analytics' },
   { label: 'Governance', shortLabel: 'G', to: '/governance', permission: 'audit:view' },
   { label: 'Settings', shortLabel: 'S', to: '/settings' },

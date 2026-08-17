@@ -394,6 +394,95 @@ describe('MockAtlasGateway', () => {
     ).rejects.toBeInstanceOf(SessionExpiredGatewayError)
   })
 
+  it('lists and revision-protects authoritative workspace member changes', async () => {
+    const { fixtures, gateway, store, tracer } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    const member = fixtures.memberships.find(({ role }) => role === 'member')
+    if (!workspaceId || !member) throw new Error('Expected membership fixtures.')
+
+    const directory = await gateway.getWorkspaceAdministration({
+      workspaceId,
+      search: 'lena',
+      page: { number: 1, size: 20 },
+    })
+    expect(directory.members).toMatchObject({ totalItems: 1, pageCount: 1 })
+    expect(directory.members.items[0]).toMatchObject({
+      user: { displayName: 'Lena Ortiz' },
+      membership: { role: 'member', status: 'active', revision: 1 },
+      canEdit: true,
+      allowedRoles: ['admin', 'member', 'viewer'],
+    })
+
+    const updated = await gateway.updateWorkspaceMembership({
+      id: member.id,
+      expectedRevision: member.revision,
+      role: 'admin',
+      status: 'active',
+    })
+    expect(updated).toMatchObject({ role: 'admin', status: 'active', revision: 2 })
+    expect(store.read().data.activityEvents.at(-1)).toMatchObject({
+      action: 'membership.updated',
+      entityId: member.id,
+    })
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'membership.updated',
+      metadata: { fromRole: 'member', toRole: 'admin', fromRevision: 1, toRevision: 2 },
+    })
+    expect(tracer.read().at(-1)).toMatchObject({
+      operation: 'administration.members.update',
+      phase: 'succeeded',
+    })
+    await expect(
+      gateway.updateWorkspaceMembership({
+        id: member.id,
+        expectedRevision: member.revision,
+        role: 'viewer',
+        status: 'active',
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+  })
+
+  it('protects owner access and rejects membership administration after privilege loss', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    const owner = fixtures.memberships.find(({ role }) => role === 'owner')
+    const member = fixtures.memberships.find(({ role }) => role === 'member')
+    const admin = fixtures.memberships.find(({ role }) => role === 'admin')
+    if (!workspaceId || !owner || !member || !admin) {
+      throw new Error('Expected governance membership fixtures.')
+    }
+
+    await expect(
+      gateway.updateWorkspaceMembership({
+        id: owner.id,
+        expectedRevision: owner.revision,
+        role: 'admin',
+        status: 'active',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+
+    const current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      memberships: current.data.memberships.map((membership) =>
+        membership.id === admin.id
+          ? { ...membership, role: 'viewer' as const, revision: 2 }
+          : membership,
+      ),
+    })
+    await expect(
+      gateway.updateWorkspaceMembership({
+        id: member.id,
+        expectedRevision: member.revision,
+        role: 'admin',
+        status: 'active',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+    await expect(
+      gateway.getWorkspaceAdministration({ workspaceId }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+  })
+
   it('returns filtered, sorted, and paginated issues asynchronously', async () => {
     const { fixtures, gateway, tracer } = createGateway()
     const workspaceId = fixtures.workspaces[0]?.id

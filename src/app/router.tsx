@@ -54,6 +54,13 @@ export const appRoutes: RouteObject[] = [
         },
       },
       {
+        path: 'administration',
+        lazy: async () => {
+          const { AdministrationPage } = await import('./pages/AdministrationPage')
+          return { Component: AdministrationPage }
+        },
+      },
+      {
         path: 'analytics',
         lazy: async () => {
           const { AnalyticsPage } = await import('./pages/AnalyticsPage')

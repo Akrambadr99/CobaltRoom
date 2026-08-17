@@ -25,4 +25,5 @@ export interface Membership {
   readonly role: WorkspaceRole
   readonly status: MembershipStatus
   readonly joinedAt: IsoDateTime | null
+  readonly revision: number
 }

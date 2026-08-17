@@ -15,6 +15,8 @@ import type {
   NotificationId,
   NotificationPreferences,
   Membership,
+  MembershipId,
+  MembershipStatus,
   ProjectMember,
   Project,
   ProjectId,
@@ -25,6 +27,7 @@ import type {
   WorkflowStatusCategory,
   WorkflowStatusId,
   WorkspaceId,
+  WorkspaceRole,
 } from '../../domain'
 
 export type SortDirection = 'ascending' | 'descending'
@@ -273,6 +276,32 @@ export interface AuthorizationSession {
   readonly permissionFingerprint: string
 }
 
+export interface WorkspaceAdministrationQuery {
+  readonly workspaceId: WorkspaceId
+  readonly search?: string
+  readonly roles?: readonly WorkspaceRole[]
+  readonly statuses?: readonly MembershipStatus[]
+  readonly page?: PageRequest
+}
+
+export interface WorkspaceMemberEntry {
+  readonly membership: Membership
+  readonly user: User
+  readonly canEdit: boolean
+  readonly allowedRoles: readonly WorkspaceRole[]
+}
+
+export interface WorkspaceAdministrationData {
+  readonly members: Page<WorkspaceMemberEntry>
+}
+
+export interface UpdateWorkspaceMembershipInput {
+  readonly id: MembershipId
+  readonly expectedRevision: number
+  readonly role: WorkspaceRole
+  readonly status: MembershipStatus
+}
+
 export type MutableIssueFields = Pick<
   Issue,
   | 'assigneeId'
@@ -298,6 +327,14 @@ export interface DeleteIssueInput {
 }
 
 export interface AtlasGateway {
+  getWorkspaceAdministration(
+    query: WorkspaceAdministrationQuery,
+    options?: RequestOptions,
+  ): Promise<WorkspaceAdministrationData>
+  updateWorkspaceMembership(
+    input: UpdateWorkspaceMembershipInput,
+    options?: RequestOptions,
+  ): Promise<Membership>
   getAuthorizationSession(
     workspaceId: WorkspaceId,
     options?: RequestOptions,

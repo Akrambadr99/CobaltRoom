@@ -26,6 +26,9 @@ import type {
   UpdateCommentInput,
   UpdateNotificationPreferencesInput,
   UpdateProjectInput,
+  UpdateWorkspaceMembershipInput,
+  WorkspaceAdministrationData,
+  WorkspaceAdministrationQuery,
   WorkspaceAnalytics,
 } from './contracts'
 import { buildWorkspaceAnalytics } from './analytics'
@@ -61,6 +64,8 @@ import {
   type Notification,
   type NotificationKind,
   type NotificationPreferences,
+  type Membership,
+  type MembershipStatus,
   type Permission,
   type Project,
   type ProjectId,
@@ -68,6 +73,7 @@ import {
   type WorkflowStatusCategory,
   type UserId,
   type WorkspaceId,
+  type WorkspaceRole,
   isoDate,
 } from '../../domain'
 
@@ -91,6 +97,18 @@ const workflowCategories: ReadonlySet<WorkflowStatusCategory> = new Set([
   'started',
   'completed',
   'canceled',
+])
+
+const workspaceRoles: ReadonlySet<WorkspaceRole> = new Set([
+  'owner',
+  'admin',
+  'member',
+  'viewer',
+])
+const membershipStatuses: ReadonlySet<MembershipStatus> = new Set([
+  'invited',
+  'active',
+  'suspended',
 ])
 
 export interface MockAtlasGatewayOptions {
@@ -130,6 +148,180 @@ export class MockAtlasGateway implements AtlasGateway {
     this.ids = options.idGenerator ?? new DeterministicIdGenerator('gateway')
     this.simulator = options.simulator ?? new SimulatedNetwork()
     this.tracer = options.tracer ?? noopRequestTracer
+  }
+
+  getWorkspaceAdministration(
+    query: WorkspaceAdministrationQuery,
+    options?: RequestOptions,
+  ): Promise<WorkspaceAdministrationData> {
+    return this.execute('administration.members.get', options, () => {
+      this.assertPermission('members:manage', query.workspaceId)
+      const data = this.store.read().data
+      const actorMembership = data.memberships.find(
+        (membership) =>
+          membership.workspaceId === query.workspaceId &&
+          membership.userId === this.actorId,
+      )
+      if (!actorMembership) throw new ForbiddenGatewayError()
+      const usersById = new Map(data.users.map((user) => [user.id, user]))
+      const search = query.search?.trim().toLocaleLowerCase() ?? ''
+      const roleFilter = new Set(query.roles ?? [])
+      const statusFilter = new Set(query.statuses ?? [])
+      const entries = data.memberships
+        .filter((membership) => membership.workspaceId === query.workspaceId)
+        .map((membership) => {
+          const user = usersById.get(membership.userId)
+          if (!user) throw new EntityNotFoundError('Workspace member')
+          return {
+            membership,
+            user,
+            canEdit:
+              membership.userId !== this.actorId &&
+              (actorMembership.role === 'owner' || membership.role !== 'owner'),
+            allowedRoles:
+              actorMembership.role === 'owner'
+                ? [...workspaceRoles]
+                : (['admin', 'member', 'viewer'] satisfies WorkspaceRole[]),
+          }
+        })
+        .filter(
+          ({ membership, user }) =>
+            (search.length === 0 ||
+              `${user.displayName} ${user.email}`.toLocaleLowerCase().includes(search)) &&
+            (roleFilter.size === 0 || roleFilter.has(membership.role)) &&
+            (statusFilter.size === 0 || statusFilter.has(membership.status)),
+        )
+        .sort(
+          (left, right) =>
+            left.user.displayName.localeCompare(right.user.displayName) ||
+            left.membership.id.localeCompare(right.membership.id),
+        )
+      return {
+        members: paginate(
+          entries,
+          validatePage(query.page ?? { number: 1, size: 20 }),
+        ),
+      }
+    })
+  }
+
+  updateWorkspaceMembership(
+    input: UpdateWorkspaceMembershipInput,
+    options?: RequestOptions,
+  ): Promise<Membership> {
+    return this.execute('administration.members.update', options, (requestId) => {
+      const current = this.store.read()
+      const membershipIndex = current.data.memberships.findIndex(
+        ({ id }) => id === input.id,
+      )
+      const membership = current.data.memberships[membershipIndex]
+      if (!membership) throw new EntityNotFoundError('Workspace membership')
+      this.assertPermission('members:manage', membership.workspaceId)
+      const actorMembership = current.data.memberships.find(
+        (candidate) =>
+          candidate.workspaceId === membership.workspaceId &&
+          candidate.userId === this.actorId,
+      )
+      if (!actorMembership) throw new ForbiddenGatewayError()
+      if (membership.userId === this.actorId) {
+        throw new ForbiddenGatewayError(
+          'Manage your own access through another workspace owner.',
+        )
+      }
+      if (
+        actorMembership.role !== 'owner' &&
+        (membership.role === 'owner' || input.role === 'owner')
+      ) {
+        throw new ForbiddenGatewayError(
+          'Only workspace owners can change owner access.',
+        )
+      }
+      if (!workspaceRoles.has(input.role) || !membershipStatuses.has(input.status)) {
+        throw new InvalidGatewayRequestError('Membership role or status is invalid.')
+      }
+      if (membership.revision !== input.expectedRevision) {
+        throw new GatewayConflictError(
+          'This membership changed after it was loaded. Refresh and try again.',
+        )
+      }
+      if (input.role === 'owner' && input.status !== 'active') {
+        throw new InvalidGatewayRequestError('Workspace owners must remain active.')
+      }
+      if (membership.role === input.role && membership.status === input.status) {
+        throw new InvalidGatewayRequestError('Choose a different role or status.')
+      }
+      const removesActiveOwner =
+        membership.role === 'owner' &&
+        membership.status === 'active' &&
+        (input.role !== 'owner' || input.status !== 'active')
+      const activeOwnerCount = current.data.memberships.filter(
+        (candidate) =>
+          candidate.workspaceId === membership.workspaceId &&
+          candidate.role === 'owner' &&
+          candidate.status === 'active',
+      ).length
+      if (removesActiveOwner && activeOwnerCount <= 1) {
+        throw new GatewayConflictError(
+          'Promote another active owner before changing the last workspace owner.',
+        )
+      }
+
+      const occurredAt = this.clock.now()
+      const updated: Membership = {
+        ...membership,
+        role: input.role,
+        status: input.status,
+        joinedAt:
+          input.status === 'active' && membership.joinedAt === null
+            ? occurredAt
+            : membership.joinedAt,
+        revision: membership.revision + 1,
+      }
+      const memberships = [...current.data.memberships]
+      memberships[membershipIndex] = updated
+      const user = current.data.users.find(({ id }) => id === membership.userId)
+      if (!user) throw new EntityNotFoundError('Workspace member')
+      this.commit(current.version, {
+        ...current.data,
+        memberships,
+        activityEvents: [
+          ...current.data.activityEvents,
+          {
+            id: this.ids.activity('membership_updated'),
+            workspaceId: membership.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'member',
+            entityId: membership.id,
+            action: 'membership.updated',
+            occurredAt,
+            summary: `Changed ${user.displayName} from ${membership.role}/${membership.status} to ${updated.role}/${updated.status}.`,
+          },
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit('membership_updated'),
+            workspaceId: membership.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action: 'membership.updated',
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: {
+              membershipId: membership.id,
+              userId: membership.userId,
+              fromRole: membership.role,
+              toRole: updated.role,
+              fromStatus: membership.status,
+              toStatus: updated.status,
+              fromRevision: membership.revision,
+              toRevision: updated.revision,
+            },
+          },
+        ],
+      })
+      return updated
+    })
   }
 
   getAuthorizationSession(

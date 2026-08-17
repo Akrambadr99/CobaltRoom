@@ -43,6 +43,7 @@ export function createTestMembership(
     role: 'member',
     status: 'active',
     joinedAt: timestamp,
+    revision: 1,
     ...overrides,
   }
 }
