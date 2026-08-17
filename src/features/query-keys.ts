@@ -1,5 +1,5 @@
 import type { IssueQuery } from '../data'
-import type { WorkspaceId } from '../domain'
+import type { IssueId, WorkspaceId } from '../domain'
 
 export const atlasQueryKeys = {
   workspaceIssues: (workspaceId: WorkspaceId) =>
@@ -12,4 +12,6 @@ export const atlasQueryKeys = {
     ['workspaces', workspaceId, 'issues', 'project-index'] as const,
   issues: (workspaceId: WorkspaceId, query: IssueQuery) =>
     ['workspaces', workspaceId, 'issues', 'index', query] as const,
+  issue: (workspaceId: WorkspaceId, issueId: IssueId) =>
+    ['workspaces', workspaceId, 'issues', 'detail', issueId] as const,
 }

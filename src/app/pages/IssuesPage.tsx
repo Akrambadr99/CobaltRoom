@@ -1,5 +1,5 @@
 import { useMemo, useState, type SyntheticEvent } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable, type DataTableColumn } from '../../components/data-table/DataTable'
 import type { IssueSortField } from '../../data'
@@ -307,7 +307,11 @@ function IssueResults({
       id: 'title',
       label: 'Title',
       sortField: 'title',
-      render: (issue) => <strong>{issue.title}</strong>,
+      render: (issue) => (
+        <Link className="table-link" to={`/issues/${issue.id}`}>
+          {issue.title}
+        </Link>
+      ),
     },
     {
       id: 'project',

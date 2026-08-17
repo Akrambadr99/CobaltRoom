@@ -4,6 +4,7 @@ import { RouteErrorBoundary } from './errors/RouteErrorBoundary'
 import { AppShell } from './layout/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
 import { IssuesPage } from './pages/IssuesPage'
+import { IssueDetailPage } from './pages/IssueDetailPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
@@ -27,6 +28,10 @@ export const appRoutes: RouteObject[] = [
       {
         path: 'issues',
         element: <IssuesPage />,
+      },
+      {
+        path: 'issues/:issueId',
+        element: <IssueDetailPage />,
       },
       {
         path: 'board',

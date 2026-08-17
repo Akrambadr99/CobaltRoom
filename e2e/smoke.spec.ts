@@ -55,4 +55,13 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
   await page.getByLabel('Set priority').selectOption('urgent')
   await page.getByRole('button', { name: 'Apply priority' }).click()
   await expect(page.getByText('1 issue updated.')).toBeVisible()
+
+  await page.getByRole('link', { name: 'Review intermittent restart incidents' }).click()
+  await expect(page).toHaveURL(/\/issues\/issue_/)
+  await page.getByRole('button', { name: 'Edit issue' }).click()
+  await page.getByLabel('Title').fill('Review restart incident clusters')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Review restart incident clusters' }),
+  ).toBeVisible()
 })

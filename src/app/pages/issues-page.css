@@ -132,6 +132,142 @@
   white-space: nowrap;
 }
 
+.table-link {
+  color: var(--color-text);
+  font-weight: 750;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.2em;
+}
+
+.table-link:hover {
+  color: var(--color-accent);
+  text-decoration-color: currentColor;
+}
+
+.table-link:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.issue-detail-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-5);
+}
+
+.issue-detail-header > .text-link {
+  grid-column: 1 / -1;
+}
+
+.issue-detail-header h1 {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: clamp(2rem, 5vw, 3rem);
+  letter-spacing: -0.04em;
+}
+
+.issue-detail-header p:last-child {
+  max-width: 52rem;
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.issue-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.issue-detail-grid > div {
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.issue-detail-grid dt {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.issue-detail-grid dd {
+  margin: var(--space-2) 0 0;
+  font-weight: 750;
+}
+
+.issue-edit-form {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.issue-edit-form h2 {
+  margin: var(--space-2) 0;
+  font-size: 1.5rem;
+}
+
+.issue-edit-form p {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.issue-edit-form__row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.form-field {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-bg-surface);
+  font: inherit;
+  font-weight: 500;
+}
+
+.form-field textarea {
+  resize: vertical;
+}
+
+.form-field input:focus-visible,
+.form-field select:focus-visible,
+.form-field textarea:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.form-field [aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.form-field__error,
+.form-error {
+  color: var(--color-danger) !important;
+}
+
+.issue-edit-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
 .priority-badge {
   display: inline-flex;
   padding: var(--space-1) var(--space-2);
@@ -177,6 +313,10 @@
   .bulk-actions > p {
     flex-basis: 100%;
   }
+
+  .issue-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (width < 44rem) {
@@ -205,5 +345,20 @@
   .bulk-actions > .issue-filter,
   .bulk-actions > button {
     width: 100%;
+  }
+
+  .issue-detail-header,
+  .issue-detail-grid,
+  .issue-edit-form__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .issue-detail-header > .primary-button,
+  .issue-edit-form__actions > button {
+    width: 100%;
+  }
+
+  .issue-edit-form__actions {
+    flex-direction: column;
   }
 }
