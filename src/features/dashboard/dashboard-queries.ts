@@ -7,9 +7,9 @@ import { atlasQueryKeys } from '../query-keys'
 
 export function useDashboardData() {
   const { gateway, workspaceId } = useAppServices()
-  const projects = useQuery({
-    queryKey: atlasQueryKeys.projects(workspaceId),
-    queryFn: ({ signal }) => gateway.listProjects(workspaceId, { signal }),
+  const analytics = useQuery({
+    queryKey: atlasQueryKeys.analytics(workspaceId),
+    queryFn: ({ signal }) => gateway.getWorkspaceAnalytics(workspaceId, { signal }),
   })
   const issues = useQuery({
     queryKey: atlasQueryKeys.dashboardIssues(workspaceId),
@@ -24,7 +24,15 @@ export function useDashboardData() {
       ),
   })
 
-  return { issues, projects }
+  return { analytics, issues }
+}
+
+export function useWorkspaceAnalytics() {
+  const { gateway, workspaceId } = useAppServices()
+  return useQuery({
+    queryKey: atlasQueryKeys.analytics(workspaceId),
+    queryFn: ({ signal }) => gateway.getWorkspaceAnalytics(workspaceId, { signal }),
+  })
 }
 
 export function useUpdateIssuePriority() {
@@ -58,6 +66,9 @@ export function useUpdateIssuePriority() {
         }),
         queryClient.invalidateQueries({
           queryKey: atlasQueryKeys.notifications(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.analytics(workspaceId),
         }),
       ])
     },

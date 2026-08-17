@@ -106,4 +106,16 @@ describe('DashboardPage', () => {
       }),
     ).toBeDisabled()
   })
+
+  it('persists a user-selected dashboard metric layout', async () => {
+    const user = userEvent.setup()
+    const { services } = renderDashboard()
+    await screen.findByText('Active projects')
+
+    await user.click(screen.getByRole('button', { name: 'Customize dashboard' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Overdue issues' }))
+
+    expect(screen.getByText('Overdue issues', { selector: 'dt' })).toBeVisible()
+    expect(services.preferences.getSnapshot().dashboardWidgets).toContain('overdue')
+  })
 })

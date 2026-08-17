@@ -49,6 +49,23 @@ function createGateway(
 }
 
 describe('MockAtlasGateway', () => {
+  it('returns an authoritative analytics snapshot with request tracing', async () => {
+    const { fixtures, gateway, tracer } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    if (!workspaceId) throw new Error('Expected a fixture workspace.')
+
+    const analytics = await gateway.getWorkspaceAnalytics(workspaceId)
+    expect(analytics).toMatchObject({
+      generatedAt: '2026-02-01T08:00:00.000Z',
+      totalIssues: 6,
+      activeProjects: 2,
+    })
+    expect(tracer.read()).toMatchObject([
+      { operation: 'analytics.get', phase: 'started' },
+      { operation: 'analytics.get', phase: 'succeeded' },
+    ])
+  })
+
   it('returns filtered, sorted, and paginated issues asynchronously', async () => {
     const { fixtures, gateway, tracer } = createGateway()
     const workspaceId = fixtures.workspaces[0]?.id

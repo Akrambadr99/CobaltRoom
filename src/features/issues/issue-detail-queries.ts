@@ -93,6 +93,9 @@ export function useOptimisticIssueUpdate(issueId: IssueId) {
         queryClient.invalidateQueries({
           queryKey: atlasQueryKeys.notifications(workspaceId),
         }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.analytics(workspaceId),
+        }),
       ])
     },
   })

@@ -2,6 +2,8 @@ import type { IssueQuery } from '../data'
 import type { IssueId, ProjectId, WorkspaceId } from '../domain'
 
 export const atlasQueryKeys = {
+  analytics: (workspaceId: WorkspaceId) =>
+    ['workspaces', workspaceId, 'analytics'] as const,
   globalSearch: (workspaceId: WorkspaceId, search: string) =>
     ['workspaces', workspaceId, 'search', search] as const,
   boardMetadata: (workspaceId: WorkspaceId) =>

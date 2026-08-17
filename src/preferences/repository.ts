@@ -2,7 +2,13 @@ import { SystemClock, type Clock } from '../data'
 import type { IssueWorkspaceState } from '../features/issues/issue-workspace-state'
 import { decodeUserPreferences, encodeUserPreferences } from './codec'
 import type { PreferenceStorage } from './storage'
-import type { IssuePageSize, SavedIssueView, UserPreferences } from './types'
+import {
+  dashboardWidgetIds,
+  type DashboardWidgetId,
+  type IssuePageSize,
+  type SavedIssueView,
+  type UserPreferences,
+} from './types'
 
 type Listener = () => void
 
@@ -47,6 +53,20 @@ export class UserPreferenceRepository {
 
   setIssuePageSize(pageSize: IssuePageSize): void {
     this.commit({ ...this.current, issuePageSize: pageSize })
+  }
+
+  setDashboardWidgets(widgets: readonly DashboardWidgetId[]): void {
+    const unique = [...new Set(widgets)]
+    if (
+      unique.length === 0 ||
+      unique.length !== widgets.length ||
+      unique.some(
+        (candidate) => !dashboardWidgetIds.some((widgetId) => widgetId === candidate),
+      )
+    ) {
+      throw new RangeError('Dashboard widgets must be unique supported values.')
+    }
+    this.commit({ ...this.current, dashboardWidgets: unique })
   }
 
   saveIssueView(name: string, state: IssueWorkspaceState): SavedIssueView {

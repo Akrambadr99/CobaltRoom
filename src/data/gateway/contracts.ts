@@ -6,6 +6,7 @@ import type {
   IssuePriority,
   IssueType,
   IsoDate,
+  IsoDateTime,
   Label,
   LabelId,
   Notification,
@@ -119,6 +120,37 @@ export interface MarkNotificationReadInput {
   readonly read: boolean
 }
 
+export interface AnalyticsBreakdown<TValue extends string> {
+  readonly value: TValue
+  readonly count: number
+}
+
+export interface ProjectHealthAggregate {
+  readonly projectId: ProjectId
+  readonly projectKey: string
+  readonly projectName: string
+  readonly totalIssues: number
+  readonly openIssues: number
+  readonly completedIssues: number
+  readonly urgentOpenIssues: number
+  readonly overdueIssues: number
+  readonly completionPercent: number
+}
+
+export interface WorkspaceAnalytics {
+  readonly generatedAt: IsoDateTime
+  readonly activeProjects: number
+  readonly totalIssues: number
+  readonly openIssues: number
+  readonly completedIssues: number
+  readonly urgentOpenIssues: number
+  readonly overdueIssues: number
+  readonly unassignedOpenIssues: number
+  readonly priorities: readonly AnalyticsBreakdown<IssuePriority>[]
+  readonly statusCategories: readonly AnalyticsBreakdown<WorkflowStatus['category']>[]
+  readonly projects: readonly ProjectHealthAggregate[]
+}
+
 export type MutableIssueFields = Pick<
   Issue,
   | 'assigneeId'
@@ -158,6 +190,10 @@ export interface AtlasGateway {
     workspaceId: WorkspaceId,
     options?: RequestOptions,
   ): Promise<BoardMetadata>
+  getWorkspaceAnalytics(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<WorkspaceAnalytics>
   getIssueActivity(
     issueId: IssueId,
     options?: RequestOptions,

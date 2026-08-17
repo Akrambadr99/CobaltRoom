@@ -10,9 +10,9 @@ import { issueWorkspaceDefaults } from '../features/issues/issue-workspace-state
 import { isoDateTime, projectId } from '../domain'
 
 describe('user preference codec', () => {
-  it('round-trips version two preferences with canonical saved-view state', () => {
+  it('round-trips version three preferences with canonical saved-view state', () => {
     const preferences = {
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       issuePageSize: 10 as const,
       savedIssueViews: [
         {
@@ -29,6 +29,7 @@ describe('user preference codec', () => {
           updatedAt: isoDateTime('2026-02-01T08:00:00.000Z'),
         },
       ],
+      dashboardWidgets: ['overdue', 'total-issues'] as const,
     }
 
     const decoded = decodeUserPreferences(encodeUserPreferences(preferences))
@@ -78,6 +79,32 @@ describe('user preference codec', () => {
       name: 'Legacy urgent',
       state: { priority: 'urgent', page: 1 },
     })
+    expect(migrated.dashboardWidgets).toEqual([
+      'active-projects',
+      'total-issues',
+      'urgent-open',
+    ])
+  })
+
+  it('migrates version two and rejects unsupported or empty widget layouts', () => {
+    const migrated = decodeUserPreferences(
+      JSON.stringify({
+        schemaVersion: 2,
+        issuePageSize: 10,
+        savedIssueViews: [],
+      }),
+    )
+    expect(migrated.dashboardWidgets).toEqual(defaultUserPreferences.dashboardWidgets)
+
+    const decoded = decodeUserPreferences(
+      JSON.stringify({
+        schemaVersion: 3,
+        issuePageSize: 5,
+        savedIssueViews: [],
+        dashboardWidgets: ['overdue', 'overdue', '<script>'],
+      }),
+    )
+    expect(decoded.dashboardWidgets).toEqual(['overdue'])
   })
 
   it('fails closed for corrupt, oversized, and unknown-version payloads', () => {

@@ -215,3 +215,29 @@ test('reviews and clears the notification inbox', async ({ page }) => {
   ).toBeVisible()
   await expect(page.getByText('1 notification marked as read.')).toBeAttached()
 })
+
+test('persists dashboard widgets and reviews authoritative analytics', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await expect(page.getByText('Tracked issues')).toBeVisible()
+  await page.getByRole('button', { name: 'Customize dashboard' }).click()
+  await page.getByRole('checkbox', { name: 'Overdue issues' }).check()
+  await expect(
+    page.getByLabel('Workspace summary').getByText('Overdue issues', { exact: true }),
+  ).toBeVisible()
+
+  await page.reload()
+  await expect(
+    page.getByLabel('Workspace summary').getByText('Overdue issues', { exact: true }),
+  ).toBeVisible()
+  await page.getByRole('link', { name: 'Analytics' }).click()
+
+  await expect(page).toHaveURL('/analytics')
+  await expect(
+    page.getByRole('table', {
+      name: 'Project issue volume, completion, urgency, and overdue work',
+    }),
+  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Issues by priority' })).toBeVisible()
+})

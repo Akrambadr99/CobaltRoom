@@ -2,6 +2,7 @@ import type { GatewayErrorCode } from './errors'
 import type { IsoDateTime } from '../../domain'
 
 export type GatewayOperation =
+  | 'analytics.get'
   | 'board.metadata'
   | 'comment.create'
   | 'issue.activity'

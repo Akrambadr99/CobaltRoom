@@ -62,6 +62,9 @@ export function useCreateIssue() {
         queryClient.invalidateQueries({
           queryKey: atlasQueryKeys.notifications(workspaceId),
         }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.analytics(workspaceId),
+        }),
       ])
     },
   })
@@ -96,6 +99,9 @@ export function useBulkUpdateIssuePriority() {
         }),
         queryClient.invalidateQueries({
           queryKey: atlasQueryKeys.notifications(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.analytics(workspaceId),
         }),
       ])
     },

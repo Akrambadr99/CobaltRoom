@@ -6,6 +6,7 @@ import {
 import { isoDateTime, type IsoDateTime } from '../domain'
 import {
   defaultUserPreferences,
+  dashboardWidgetIds,
   issuePageSizes,
   preferenceSchemaVersion,
   type IssuePageSize,
@@ -25,14 +26,15 @@ interface PersistedSavedView {
   readonly updatedAt: string
 }
 
-interface PersistedPreferencesV2 {
-  readonly schemaVersion: 2
+interface PersistedPreferencesV3 {
+  readonly schemaVersion: 3
   readonly issuePageSize: IssuePageSize
   readonly savedIssueViews: readonly PersistedSavedView[]
+  readonly dashboardWidgets: UserPreferences['dashboardWidgets']
 }
 
 export function encodeUserPreferences(preferences: UserPreferences): string {
-  const persisted: PersistedPreferencesV2 = {
+  const persisted: PersistedPreferencesV3 = {
     schemaVersion: preferenceSchemaVersion,
     issuePageSize: preferences.issuePageSize,
     savedIssueViews: preferences.savedIssueViews.map((view) => ({
@@ -42,6 +44,7 @@ export function encodeUserPreferences(preferences: UserPreferences): string {
       createdAt: view.createdAt,
       updatedAt: view.updatedAt,
     })),
+    dashboardWidgets: preferences.dashboardWidgets,
   }
   return JSON.stringify(persisted)
 }
@@ -55,7 +58,10 @@ export function decodeUserPreferences(serialized: string | null): UserPreference
     const value: unknown = JSON.parse(serialized)
     if (!isRecord(value)) return defaultUserPreferences
 
-    if (value['schemaVersion'] === 1) return migrateVersionOne(value)
+    if (value['schemaVersion'] === 1) return migrateLegacy(value, 'pageSize', 'views')
+    if (value['schemaVersion'] === 2) {
+      return migrateLegacy(value, 'issuePageSize', 'savedIssueViews')
+    }
     if (value['schemaVersion'] !== preferenceSchemaVersion) {
       return defaultUserPreferences
     }
@@ -64,6 +70,7 @@ export function decodeUserPreferences(serialized: string | null): UserPreference
       schemaVersion: preferenceSchemaVersion,
       issuePageSize: parsePageSize(value['issuePageSize']),
       savedIssueViews: parseSavedViews(value['savedIssueViews']),
+      dashboardWidgets: parseDashboardWidgets(value['dashboardWidgets']),
     }
   } catch {
     return defaultUserPreferences
@@ -74,12 +81,28 @@ export function serializeSavedViewState(state: SavedIssueView['state']): string 
   return serializeIssueWorkspaceState({ ...state, page: 1 }).toString()
 }
 
-function migrateVersionOne(value: Record<string, unknown>): UserPreferences {
+function migrateLegacy(
+  value: Record<string, unknown>,
+  pageSizeKey: string,
+  viewsKey: string,
+): UserPreferences {
   return {
     schemaVersion: preferenceSchemaVersion,
-    issuePageSize: parsePageSize(value['pageSize']),
-    savedIssueViews: parseSavedViews(value['views']),
+    issuePageSize: parsePageSize(value[pageSizeKey]),
+    savedIssueViews: parseSavedViews(value[viewsKey]),
+    dashboardWidgets: defaultUserPreferences.dashboardWidgets,
   }
+}
+
+function parseDashboardWidgets(value: unknown): UserPreferences['dashboardWidgets'] {
+  if (!Array.isArray(value)) return defaultUserPreferences.dashboardWidgets
+  const widgets = value.filter(
+    (candidate): candidate is UserPreferences['dashboardWidgets'][number] =>
+      typeof candidate === 'string' &&
+      dashboardWidgetIds.some((widgetId) => widgetId === candidate),
+  )
+  const unique = [...new Set(widgets)]
+  return unique.length > 0 ? unique : defaultUserPreferences.dashboardWidgets
 }
 
 function parsePageSize(value: unknown): IssuePageSize {

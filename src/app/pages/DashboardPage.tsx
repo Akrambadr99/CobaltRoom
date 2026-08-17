@@ -4,7 +4,14 @@ import {
   useDashboardData,
   useUpdateIssuePriority,
 } from '../../features/dashboard/dashboard-queries'
+import type { WorkspaceAnalytics } from '../../data'
 import type { Issue, IssuePriority } from '../../domain'
+import {
+  dashboardWidgetIds,
+  PreferencePersistenceError,
+  useUserPreferences,
+  type DashboardWidgetId,
+} from '../../preferences'
 import { useAppServices } from '../providers/app-services-context'
 import './pages.css'
 
@@ -12,11 +19,14 @@ const issuePriorities = ['urgent', 'high', 'medium', 'low', 'none'] as const
 
 export function DashboardPage() {
   const services = useAppServices()
-  const { issues, projects } = useDashboardData()
+  const { analytics, issues } = useDashboardData()
+  const preferences = useUserPreferences()
   const updatePriority = useUpdateIssuePriority()
   const [mutationMessage, setMutationMessage] = useState<string | null>(null)
+  const [customizing, setCustomizing] = useState(false)
+  const [preferenceError, setPreferenceError] = useState('')
 
-  if (issues.isPending || projects.isPending) {
+  if (issues.isPending || analytics.isPending) {
     return (
       <section className="page" aria-labelledby="dashboard-title" aria-busy="true">
         <DashboardHeader />
@@ -27,7 +37,7 @@ export function DashboardPage() {
     )
   }
 
-  if (issues.isError || projects.isError) {
+  if (issues.isError || analytics.isError) {
     return (
       <section className="page" aria-labelledby="dashboard-title">
         <DashboardHeader />
@@ -38,7 +48,7 @@ export function DashboardPage() {
             className="secondary-button"
             type="button"
             onClick={() => {
-              void Promise.all([issues.refetch(), projects.refetch()])
+              void Promise.all([issues.refetch(), analytics.refetch()])
             }}
           >
             Retry dashboard
@@ -71,21 +81,60 @@ export function DashboardPage() {
     <section className="page" aria-labelledby="dashboard-title">
       <DashboardHeader />
 
+      <div className="dashboard-customize">
+        <button
+          className="secondary-button"
+          type="button"
+          aria-expanded={customizing}
+          onClick={() => {
+            setCustomizing((current) => !current)
+          }}
+        >
+          Customize dashboard
+        </button>
+        {customizing ? (
+          <fieldset>
+            <legend>Visible metrics</legend>
+            {dashboardWidgetIds.map((widgetId) => {
+              const selected = preferences.dashboardWidgets.includes(widgetId)
+              return (
+                <label key={widgetId}>
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    disabled={selected && preferences.dashboardWidgets.length === 1}
+                    onChange={(event) => {
+                      const next = event.currentTarget.checked
+                        ? [...preferences.dashboardWidgets, widgetId]
+                        : preferences.dashboardWidgets.filter((id) => id !== widgetId)
+                      setPreferenceError('')
+                      try {
+                        services.preferences.setDashboardWidgets(next)
+                      } catch (error) {
+                        setPreferenceError(
+                          error instanceof PreferencePersistenceError
+                            ? error.message
+                            : 'Dashboard settings could not be updated.',
+                        )
+                      }
+                    }}
+                  />
+                  {widgetDefinitions[widgetId].label}
+                </label>
+              )
+            })}
+          </fieldset>
+        ) : null}
+        {preferenceError ? <p role="alert">{preferenceError}</p> : null}
+      </div>
+
       <dl className="metric-grid" aria-label="Workspace summary">
-        <div className="metric-card">
-          <dt>Active projects</dt>
-          <dd>{projects.data.filter(({ status }) => status === 'active').length}</dd>
-        </div>
-        <div className="metric-card">
-          <dt>Tracked issues</dt>
-          <dd>{issues.data.totalItems}</dd>
-        </div>
-        <div className="metric-card">
-          <dt>Urgent in view</dt>
-          <dd>
-            {issues.data.items.filter(({ priority }) => priority === 'urgent').length}
-          </dd>
-        </div>
+        {preferences.dashboardWidgets.map((widgetId) => (
+          <div className="metric-card" key={widgetId}>
+            <dt>{widgetDefinitions[widgetId].label}</dt>
+            <dd>{widgetDefinitions[widgetId].value(analytics.data)}</dd>
+          </div>
+        ))}
       </dl>
 
       <section className="work-panel" aria-labelledby="priority-work-title">
@@ -146,6 +195,19 @@ export function DashboardPage() {
       </section>
     </section>
   )
+}
+
+const widgetDefinitions: Readonly<
+  Record<DashboardWidgetId, { readonly label: string; value(data: WorkspaceAnalytics): number }>
+> = {
+  'active-projects': { label: 'Active projects', value: (data) => data.activeProjects },
+  'total-issues': { label: 'Tracked issues', value: (data) => data.totalIssues },
+  'urgent-open': { label: 'Urgent open issues', value: (data) => data.urgentOpenIssues },
+  overdue: { label: 'Overdue issues', value: (data) => data.overdueIssues },
+  'unassigned-open': {
+    label: 'Unassigned open issues',
+    value: (data) => data.unassignedOpenIssues,
+  },
 }
 
 function DashboardHeader() {

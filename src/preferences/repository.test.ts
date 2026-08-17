@@ -5,6 +5,7 @@ import { MemoryPreferenceStorage, type PreferenceStorage } from './storage'
 import { FixedClock } from '../data'
 import { issueWorkspaceDefaults } from '../features/issues/issue-workspace-state'
 import { isoDateTime } from '../domain'
+import { defaultUserPreferences } from './types'
 
 const storageKey = 'atlas-ops:test:preferences'
 
@@ -30,6 +31,7 @@ describe('UserPreferenceRepository', () => {
       page: 4,
     })
     repository.setIssuePageSize(10)
+    repository.setDashboardWidgets(['overdue', 'total-issues'])
 
     expect(saved).toMatchObject({
       id: 'view_test_001',
@@ -37,16 +39,30 @@ describe('UserPreferenceRepository', () => {
       state: { priority: 'urgent', page: 1 },
       createdAt: '2026-02-01T08:00:00.000Z',
     })
-    expect(listener).toHaveBeenCalledTimes(2)
+    expect(listener).toHaveBeenCalledTimes(3)
     expect(createRepository(storage).getSnapshot()).toMatchObject({
       issuePageSize: 10,
       savedIssueViews: [{ name: 'Urgent work' }],
+      dashboardWidgets: ['overdue', 'total-issues'],
     })
 
     unsubscribe()
     repository.deleteIssueView(saved.id)
-    expect(listener).toHaveBeenCalledTimes(2)
+    expect(listener).toHaveBeenCalledTimes(3)
     expect(repository.getSnapshot().savedIssueViews).toHaveLength(0)
+  })
+
+  it('rejects empty and duplicate dashboard widget layouts', () => {
+    const repository = createRepository()
+    expect(() => {
+      repository.setDashboardWidgets([])
+    }).toThrow(RangeError)
+    expect(() => {
+      repository.setDashboardWidgets(['overdue', 'overdue'])
+    }).toThrow(RangeError)
+    expect(repository.getSnapshot().dashboardWidgets).toEqual(
+      defaultUserPreferences.dashboardWidgets,
+    )
   })
 
   it('rejects duplicate names and invalid identifiers without changing state', () => {

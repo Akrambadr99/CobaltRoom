@@ -208,6 +208,110 @@
   font-size: 0.8125rem;
 }
 
+.dashboard-customize {
+  display: flex;
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.dashboard-customize fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.dashboard-customize legend {
+  padding-inline: var(--space-2);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.dashboard-customize label {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: 0.8125rem;
+}
+
+.dashboard-customize > p {
+  margin: var(--space-2) 0;
+  color: var(--color-danger);
+  font-size: 0.8125rem;
+}
+
+.analytics-generated {
+  margin: calc(var(--space-8) * -1) 0 0;
+  color: var(--color-text-subtle);
+  font-size: 0.75rem;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.analytics-breakdown {
+  padding: 0 var(--space-6);
+  margin: 0;
+}
+
+.analytics-breakdown > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.analytics-breakdown > div:last-child {
+  border-bottom: 0;
+}
+
+.analytics-breakdown dt {
+  color: var(--color-text-muted);
+}
+
+.analytics-breakdown dd {
+  margin: 0;
+  font-weight: 750;
+}
+
+.analytics-table-scroll {
+  overflow-x: auto;
+}
+
+.analytics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.analytics-table th,
+.analytics-table td {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.analytics-table thead th {
+  color: var(--color-text-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.analytics-table tbody th span {
+  display: block;
+  color: var(--color-text-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+}
+
 .project-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -354,6 +458,14 @@
 
   .project-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .analytics-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-customize {
+    flex-direction: column;
   }
 
   .work-panel__header,

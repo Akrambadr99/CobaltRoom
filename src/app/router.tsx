@@ -3,6 +3,7 @@ import { createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { RouteErrorBoundary } from './errors/RouteErrorBoundary'
 import { AppShell } from './layout/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
+import { AnalyticsPage } from './pages/AnalyticsPage'
 import { BoardPage } from './pages/BoardPage'
 import { IssuesPage } from './pages/IssuesPage'
 import { IssueDetailPage } from './pages/IssueDetailPage'
@@ -40,12 +41,7 @@ export const appRoutes: RouteObject[] = [
       },
       {
         path: 'analytics',
-        element: (
-          <PlaceholderPage
-            title="Analytics"
-            description="Understand delivery health through transparent workspace metrics."
-          />
-        ),
+        element: <AnalyticsPage />,
       },
       {
         path: 'settings',

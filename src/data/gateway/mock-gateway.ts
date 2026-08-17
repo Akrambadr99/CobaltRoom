@@ -12,7 +12,9 @@ import type {
   Page,
   RequestOptions,
   UpdateIssueInput,
+  WorkspaceAnalytics,
 } from './contracts'
+import { buildWorkspaceAnalytics } from './analytics'
 import {
   EntityNotFoundError,
   ForbiddenGatewayError,
@@ -203,6 +205,16 @@ export class MockAtlasGateway implements AtlasGateway {
               .sort((left, right) => left.order - right.order),
           })),
       }
+    })
+  }
+
+  getWorkspaceAnalytics(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<WorkspaceAnalytics> {
+    return this.execute('analytics.get', options, () => {
+      this.assertPermission('workspace:view', workspaceId)
+      return buildWorkspaceAnalytics(this.store.read().data, workspaceId, this.clock.now())
     })
   }
 
