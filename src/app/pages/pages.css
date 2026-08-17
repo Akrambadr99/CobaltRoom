@@ -208,6 +208,62 @@
   font-size: 0.8125rem;
 }
 
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.project-card {
+  display: grid;
+  align-content: space-between;
+  gap: var(--space-6);
+  min-height: 15rem;
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.project-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.project-card__key {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.project-card__status {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.project-card h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.375rem;
+  letter-spacing: -0.025em;
+}
+
+.project-card p {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.project-card__count {
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
 .text-link {
   width: fit-content;
   color: var(--color-accent);
@@ -233,6 +289,10 @@
 
 @media (width < 44rem) {
   .metric-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .project-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

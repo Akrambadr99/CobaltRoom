@@ -27,4 +27,8 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
   await expect(
     page.getByRole('heading', { level: 1, name: 'Projects' }),
   ).toBeVisible()
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Field reliability' }),
+  ).toBeVisible()
+  await expect(page.getByText('3 issues').first()).toBeVisible()
 })

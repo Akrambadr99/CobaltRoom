@@ -2,23 +2,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { Page } from '../../data'
-import type { Issue, IssuePriority, WorkspaceId } from '../../domain'
-
-export const dashboardQueryKeys = {
-  projects: (workspaceId: WorkspaceId) =>
-    ['workspaces', workspaceId, 'projects'] as const,
-  issues: (workspaceId: WorkspaceId) =>
-    ['workspaces', workspaceId, 'dashboard-issues'] as const,
-}
+import type { Issue, IssuePriority } from '../../domain'
+import { atlasQueryKeys } from '../query-keys'
 
 export function useDashboardData() {
   const { gateway, workspaceId } = useAppServices()
   const projects = useQuery({
-    queryKey: dashboardQueryKeys.projects(workspaceId),
+    queryKey: atlasQueryKeys.projects(workspaceId),
     queryFn: ({ signal }) => gateway.listProjects(workspaceId, { signal }),
   })
   const issues = useQuery({
-    queryKey: dashboardQueryKeys.issues(workspaceId),
+    queryKey: atlasQueryKeys.dashboardIssues(workspaceId),
     queryFn: ({ signal }) =>
       gateway.listIssues(
         {
@@ -46,7 +40,7 @@ export function useUpdateIssuePriority() {
       }),
     onSuccess: async (updatedIssue) => {
       queryClient.setQueryData<Page<Issue>>(
-        dashboardQueryKeys.issues(workspaceId),
+        atlasQueryKeys.dashboardIssues(workspaceId),
         (current) =>
           current
             ? {
@@ -59,7 +53,7 @@ export function useUpdateIssuePriority() {
       )
 
       await queryClient.invalidateQueries({
-        queryKey: dashboardQueryKeys.issues(workspaceId),
+        queryKey: atlasQueryKeys.dashboardIssues(workspaceId),
       })
     },
   })

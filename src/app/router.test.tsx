@@ -3,7 +3,21 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 
 import { render, screen } from '../test/render'
+import { AppProviders } from './providers/AppProviders'
+import { createAtlasQueryClient } from './query-client'
+import { createAppServices } from './services'
 import { appRoutes } from './router'
+
+function renderRouter(router: ReturnType<typeof createMemoryRouter>) {
+  return render(
+    <AppProviders
+      queryClient={createAtlasQueryClient()}
+      services={createAppServices()}
+    >
+      <RouterProvider router={router} />
+    </AppProviders>,
+  )
+}
 
 describe('application router', () => {
   it('renders a requested workspace route and supports link navigation', async () => {
@@ -12,7 +26,7 @@ describe('application router', () => {
       initialEntries: ['/projects'],
     })
 
-    render(<RouterProvider router={router} />)
+    renderRouter(router)
 
     expect(
       screen.getByRole('heading', { level: 1, name: 'Projects' }),
@@ -29,7 +43,7 @@ describe('application router', () => {
       initialEntries: ['/does-not-exist'],
     })
 
-    render(<RouterProvider router={router} />)
+    renderRouter(router)
 
     expect(
       screen.getByRole('heading', { level: 1, name: 'Page not found' }),

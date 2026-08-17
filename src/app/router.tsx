@@ -5,6 +5,7 @@ import { AppShell } from './layout/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
+import { ProjectsPage } from './pages/ProjectsPage'
 
 export const appRoutes: RouteObject[] = [
   {
@@ -15,12 +16,7 @@ export const appRoutes: RouteObject[] = [
       { index: true, element: <DashboardPage /> },
       {
         path: 'projects',
-        element: (
-          <PlaceholderPage
-            title="Projects"
-            description="Plan, organize, and track work across the workspace."
-          />
-        ),
+        element: <ProjectsPage />,
       },
       {
         path: 'issues',
