@@ -66,11 +66,11 @@ export function AuthorizationProvider({ children }: Readonly<{ children: ReactNo
     authorization.error instanceof GatewayError &&
     authorization.error.code === 'session-expired'
   useEffect(() => {
-    if (!isSessionExpired) return
+    if (!authorization.isError) return
     queryClient.removeQueries({
       predicate: (query) => query.queryKey[0] !== 'authorization',
     })
-  }, [isSessionExpired, queryClient])
+  }, [authorization.isError, queryClient])
   const { refetch } = authorization
   const refresh = useCallback(async (): Promise<void> => {
     await refetch()

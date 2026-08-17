@@ -31,7 +31,7 @@ function RejectedGovernanceRequest() {
   )
 }
 
-function createMutableSession() {
+function createMutableSession(simulator = new SimulatedNetwork()) {
   const fixtures = createAtlasFixtures()
   const admin = fixtures.memberships.find(({ role }) => role === 'admin')
   if (!admin) throw new Error('Expected a fixture administrator.')
@@ -39,7 +39,7 @@ function createMutableSession() {
   const services = createAppServices({
     actorId: admin.userId,
     dataStore: store,
-    simulator: new SimulatedNetwork(),
+    simulator,
   })
   return { admin, services, store }
 }
@@ -107,5 +107,39 @@ describe('AuthorizationProvider', () => {
       'Workspace access changed',
     )
     expect(screen.queryByLabelText(/Signed in as/)).not.toBeInTheDocument()
+  })
+
+  it('fails closed while authorization is unverifiable and recovers on retry', async () => {
+    const user = userEvent.setup()
+    let rejectNextAuthorization = true
+    const simulator = new SimulatedNetwork({
+      failure: (operation) => {
+        if (operation !== 'authorization.get' || !rejectNextAuthorization) return null
+        rejectNextAuthorization = false
+        return 'Authorization service unavailable.'
+      },
+    })
+    const { services } = createMutableSession(simulator)
+    const queryClient = createAtlasQueryClient()
+    queryClient.setQueryData(['protected', 'workspace-records'], {
+      confidential: true,
+    })
+
+    render(
+      <AppProviders queryClient={queryClient} services={services}>
+        <MemoryRouter>
+          <AppShell />
+        </MemoryRouter>
+      </AppProviders>,
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Permissions could not be verified',
+    )
+    expect(screen.queryByLabelText(/Signed in as/)).not.toBeInTheDocument()
+    expect(queryClient.getQueryData(['protected', 'workspace-records'])).toBeUndefined()
+
+    await user.click(screen.getByRole('button', { name: 'Verify access' }))
+    expect(await screen.findByLabelText(/Signed in as/)).toBeVisible()
   })
 })

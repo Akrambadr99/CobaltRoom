@@ -51,6 +51,28 @@ export function AppShell() {
     )
   }
 
+  if (authorization.isStale) {
+    return (
+      <main className="session-state" role="alert">
+        <p className="page-eyebrow">Session security</p>
+        <h1>Permissions could not be verified</h1>
+        <p>
+          Atlas Ops removed workspace data from this view until your access can
+          be confirmed.
+        </p>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => {
+            void authorization.refresh()
+          }}
+        >
+          Verify access
+        </button>
+      </main>
+    )
+  }
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -105,12 +127,6 @@ export function AppShell() {
         </header>
 
         <main className="app-main" id="main-content" tabIndex={-1}>
-          {authorization.isStale ? (
-            <p className="authorization-warning" aria-live="polite">
-              Permissions could not be refreshed. Changes are disabled until
-              access is verified.
-            </p>
-          ) : null}
           <Outlet />
         </main>
       </div>
