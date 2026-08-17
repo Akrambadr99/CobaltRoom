@@ -4,6 +4,22 @@ import { useAppServices } from '../../app/providers/app-services-context'
 import type { AtlasGateway } from '../../data'
 import type { Issue, WorkspaceId } from '../../domain'
 import { atlasQueryKeys } from '../query-keys'
+import type { ProjectWorkspaceState } from './project-workspace-state'
+
+export function useProjectSummaries(state: ProjectWorkspaceState) {
+  const { gateway, workspaceId } = useAppServices()
+  const query = {
+    workspaceId,
+    ...(state.search ? { search: state.search } : {}),
+    ...(state.status ? { statuses: [state.status] } : {}),
+    page: { number: state.page, size: 12 },
+  }
+
+  return useQuery({
+    queryKey: atlasQueryKeys.projectSummaries(query),
+    queryFn: ({ signal }) => gateway.listProjectSummaries(query, { signal }),
+  })
+}
 
 export function useProjectsIndexData() {
   const { gateway, workspaceId } = useAppServices()

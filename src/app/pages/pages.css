@@ -481,6 +481,58 @@
   list-style: none;
 }
 
+.projects-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  max-width: none;
+}
+
+.projects-header__count {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.project-filters {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.project-filters label {
+  display: grid;
+  flex: 1 1 14rem;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.project-filters input,
+.project-filters select {
+  min-height: 2.5rem;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  background: var(--color-bg-surface);
+  font: inherit;
+}
+
+.project-filters input:focus-visible,
+.project-filters select:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .project-card {
   display: grid;
   align-content: space-between;
@@ -541,9 +593,42 @@
   color: var(--color-text-muted);
 }
 
-.project-card__count {
-  font-size: 0.8125rem;
+.project-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.project-card__metrics div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.project-card__metrics dt {
+  color: var(--color-text-muted);
+  font-size: 0.6875rem;
   font-weight: 700;
+  text-transform: uppercase;
+}
+
+.project-card__metrics dd {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 750;
+}
+
+.project-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.project-pagination p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
 }
 
 .project-detail-header {

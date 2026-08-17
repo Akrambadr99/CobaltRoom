@@ -18,6 +18,7 @@ import type {
   ProjectMember,
   Project,
   ProjectId,
+  ProjectStatus,
   UserId,
   User,
   WorkflowStatus,
@@ -45,6 +46,20 @@ export interface Page<T> {
   readonly pageSize: number
   readonly pageCount: number
   readonly totalItems: number
+}
+
+export interface ProjectSummaryQuery {
+  readonly workspaceId: WorkspaceId
+  readonly search?: string
+  readonly statuses?: readonly ProjectStatus[]
+  readonly page?: PageRequest
+}
+
+export interface ProjectSummary {
+  readonly project: Project
+  readonly totalIssues: number
+  readonly openIssues: number
+  readonly completedIssues: number
 }
 
 export interface IssueFilters {
@@ -242,6 +257,10 @@ export interface AtlasGateway {
     workspaceId: WorkspaceId,
     options?: RequestOptions,
   ): Promise<readonly Project[]>
+  listProjectSummaries(
+    query: ProjectSummaryQuery,
+    options?: RequestOptions,
+  ): Promise<Page<ProjectSummary>>
   listIssues(query: IssueQuery, options?: RequestOptions): Promise<Page<Issue>>
   getIssue(id: IssueId, options?: RequestOptions): Promise<Issue>
   getIssueCreationMetadata(

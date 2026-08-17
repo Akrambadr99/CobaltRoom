@@ -30,7 +30,10 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
   await expect(
     page.getByRole('heading', { level: 2, name: 'Field reliability' }),
   ).toBeVisible()
-  await expect(page.getByText('3 issues').first()).toBeVisible()
+  const fieldReliability = page.getByRole('article').filter({
+    has: page.getByRole('heading', { level: 2, name: 'Field reliability' }),
+  })
+  await expect(fieldReliability.getByText('Total').locator('..')).toContainText('3')
 
   await page.getByRole('link', { name: 'Field reliability' }).click()
   await expect(page).toHaveURL(/\/projects\/prj_/)
@@ -73,6 +76,23 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
   await page.getByRole('button', { name: 'Add comment' }).click()
   await expect(page.getByText('Comment added.')).toBeVisible()
   await expect(page.getByText('Confirmed incident owners and next steps.')).toBeVisible()
+})
+
+test('filters the authoritative project portfolio with durable URL state', async ({
+  page,
+}) => {
+  await page.goto('/projects')
+  await expect(page.getByText('2 matching projects')).toBeVisible()
+
+  await page.getByRole('searchbox', { name: 'Search projects' }).fill('REL')
+  await page.getByRole('button', { name: 'Search' }).click()
+  await expect(page).toHaveURL('/projects?q=REL')
+  await expect(page.getByText('1 matching project')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Field reliability' })).toBeVisible()
+
+  await page.getByLabel('Status').selectOption('planned')
+  await expect(page).toHaveURL('/projects?q=REL&status=planned')
+  await expect(page.getByText('No matching projects')).toBeVisible()
 })
 
 test('creates a permission-aware issue with workflow metadata', async ({ page }) => {

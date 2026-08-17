@@ -15,6 +15,7 @@ import type {
   NotificationInbox,
   NotificationQuery,
   Page,
+  ProjectSummaryQuery,
   RequestOptions,
   UpdateIssueInput,
   UpdateCommentInput,
@@ -33,6 +34,7 @@ import {
   SessionExpiredGatewayError,
 } from './errors'
 import { paginate, queryIssues, validatePage } from './query'
+import { queryProjectSummaries } from './project-summary'
 import { SimulatedNetwork, type RequestSimulator } from './simulation'
 import {
   noopRequestTracer,
@@ -155,6 +157,16 @@ export class MockAtlasGateway implements AtlasGateway {
         .read()
         .data.projects.filter((project) => project.workspaceId === workspaceId)
         .sort((left, right) => left.name.localeCompare(right.name))
+    })
+  }
+
+  listProjectSummaries(
+    query: ProjectSummaryQuery,
+    options?: RequestOptions,
+  ) {
+    return this.execute('project.summary-list', options, () => {
+      this.assertPermission('project:view', query.workspaceId)
+      return queryProjectSummaries(this.store.read().data, query)
     })
   }
 

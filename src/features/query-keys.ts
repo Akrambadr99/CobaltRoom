@@ -1,4 +1,4 @@
-import type { GovernanceQuery, IssueQuery } from '../data'
+import type { GovernanceQuery, IssueQuery, ProjectSummaryQuery } from '../data'
 import type { IssueId, ProjectId, WorkspaceId } from '../domain'
 
 export const atlasQueryKeys = {
@@ -20,6 +20,8 @@ export const atlasQueryKeys = {
     ['workspaces', workspaceId, 'issues'] as const,
   projects: (workspaceId: WorkspaceId) =>
     ['workspaces', workspaceId, 'projects'] as const,
+  projectSummaries: (query: ProjectSummaryQuery) =>
+    [...atlasQueryKeys.projects(query.workspaceId), 'summaries', query] as const,
   dashboardIssues: (workspaceId: WorkspaceId) =>
     ['workspaces', workspaceId, 'issues', 'dashboard'] as const,
   projectIndexIssues: (workspaceId: WorkspaceId) =>

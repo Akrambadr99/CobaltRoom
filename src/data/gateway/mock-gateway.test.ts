@@ -67,6 +67,30 @@ describe('MockAtlasGateway', () => {
     ])
   })
 
+  it('returns authoritative project summaries with request tracing', async () => {
+    const { fixtures, gateway, tracer } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    if (!workspaceId) throw new Error('Expected a fixture workspace.')
+
+    const result = await gateway.listProjectSummaries({
+      workspaceId,
+      search: 'reliability',
+      page: { number: 1, size: 12 },
+    })
+
+    expect(result).toMatchObject({ totalItems: 1, pageCount: 1 })
+    expect(result.items[0]).toMatchObject({
+      project: { key: 'REL' },
+      totalIssues: 3,
+      openIssues: 2,
+      completedIssues: 1,
+    })
+    expect(tracer.read()).toMatchObject([
+      { operation: 'project.summary-list', phase: 'started' },
+      { operation: 'project.summary-list', phase: 'succeeded' },
+    ])
+  })
+
   it('refreshes live authorization and expires inactive sessions', async () => {
     const { fixtures, gateway, store } = createGateway()
     const workspaceId = fixtures.workspaces[0]?.id
