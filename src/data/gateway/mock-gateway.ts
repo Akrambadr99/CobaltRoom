@@ -4,6 +4,8 @@ import type {
   CreateCommentInput,
   CreateIssueInput,
   DeleteIssueInput,
+  GovernanceQuery,
+  GovernanceReport,
   IssueCreationMetadata,
   IssueActivityData,
   IssueQuery,
@@ -16,6 +18,7 @@ import type {
   WorkspaceAnalytics,
 } from './contracts'
 import { buildWorkspaceAnalytics } from './analytics'
+import { buildGovernanceReport } from './governance'
 import {
   EntityNotFoundError,
   ForbiddenGatewayError,
@@ -216,8 +219,18 @@ export class MockAtlasGateway implements AtlasGateway {
     options?: RequestOptions,
   ): Promise<WorkspaceAnalytics> {
     return this.execute('analytics.get', options, () => {
-      this.assertPermission('workspace:view', workspaceId)
+      this.assertPermission('analytics:view', workspaceId)
       return buildWorkspaceAnalytics(this.store.read().data, workspaceId, this.clock.now())
+    })
+  }
+
+  getGovernanceReport(
+    query: GovernanceQuery,
+    options?: RequestOptions,
+  ): Promise<GovernanceReport> {
+    return this.execute('governance.get', options, () => {
+      this.assertPermission('audit:view', query.workspaceId)
+      return buildGovernanceReport(this.store.read().data, query, this.clock.now())
     })
   }
 
@@ -259,7 +272,7 @@ export class MockAtlasGateway implements AtlasGateway {
     options?: RequestOptions,
   ): Promise<NotificationInbox> {
     return this.execute('notification.list', options, () => {
-      this.assertPermission('workspace:view', workspaceId)
+      this.assertPermission('notifications:view-self', workspaceId)
       const items = this.store
         .read()
         .data.notifications.filter(
@@ -307,7 +320,7 @@ export class MockAtlasGateway implements AtlasGateway {
     options?: RequestOptions,
   ): Promise<number> {
     return this.execute('notification.mark-all-read', options, () => {
-      this.assertPermission('workspace:view', workspaceId)
+      this.assertPermission('notifications:view-self', workspaceId)
       const current = this.store.read()
       const occurredAt = this.clock.now()
       let updatedCount = 0
@@ -335,7 +348,7 @@ export class MockAtlasGateway implements AtlasGateway {
     options?: RequestOptions,
   ): Promise<NotificationPreferences> {
     return this.execute('notification.preferences.get', options, () => {
-      this.assertPermission('workspace:view', workspaceId)
+      this.assertPermission('notification-preferences:manage-self', workspaceId)
       const preferences = this.store.read().data.notificationPreferences.find(
         (candidate) =>
           candidate.workspaceId === workspaceId && candidate.userId === this.actorId,
@@ -350,7 +363,7 @@ export class MockAtlasGateway implements AtlasGateway {
     options?: RequestOptions,
   ): Promise<NotificationPreferences> {
     return this.execute('notification.preferences.update', options, (requestId) => {
-      this.assertPermission('workspace:view', input.workspaceId)
+      this.assertPermission('notification-preferences:manage-self', input.workspaceId)
       const current = this.store.read()
       const index = current.data.notificationPreferences.findIndex(
         (candidate) =>
@@ -765,7 +778,7 @@ export class MockAtlasGateway implements AtlasGateway {
   }
 
   private assertNotificationRecipient(notification: Notification): void {
-    this.assertPermission('workspace:view', notification.workspaceId)
+    this.assertPermission('notifications:view-self', notification.workspaceId)
     if (notification.recipientId !== this.actorId) {
       throw new ForbiddenGatewayError()
     }

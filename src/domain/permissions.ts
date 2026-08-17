@@ -5,6 +5,9 @@ import type { Membership, WorkspaceRole } from './workspace'
 export const permissions = [
   'workspace:view',
   'workspace:manage',
+  'analytics:view',
+  'notifications:view-self',
+  'notification-preferences:manage-self',
   'members:manage',
   'project:create',
   'project:view',
@@ -30,6 +33,9 @@ const workspacePermissions: Readonly<Record<WorkspaceRole, ReadonlySet<Permissio
   owner: new Set(permissions),
   admin: new Set([
     'workspace:view',
+    'analytics:view',
+    'notifications:view-self',
+    'notification-preferences:manage-self',
     'members:manage',
     'project:create',
     'project:view',
@@ -45,11 +51,21 @@ const workspacePermissions: Readonly<Record<WorkspaceRole, ReadonlySet<Permissio
   ]),
   member: new Set([
     'workspace:view',
+    'analytics:view',
+    'notifications:view-self',
+    'notification-preferences:manage-self',
     'project:create',
     'project:view',
     'issue:view',
   ]),
-  viewer: new Set(['workspace:view', 'project:view', 'issue:view']),
+  viewer: new Set([
+    'workspace:view',
+    'analytics:view',
+    'notifications:view-self',
+    'notification-preferences:manage-self',
+    'project:view',
+    'issue:view',
+  ]),
 }
 
 const projectPermissions: Readonly<

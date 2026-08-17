@@ -39,6 +39,7 @@ describe('permission policy', () => {
     expect(can(context, 'workspace:manage')).toBe(false)
     expect(can(context, 'members:manage')).toBe(true)
     expect(can(context, 'audit:view')).toBe(true)
+    expect(can(context, 'analytics:view')).toBe(true)
   })
 
   it.each([
@@ -81,6 +82,8 @@ describe('permission policy', () => {
     expect(can(context, 'workspace:view')).toBe(true)
     expect(can(context, 'project:view')).toBe(true)
     expect(can(context, 'issue:view')).toBe(true)
+    expect(can(context, 'notification-preferences:manage-self')).toBe(true)
+    expect(can(context, 'audit:view')).toBe(false)
     expect(can(context, 'issue:create', testIds.project)).toBe(false)
   })
 })

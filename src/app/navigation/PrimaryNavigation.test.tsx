@@ -4,14 +4,26 @@ import { describe, expect, it } from 'vitest'
 
 import { render, screen } from '../../test/render'
 import { PrimaryNavigation } from './PrimaryNavigation'
+import { AppProviders } from '../providers/AppProviders'
+import { createAtlasQueryClient } from '../query-client'
+import { createAppServices } from '../services'
+import { createAtlasFixtures } from '../../data'
+import type { UserId } from '../../domain'
+
+function renderNavigation(initialEntry = '/', actorId?: UserId) {
+  const services = createAppServices(actorId ? { actorId } : {})
+  return render(
+    <AppProviders queryClient={createAtlasQueryClient()} services={services}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <PrimaryNavigation />
+      </MemoryRouter>
+    </AppProviders>,
+  )
+}
 
 describe('PrimaryNavigation', () => {
   it('identifies the current route', () => {
-    render(
-      <MemoryRouter initialEntries={['/projects']}>
-        <PrimaryNavigation />
-      </MemoryRouter>,
-    )
+    renderNavigation('/projects')
 
     expect(screen.getByRole('link', { name: 'Projects' })).toHaveAttribute(
       'aria-current',
@@ -25,11 +37,7 @@ describe('PrimaryNavigation', () => {
   it('moves focus with directional, Home, and End keys', async () => {
     const user = userEvent.setup()
 
-    render(
-      <MemoryRouter>
-        <PrimaryNavigation />
-      </MemoryRouter>,
-    )
+    renderNavigation()
 
     const dashboard = screen.getByRole('link', { name: 'Dashboard' })
     const projects = screen.getByRole('link', { name: 'Projects' })
@@ -52,11 +60,7 @@ describe('PrimaryNavigation', () => {
   it('leaves focus unchanged for unrelated keys', async () => {
     const user = userEvent.setup()
 
-    render(
-      <MemoryRouter>
-        <PrimaryNavigation />
-      </MemoryRouter>,
-    )
+    renderNavigation()
 
     const dashboard = screen.getByRole('link', { name: 'Dashboard' })
     dashboard.focus()
@@ -64,5 +68,18 @@ describe('PrimaryNavigation', () => {
     await user.keyboard('x')
 
     expect(dashboard).toHaveFocus()
+  })
+
+  it('only reveals governance navigation to authorized roles', () => {
+    const fixtures = createAtlasFixtures()
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    if (!viewerId) throw new Error('Expected a fixture viewer.')
+
+    const { unmount } = renderNavigation('/', viewerId)
+    expect(screen.queryByRole('link', { name: 'Governance' })).not.toBeInTheDocument()
+    unmount()
+
+    renderNavigation()
+    expect(screen.getByRole('link', { name: 'Governance' })).toBeVisible()
   })
 })

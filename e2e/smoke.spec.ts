@@ -259,3 +259,17 @@ test('configures notification delivery and device settings', async ({ page }) =>
   await page.reload()
   await expect(page.getByRole('combobox', { name: 'Issues per page' })).toHaveValue('10')
 })
+
+test('reviews the protected governance audit report', async ({ page }) => {
+  await page.goto('/governance')
+  await expect(page.getByRole('heading', { name: 'Governance' })).toBeVisible()
+  const auditLog = page.getByRole('table', {
+    name: 'Authoritative workspace audit events',
+  })
+  await expect(auditLog).toContainText('fixtures.created')
+
+  await page.getByRole('combobox', { name: 'Outcome' }).selectOption('rejected')
+  await expect(page.getByText('1 matching events')).toBeVisible()
+  await expect(auditLog).toContainText('fixture-access-check-001')
+  await expect(auditLog).not.toContainText('fixture-bootstrap-001')
+})

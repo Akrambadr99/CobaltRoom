@@ -1,16 +1,27 @@
 import type { KeyboardEvent } from 'react'
 import { NavLink } from 'react-router-dom'
 
+import type { Permission } from '../../domain'
+import { useAppServices } from '../providers/app-services-context'
 import './primary-navigation.css'
 
-const navigationItems = [
+interface NavigationItem {
+  readonly label: string
+  readonly shortLabel: string
+  readonly to: string
+  readonly end?: boolean
+  readonly permission?: Permission
+}
+
+const navigationItems: readonly NavigationItem[] = [
   { label: 'Dashboard', shortLabel: 'D', to: '/', end: true },
   { label: 'Projects', shortLabel: 'P', to: '/projects' },
   { label: 'Issues', shortLabel: 'I', to: '/issues' },
   { label: 'Board', shortLabel: 'B', to: '/board' },
   { label: 'Analytics', shortLabel: 'A', to: '/analytics' },
+  { label: 'Governance', shortLabel: 'G', to: '/governance', permission: 'audit:view' },
   { label: 'Settings', shortLabel: 'S', to: '/settings' },
-] as const
+]
 
 function handleNavigationKeyDown(event: KeyboardEvent<HTMLAnchorElement>) {
   const links = Array.from(
@@ -50,16 +61,18 @@ function handleNavigationKeyDown(event: KeyboardEvent<HTMLAnchorElement>) {
 }
 
 export function PrimaryNavigation() {
+  const services = useAppServices()
+
   return (
     <nav aria-label="Primary navigation">
       <ul className="primary-navigation">
-        {navigationItems.map((item) => (
+        {navigationItems.filter((item) => !item.permission || services.can(item.permission)).map((item) => (
           <li key={item.to}>
             <NavLink
               className={({ isActive }) =>
                 `primary-navigation__link${isActive ? ' primary-navigation__link--active' : ''}`
               }
-              {...('end' in item ? { end: item.end } : {})}
+              {...(item.end === undefined ? {} : { end: item.end })}
               onKeyDown={handleNavigationKeyDown}
               to={item.to}
             >

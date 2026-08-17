@@ -138,6 +138,27 @@ describe('MockAtlasGateway', () => {
     ).rejects.toBeInstanceOf(ForbiddenGatewayError)
   })
 
+  it('enforces audit permission at the governance gateway boundary', async () => {
+    const fixtures = createAtlasFixtures()
+    const workspaceId = fixtures.workspaces[0]?.id
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    const adminId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    if (!workspaceId || !viewerId || !adminId) {
+      throw new Error('Expected fixture workspace, viewer, and administrator.')
+    }
+
+    const store = new InMemoryDataStore(fixtures)
+    const viewerGateway = new MockAtlasGateway({ actorId: viewerId, store })
+    await expect(
+      viewerGateway.getGovernanceReport({ workspaceId }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+
+    const adminGateway = new MockAtlasGateway({ actorId: adminId, store })
+    await expect(
+      adminGateway.getGovernanceReport({ workspaceId }),
+    ).resolves.toMatchObject({ totalEvents: fixtures.auditEvents.length })
+  })
+
   it('updates notification preferences with revision and audit enforcement', async () => {
     const { fixtures, gateway, store } = createGateway()
     const workspaceId = fixtures.workspaces[0]?.id

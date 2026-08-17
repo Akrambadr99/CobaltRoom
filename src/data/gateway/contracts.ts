@@ -1,6 +1,7 @@
 import type {
   Issue,
   ActivityEvent,
+  AuditEvent,
   Comment,
   IssueId,
   IssuePriority,
@@ -160,6 +161,28 @@ export interface WorkspaceAnalytics {
   readonly projects: readonly ProjectHealthAggregate[]
 }
 
+export interface GovernanceQuery {
+  readonly workspaceId: WorkspaceId
+  readonly action?: string
+  readonly outcome?: AuditEvent['outcome']
+  readonly page?: PageRequest
+}
+
+export interface GovernanceAuditEntry {
+  readonly event: AuditEvent
+  readonly actorName: string
+}
+
+export interface GovernanceReport {
+  readonly generatedAt: IsoDateTime
+  readonly totalEvents: number
+  readonly succeededEvents: number
+  readonly rejectedEvents: number
+  readonly failedEvents: number
+  readonly actions: readonly AnalyticsBreakdown<string>[]
+  readonly events: Page<GovernanceAuditEntry>
+}
+
 export type MutableIssueFields = Pick<
   Issue,
   | 'assigneeId'
@@ -203,6 +226,10 @@ export interface AtlasGateway {
     workspaceId: WorkspaceId,
     options?: RequestOptions,
   ): Promise<WorkspaceAnalytics>
+  getGovernanceReport(
+    query: GovernanceQuery,
+    options?: RequestOptions,
+  ): Promise<GovernanceReport>
   getIssueActivity(
     issueId: IssueId,
     options?: RequestOptions,

@@ -9,6 +9,7 @@ import { IssuesPage } from './pages/IssuesPage'
 import { IssueDetailPage } from './pages/IssueDetailPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { GovernancePage } from './pages/GovernancePage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 
@@ -46,6 +47,10 @@ export const appRoutes: RouteObject[] = [
       {
         path: 'settings',
         element: <SettingsPage />,
+      },
+      {
+        path: 'governance',
+        element: <GovernancePage />,
       },
       { path: '*', element: <NotFoundPage /> },
     ],

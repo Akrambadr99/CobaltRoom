@@ -12,6 +12,10 @@
   --color-accent-hover: #3730a3;
   --color-accent-contrast: #ffffff;
   --color-danger: #b42318;
+  --color-danger-subtle: #fef3f2;
+  --color-danger-text: #912018;
+  --color-success-subtle: #ecfdf3;
+  --color-success-text: #067647;
   --color-focus: #2563eb;
 
   --font-sans:

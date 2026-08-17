@@ -5,6 +5,7 @@ export type GatewayOperation =
   | 'analytics.get'
   | 'board.metadata'
   | 'comment.create'
+  | 'governance.get'
   | 'issue.activity'
   | 'issue.create'
   | 'issue.delete'
