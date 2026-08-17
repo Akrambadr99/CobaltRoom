@@ -22,6 +22,8 @@ export const atlasQueryKeys = {
     ['workspaces', workspaceId, 'projects'] as const,
   project: (workspaceId: WorkspaceId, projectId: ProjectId) =>
     [...atlasQueryKeys.projects(workspaceId), 'detail', projectId] as const,
+  projectActivity: (workspaceId: WorkspaceId, projectId: ProjectId) =>
+    [...atlasQueryKeys.project(workspaceId, projectId), 'activity'] as const,
   projectSummaries: (query: ProjectSummaryQuery) =>
     [...atlasQueryKeys.projects(query.workspaceId), 'summaries', query] as const,
   dashboardIssues: (workspaceId: WorkspaceId) =>

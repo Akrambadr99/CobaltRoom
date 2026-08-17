@@ -106,6 +106,7 @@ test('governs project lifecycle changes and archival', async ({ page }) => {
     page.getByRole('heading', { level: 1, name: 'Launch assurance' }),
   ).toBeVisible()
   await expect(page.getByText('OPS · paused')).toBeVisible()
+  await expect(page.getByText(/Omar Haddad Updated OPS\./)).toBeVisible()
 
   await page.getByRole('button', { name: 'Archive project' }).click()
   const confirmation = page.getByRole('dialog')
@@ -116,6 +117,7 @@ test('governs project lifecycle changes and archival', async ({ page }) => {
       'This project is archived. Its issues and comments are read-only.',
     ),
   ).toBeVisible()
+  await expect(page.getByText(/Omar Haddad Archived OPS\./)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Edit project' })).toHaveCount(0)
 })
 

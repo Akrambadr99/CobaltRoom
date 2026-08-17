@@ -24,6 +24,7 @@ export type GatewayOperation =
   | 'project.list'
   | 'project.summary-list'
   | 'project.metadata.get'
+  | 'project.activity.get'
   | 'project.update'
   | 'project.archive'
 

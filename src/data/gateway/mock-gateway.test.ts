@@ -148,6 +148,35 @@ describe('MockAtlasGateway', () => {
     })
   })
 
+  it('returns paginated project activity with authoritative actor attribution', async () => {
+    const { fixtures, gateway, tracer } = createGateway()
+    const project = fixtures.projects[0]
+    if (!project) throw new Error('Expected a fixture project.')
+    await gateway.updateProject({
+      id: project.id,
+      expectedRevision: project.revision,
+      changes: { status: 'paused' },
+    })
+
+    const activity = await gateway.getProjectActivity(project.id, {
+      number: 1,
+      size: 1,
+    })
+
+    expect(activity.events).toMatchObject({ totalItems: 1, pageCount: 1 })
+    expect(activity.events.items[0]).toMatchObject({
+      actor: { displayName: 'Omar Haddad' },
+      event: { action: 'project.updated', summary: 'Updated OPS.' },
+    })
+    expect(tracer.read().at(-1)).toMatchObject({
+      operation: 'project.activity.get',
+      phase: 'succeeded',
+    })
+    await expect(
+      gateway.getProjectActivity(project.id, { number: 0, size: 20 }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+  })
+
   it('rejects stale, invalid, and unauthorized project updates', async () => {
     const { fixtures, gateway } = createGateway()
     const project = fixtures.projects[0]

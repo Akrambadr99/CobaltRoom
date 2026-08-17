@@ -46,6 +46,19 @@ export function useProjectDetail(projectId: ProjectId, page: number) {
   return { issues, metadata }
 }
 
+export function useProjectActivity(projectId: ProjectId, page: number) {
+  const { gateway, workspaceId } = useAppServices()
+  return useQuery({
+    queryKey: [...atlasQueryKeys.projectActivity(workspaceId, projectId), page],
+    queryFn: ({ signal }) =>
+      gateway.getProjectActivity(
+        projectId,
+        { number: page, size: 20 },
+        { signal },
+      ),
+  })
+}
+
 interface UpdateProjectVariables {
   readonly project: Project
   readonly changes: Partial<MutableProjectFields>
@@ -99,6 +112,7 @@ export function useUpdateProject(projectId: ProjectId) {
         queryClient.invalidateQueries({ queryKey: atlasQueryKeys.projects(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: atlasQueryKeys.analytics(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: atlasQueryKeys.governanceReports(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: atlasQueryKeys.projectActivity(workspaceId, projectId) }),
         queryClient.invalidateQueries({ queryKey: atlasQueryKeys.authorization(workspaceId) }),
       ])
     },
@@ -125,6 +139,7 @@ export function useArchiveProject(projectId: ProjectId) {
         queryClient.invalidateQueries({ queryKey: atlasQueryKeys.workspaceIssues(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: atlasQueryKeys.analytics(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: atlasQueryKeys.governanceReports(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: atlasQueryKeys.projectActivity(workspaceId, projectId) }),
       ])
     },
   })

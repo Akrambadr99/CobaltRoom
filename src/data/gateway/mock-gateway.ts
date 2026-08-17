@@ -18,6 +18,7 @@ import type {
   Page,
   ProjectSummaryQuery,
   ProjectEditMetadata,
+  ProjectActivityData,
   RequestOptions,
   UpdateIssueInput,
   UpdateCommentInput,
@@ -210,6 +211,36 @@ export class MockAtlasGateway implements AtlasGateway {
           .filter(({ id }) => activeUserIds.has(id) && projectUserIds.has(id))
           .sort((left, right) => left.displayName.localeCompare(right.displayName)),
       }
+    })
+  }
+
+  getProjectActivity(
+    projectId: ProjectId,
+    page = { number: 1, size: 20 },
+    options?: RequestOptions,
+  ): Promise<ProjectActivityData> {
+    return this.execute('project.activity.get', options, () => {
+      const data = this.store.read().data
+      const project = data.projects.find(({ id }) => id === projectId)
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('project:view', project.workspaceId, project.id)
+      const usersById = new Map(data.users.map((user) => [user.id, user]))
+      const entries = data.activityEvents
+        .filter(
+          ({ entityKind, entityId }) =>
+            entityKind === 'project' && entityId === project.id,
+        )
+        .sort(
+          (left, right) =>
+            right.occurredAt.localeCompare(left.occurredAt) ||
+            right.id.localeCompare(left.id),
+        )
+        .map((event) => {
+          const actor = usersById.get(event.actorId)
+          if (!actor) throw new EntityNotFoundError('Project activity actor')
+          return { event, actor }
+        })
+      return { events: paginate(entries, validatePage(page)) }
     })
   }
 

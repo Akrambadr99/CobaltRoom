@@ -730,6 +730,40 @@
   font-weight: 700;
 }
 
+.project-activity-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.project-activity-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+}
+
+.project-activity-list li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.project-activity-list p,
+.project-activity-empty {
+  margin: 0;
+}
+
+.project-activity-empty {
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+}
+
+.project-activity-list time {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
 .project-detail-header h1 {
   margin: var(--space-2) 0 var(--space-3);
   font-size: clamp(2rem, 5vw, 3rem);
@@ -824,6 +858,11 @@
   .project-detail-actions > button,
   .project-lifecycle-form__actions > button {
     width: 100%;
+  }
+
+  .project-activity-list li {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .work-panel__header,

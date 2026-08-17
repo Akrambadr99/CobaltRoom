@@ -12,6 +12,7 @@ import {
 } from '../../domain'
 import {
   useArchiveProject,
+  useProjectActivity,
   useProjectDetail,
   useUpdateProject,
 } from '../../features/projects/project-queries'
@@ -40,10 +41,12 @@ function LoadedProject({
   projectId: requestedId,
 }: Readonly<{ projectId: ProjectId }>) {
   const [page, setPage] = useState(1)
+  const [activityPage, setActivityPage] = useState(1)
   const [editing, setEditing] = useState(false)
   const [confirmingArchive, setConfirmingArchive] = useState(false)
   const authorization = useAuthorization()
   const { issues, metadata } = useProjectDetail(requestedId, page)
+  const activity = useProjectActivity(requestedId, activityPage)
 
   if (metadata.isPending || issues.isPending) return <ProjectLoading />
   if (
@@ -180,6 +183,12 @@ function LoadedProject({
         ) : null}
       </section>
 
+      <ProjectActivityPanel
+        activity={activity}
+        page={activityPage}
+        onPageChange={setActivityPage}
+      />
+
       {editing ? (
         <ProjectEditDialog
           project={project}
@@ -197,6 +206,85 @@ function LoadedProject({
           }}
         />
       ) : null}
+    </section>
+  )
+}
+
+function ProjectActivityPanel({
+  activity,
+  page,
+  onPageChange,
+}: Readonly<{
+  activity: ReturnType<typeof useProjectActivity>
+  page: number
+  onPageChange: (page: number) => void
+}>) {
+  return (
+    <section className="work-panel" aria-labelledby="project-activity-title">
+      <div className="work-panel__header">
+        <div>
+          <p className="page-eyebrow">Change record</p>
+          <h2 id="project-activity-title">Project activity</h2>
+        </div>
+      </div>
+      {activity.isPending ? (
+        <div className="dashboard-state" role="status">
+          Loading project activity…
+        </div>
+      ) : activity.isError ? (
+        <div className="dashboard-state dashboard-state--error" role="alert">
+          <p>Project activity could not be loaded.</p>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void activity.refetch()}
+          >
+            Retry activity
+          </button>
+        </div>
+      ) : activity.data.events.items.length === 0 ? (
+        <p className="project-activity-empty">No project changes recorded yet.</p>
+      ) : (
+        <>
+          <ol className="project-activity-list">
+            {activity.data.events.items.map(({ actor, event }) => (
+              <li key={event.id}>
+                <p>
+                  <strong>{actor.displayName}</strong> {event.summary}
+                </p>
+                <time dateTime={event.occurredAt}>
+                  {formatTimestamp(event.occurredAt)}
+                </time>
+              </li>
+            ))}
+          </ol>
+          {activity.data.events.pageCount > 1 ? (
+            <nav className="project-pagination" aria-label="Project activity pagination">
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={page <= 1}
+                onClick={() => {
+                  onPageChange(page - 1)
+                }}
+              >
+                Previous
+              </button>
+              <p>Page {page} of {activity.data.events.pageCount}</p>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={page >= activity.data.events.pageCount}
+                onClick={() => {
+                  onPageChange(page + 1)
+                }}
+              >
+                Next
+              </button>
+            </nav>
+          ) : null}
+        </>
+      )}
     </section>
   )
 }
@@ -402,6 +490,14 @@ function gatewayMessage(error: Error | null): string | null {
 
 function formatStatus(status: ProjectStatus): string {
   return status.charAt(0).toLocaleUpperCase() + status.slice(1)
+}
+
+function formatTimestamp(value: string): string {
+  return new Intl.DateTimeFormat('en', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(value))
 }
 
 function parseProjectId(value: string | undefined): ProjectId | null {

@@ -67,6 +67,15 @@ export interface ProjectEditMetadata {
   readonly eligibleLeads: readonly User[]
 }
 
+export interface ProjectActivityEntry {
+  readonly event: ActivityEvent
+  readonly actor: User
+}
+
+export interface ProjectActivityData {
+  readonly events: Page<ProjectActivityEntry>
+}
+
 export type MutableProjectFields = Pick<
   Project,
   'description' | 'leadId' | 'name' | 'status'
@@ -286,6 +295,11 @@ export interface AtlasGateway {
     projectId: ProjectId,
     options?: RequestOptions,
   ): Promise<ProjectEditMetadata>
+  getProjectActivity(
+    projectId: ProjectId,
+    page?: PageRequest,
+    options?: RequestOptions,
+  ): Promise<ProjectActivityData>
   updateProject(
     input: UpdateProjectInput,
     options?: RequestOptions,

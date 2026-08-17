@@ -13,7 +13,7 @@ import {
   type RequestSimulator,
 } from '../../data'
 import type { UserId } from '../../domain'
-import { render, screen, within } from '../../test/render'
+import { render, screen, waitFor, within } from '../../test/render'
 
 function renderProjectDetail(
   path: string,
@@ -93,6 +93,13 @@ describe('ProjectDetailPage', () => {
     ).toBeVisible()
     expect(screen.getByText('OPS · paused')).toBeVisible()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole('heading', { name: 'Project activity' })
+          .closest('section'),
+      ).toHaveTextContent('Omar Haddad Updated OPS.')
+    })
   })
 
   it('archives a project through confirmation and exposes its read-only state', async () => {
@@ -124,6 +131,35 @@ describe('ProjectDetailPage', () => {
       status: 'archived',
       revision: 2,
     })
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole('heading', { name: 'Project activity' })
+          .closest('section'),
+      ).toHaveTextContent('Omar Haddad Archived OPS.')
+    })
+  })
+
+  it('keeps project details usable when activity history fails', async () => {
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects[0]
+    if (!project) throw new Error('Expected a fixture project.')
+    renderProjectDetail(`/projects/${project.id}`, {
+      simulator: new SimulatedNetwork({
+        failure: (operation) =>
+          operation === 'project.activity.get'
+            ? 'Scripted activity failure.'
+            : null,
+      }),
+    })
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: project.name }),
+    ).toBeVisible()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Project activity could not be loaded.',
+    )
+    expect(screen.getByRole('button', { name: 'Retry activity' })).toBeVisible()
   })
 
   it('rolls back a rejected update while preserving the project draft', async () => {
