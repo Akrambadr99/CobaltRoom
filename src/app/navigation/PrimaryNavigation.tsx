@@ -2,7 +2,7 @@ import type { KeyboardEvent } from 'react'
 import { NavLink } from 'react-router-dom'
 
 import type { Permission } from '../../domain'
-import { useAppServices } from '../providers/app-services-context'
+import { useAuthorization } from '../providers/authorization-context'
 import './primary-navigation.css'
 
 interface NavigationItem {
@@ -61,12 +61,12 @@ function handleNavigationKeyDown(event: KeyboardEvent<HTMLAnchorElement>) {
 }
 
 export function PrimaryNavigation() {
-  const services = useAppServices()
+  const authorization = useAuthorization()
 
   return (
     <nav aria-label="Primary navigation">
       <ul className="primary-navigation">
-        {navigationItems.filter((item) => !item.permission || services.can(item.permission)).map((item) => (
+        {navigationItems.filter((item) => !item.permission || authorization.can(item.permission)).map((item) => (
           <li key={item.to}>
             <NavLink
               className={({ isActive }) =>

@@ -3,6 +3,7 @@ import type { IsoDateTime } from '../../domain'
 
 export type GatewayOperation =
   | 'analytics.get'
+  | 'authorization.get'
   | 'board.metadata'
   | 'comment.create'
   | 'governance.get'

@@ -17,7 +17,7 @@ import {
 import { IssueCreateDialog } from '../../features/issues/IssueCreateDialog'
 import { SavedIssueViews } from '../../features/issues/SavedIssueViews'
 import { useUserPreferences } from '../../preferences'
-import { useAppServices } from '../providers/app-services-context'
+import { useAuthorization } from '../providers/authorization-context'
 import './issues-page.css'
 import './pages.css'
 
@@ -30,7 +30,7 @@ const priorityOptions: readonly IssuePriority[] = [
 ]
 
 export function IssuesPage() {
-  const services = useAppServices()
+  const authorization = useAuthorization()
   const [parameters, setParameters] = useSearchParams()
   const state = useMemo(() => parseIssueWorkspaceState(parameters), [parameters])
   const preferences = useUserPreferences()
@@ -46,9 +46,9 @@ export function IssuesPage() {
   const [bulkStatus, setBulkStatus] = useState('')
   const creatingIssue = parameters.get('create') === '1'
   const canCreateIssue =
-    services.can('issue:create') ||
-    services.session.projectMemberships.some(({ projectId }) =>
-      services.can('issue:create', projectId),
+    authorization.can('issue:create') ||
+    authorization.session.projectMemberships.some(({ projectId }) =>
+      authorization.can('issue:create', projectId),
     )
 
   const updateState = (changes: Partial<IssueWorkspaceState>) => {
@@ -309,7 +309,7 @@ export function IssuesPage() {
           onToggleIssue={toggleIssue}
           onTogglePage={togglePage}
           isIssueSelectable={(issue) =>
-            services.can('issue:update', issue.projectId)
+            authorization.can('issue:update', issue.projectId)
           }
         />
       )}

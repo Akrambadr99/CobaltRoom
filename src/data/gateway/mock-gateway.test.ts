@@ -6,6 +6,7 @@ import {
   GatewayConflictError,
   InvalidGatewayRequestError,
   RequestCancelledError,
+  SessionExpiredGatewayError,
   SimulatedGatewayError,
 } from './errors'
 import { MockAtlasGateway } from './mock-gateway'
@@ -64,6 +65,44 @@ describe('MockAtlasGateway', () => {
       { operation: 'analytics.get', phase: 'started' },
       { operation: 'analytics.get', phase: 'succeeded' },
     ])
+  })
+
+  it('refreshes live authorization and expires inactive sessions', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    const admin = fixtures.memberships.find(({ role }) => role === 'admin')
+    if (!workspaceId || !admin) {
+      throw new Error('Expected fixture workspace and administrator.')
+    }
+
+    const initial = await gateway.getAuthorizationSession(workspaceId)
+    expect(initial.workspaceMembership.role).toBe('admin')
+
+    const current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      memberships: current.data.memberships.map((membership) =>
+        membership.id === admin.id
+          ? { ...membership, role: 'viewer' as const }
+          : membership,
+      ),
+    })
+    const downgraded = await gateway.getAuthorizationSession(workspaceId)
+    expect(downgraded.workspaceMembership.role).toBe('viewer')
+    expect(downgraded.permissionFingerprint).not.toBe(initial.permissionFingerprint)
+
+    const latest = store.read()
+    store.commit(latest.version, {
+      ...latest.data,
+      memberships: latest.data.memberships.map((membership) =>
+        membership.id === admin.id
+          ? { ...membership, status: 'suspended' as const }
+          : membership,
+      ),
+    })
+    await expect(
+      gateway.getAuthorizationSession(workspaceId),
+    ).rejects.toBeInstanceOf(SessionExpiredGatewayError)
   })
 
   it('returns filtered, sorted, and paginated issues asynchronously', async () => {

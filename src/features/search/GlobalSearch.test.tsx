@@ -76,12 +76,14 @@ describe('GlobalSearch', () => {
 
   it('supports empty, error-retry, and Escape dismissal states', async () => {
     const user = userEvent.setup()
+    let shouldFailSearch = true
     renderSearch(
       new SimulatedNetwork({
-        failure: (operation, requestId) =>
-          operation === 'issue.list' && requestId === 'req_000001'
-            ? 'Search failed once.'
-            : null,
+        failure: (operation) => {
+          if (operation !== 'issue.list' || !shouldFailSearch) return null
+          shouldFailSearch = false
+          return 'Search failed once.'
+        },
       }),
     )
     const searchbox = screen.getByRole('searchbox', { name: 'Search all issues' })

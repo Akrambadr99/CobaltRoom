@@ -8,12 +8,12 @@ import {
 } from '../../features/board/board-queries'
 import { GatewayError } from '../../data'
 import type { Issue, WorkflowStatusId } from '../../domain'
-import { useAppServices } from '../providers/app-services-context'
+import { useAuthorization } from '../providers/authorization-context'
 import './board-page.css'
 import './pages.css'
 
 export function BoardPage() {
-  const services = useAppServices()
+  const authorization = useAuthorization()
   const [searchParams, setSearchParams] = useSearchParams()
   const [announcement, setAnnouncement] = useState<string | null>(null)
   const metadata = useBoardMetadata()
@@ -171,7 +171,7 @@ export function BoardPage() {
                 ) : (
                   <ol className="kanban-card-list">
                     {statusIssues.map((issue) => {
-                      const canMove = services.can('issue:update', issue.projectId)
+                      const canMove = authorization.can('issue:update', issue.projectId)
                       const isMoving =
                         moveIssue.isPending && moveIssue.variables.issue.id === issue.id
 

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { can, permissions, type Permission } from './permissions'
+import {
+  can,
+  getPermissionFingerprint,
+  permissions,
+  type Permission,
+} from './permissions'
 import {
   createTestMembership,
   createTestProjectMember,
@@ -85,5 +90,20 @@ describe('permission policy', () => {
     expect(can(context, 'notification-preferences:manage-self')).toBe(true)
     expect(can(context, 'audit:view')).toBe(false)
     expect(can(context, 'issue:create', testIds.project)).toBe(false)
+  })
+
+  it('changes the permission fingerprint for role and project-scope changes', () => {
+    const membership = createTestMembership({ role: 'admin' })
+    const projectMembership = createTestProjectMember({ role: 'lead' })
+    const initial = getPermissionFingerprint(membership, [projectMembership])
+
+    expect(
+      getPermissionFingerprint({ ...membership, role: 'viewer' }, [projectMembership]),
+    ).not.toBe(initial)
+    expect(
+      getPermissionFingerprint(membership, [
+        { ...projectMembership, role: 'contributor' },
+      ]),
+    ).not.toBe(initial)
   })
 })

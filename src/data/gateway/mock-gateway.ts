@@ -1,5 +1,6 @@
 import type {
   AtlasGateway,
+  AuthorizationSession,
   BoardMetadata,
   CreateCommentInput,
   CreateIssueInput,
@@ -26,6 +27,7 @@ import {
   GatewayError,
   InvalidGatewayRequestError,
   RequestCancelledError,
+  SessionExpiredGatewayError,
 } from './errors'
 import { queryIssues } from './query'
 import { SimulatedNetwork, type RequestSimulator } from './simulation'
@@ -40,6 +42,7 @@ import type { AtlasDataSnapshot } from '../snapshot'
 import { StaleSnapshotError, type InMemoryDataStore } from '../store'
 import {
   can,
+  getPermissionFingerprint,
   type ActivityEvent,
   type Comment,
   type Issue,
@@ -98,6 +101,45 @@ export class MockAtlasGateway implements AtlasGateway {
     this.ids = options.idGenerator ?? new DeterministicIdGenerator('gateway')
     this.simulator = options.simulator ?? new SimulatedNetwork()
     this.tracer = options.tracer ?? noopRequestTracer
+  }
+
+  getAuthorizationSession(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<AuthorizationSession> {
+    return this.execute('authorization.get', options, () => {
+      const current = this.store.read()
+      const workspaceMembership = current.data.memberships.find(
+        (membership) =>
+          membership.workspaceId === workspaceId &&
+          membership.userId === this.actorId,
+      )
+      const user = current.data.users.find(({ id }) => id === this.actorId)
+      if (!user || workspaceMembership?.status !== 'active') {
+        throw new SessionExpiredGatewayError()
+      }
+      const projectIds = new Set(
+        current.data.projects
+          .filter((project) => project.workspaceId === workspaceId)
+          .map(({ id }) => id),
+      )
+      const projectMemberships = current.data.projectMembers.filter(
+        (membership) =>
+          membership.userId === this.actorId &&
+          projectIds.has(membership.projectId),
+      )
+
+      return {
+        user,
+        workspaceMembership,
+        projectMemberships,
+        snapshotVersion: current.version,
+        permissionFingerprint: getPermissionFingerprint(
+          workspaceMembership,
+          projectMemberships,
+        ),
+      }
+    })
   }
 
   listProjects(

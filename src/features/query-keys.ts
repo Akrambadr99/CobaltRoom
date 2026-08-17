@@ -2,6 +2,8 @@ import type { GovernanceQuery, IssueQuery } from '../data'
 import type { IssueId, ProjectId, WorkspaceId } from '../domain'
 
 export const atlasQueryKeys = {
+  authorization: (workspaceId: WorkspaceId) =>
+    ['authorization', workspaceId] as const,
   analytics: (workspaceId: WorkspaceId) =>
     ['workspaces', workspaceId, 'analytics'] as const,
   governance: (query: GovernanceQuery) =>

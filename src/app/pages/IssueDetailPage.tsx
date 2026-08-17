@@ -24,7 +24,7 @@ import {
   validateIssueEditDraft,
   type IssueEditDraft,
 } from '../../features/issues/issue-form'
-import { useAppServices } from '../providers/app-services-context'
+import { useAuthorization } from '../providers/authorization-context'
 import './issues-page.css'
 import './pages.css'
 
@@ -46,7 +46,7 @@ export function IssueDetailPage() {
 }
 
 function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId }>) {
-  const services = useAppServices()
+  const authorization = useAuthorization()
   const { issue, projects } = useIssueDetailData(requestedIssueId)
   const activity = useIssueActivityData(requestedIssueId)
   const [editing, setEditing] = useState(false)
@@ -80,7 +80,7 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
   }
 
   const project = projects.data.find(({ id }) => id === issue.data.projectId)
-  const canEdit = services.can('issue:update', issue.data.projectId)
+  const canEdit = authorization.can('issue:update', issue.data.projectId)
 
   return (
     <section className="page" aria-labelledby="issue-detail-title">
@@ -139,7 +139,7 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
       <IssueCollaboration
         issue={issue.data}
         activity={activity}
-        canComment={services.can('comment:create', issue.data.projectId)}
+        canComment={authorization.can('comment:create', issue.data.projectId)}
       />
 
       {editing ? (

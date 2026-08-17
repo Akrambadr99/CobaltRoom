@@ -6,11 +6,12 @@ import { NotificationCenter } from '../../features/notifications/NotificationCen
 import { GlobalSearch } from '../../features/search/GlobalSearch'
 import { useKeyboardShortcuts } from '../../interactions/keyboard-shortcuts'
 import { PrimaryNavigation } from '../navigation/PrimaryNavigation'
-import { useAppServices } from '../providers/app-services-context'
+import { useAuthorization } from '../providers/authorization-context'
 import './app-shell.css'
 
 export function AppShell() {
-  const { session } = useAppServices()
+  const authorization = useAuthorization()
+  const { session } = authorization
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   useKeyboardShortcuts([
     {
@@ -23,6 +24,28 @@ export function AppShell() {
       },
     },
   ])
+
+  if (authorization.isSessionExpired) {
+    return (
+      <main className="session-state" role="alert">
+        <p className="page-eyebrow">Session security</p>
+        <h1>Workspace access changed</h1>
+        <p>
+          Your membership is no longer active. Atlas Ops removed workspace data
+          from the active view.
+        </p>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => {
+            void authorization.refresh()
+          }}
+        >
+          Check access again
+        </button>
+      </main>
+    )
+  }
 
   return (
     <div className="app-shell">
@@ -78,6 +101,12 @@ export function AppShell() {
         </header>
 
         <main className="app-main" id="main-content" tabIndex={-1}>
+          {authorization.isStale ? (
+            <p className="authorization-warning" aria-live="polite">
+              Permissions could not be refreshed. Changes are disabled until
+              access is verified.
+            </p>
+          ) : null}
           <Outlet />
         </main>
       </div>

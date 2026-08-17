@@ -2,6 +2,7 @@ import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 
 import { AppServicesContext } from './app-services-context'
+import { AuthorizationProvider } from './AuthorizationProvider'
 import { createAtlasQueryClient } from '../query-client'
 import { createAppServices, type AppServices } from '../services'
 
@@ -21,7 +22,9 @@ export function AppProviders({
 }: AppProvidersProps) {
   return (
     <AppServicesContext value={services}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthorizationProvider>{children}</AuthorizationProvider>
+      </QueryClientProvider>
     </AppServicesContext>
   )
 }

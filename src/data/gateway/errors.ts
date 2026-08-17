@@ -4,6 +4,7 @@ export type GatewayErrorCode =
   | 'forbidden'
   | 'invalid-request'
   | 'not-found'
+  | 'session-expired'
   | 'simulated-failure'
 
 export class GatewayError extends Error {
@@ -50,6 +51,16 @@ export class ForbiddenGatewayError extends GatewayError {
   constructor(message = 'You do not have permission to perform this action.') {
     super('forbidden', message)
     this.name = 'ForbiddenGatewayError'
+  }
+}
+
+export class SessionExpiredGatewayError extends GatewayError {
+  constructor() {
+    super(
+      'session-expired',
+      'Your workspace access changed. Refresh your session before continuing.',
+    )
+    this.name = 'SessionExpiredGatewayError'
   }
 }
 

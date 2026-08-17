@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { useAppServices } from '../../app/providers/app-services-context'
+import { useAuthorization } from '../../app/providers/authorization-context'
 import { serializeIssueWorkspaceState } from '../issues/issue-workspace-state'
 import { useUserPreferences } from '../../preferences'
 
@@ -18,7 +18,7 @@ export interface AppCommand {
 
 export function useAppCommands(): readonly AppCommand[] {
   const navigate = useNavigate()
-  const services = useAppServices()
+  const authorization = useAuthorization()
   const preferences = useUserPreferences()
 
   return useMemo(() => {
@@ -47,9 +47,9 @@ export function useAppCommands(): readonly AppCommand[] {
       ]),
     ]
     const canCreateIssue =
-      services.can('issue:create') ||
-      services.session.projectMemberships.some(({ projectId }) =>
-        services.can('issue:create', projectId),
+      authorization.can('issue:create') ||
+      authorization.session.projectMemberships.some(({ projectId }) =>
+        authorization.can('issue:create', projectId),
       )
     const actionCommands: readonly AppCommand[] = canCreateIssue
       ? [
@@ -73,7 +73,7 @@ export function useAppCommands(): readonly AppCommand[] {
     )
 
     return [...actionCommands, ...navigationCommands, ...savedViewCommands]
-  }, [navigate, preferences.savedIssueViews, services])
+  }, [authorization, navigate, preferences.savedIssueViews])
 }
 
 function command(

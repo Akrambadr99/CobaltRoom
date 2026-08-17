@@ -110,3 +110,19 @@ export function can(
 
   return projectPermissions[projectMembership.role].has(permission)
 }
+
+export function getPermissionFingerprint(
+  workspaceMembership: Membership,
+  projectMemberships: readonly ProjectMember[],
+): string {
+  const projects = projectMemberships
+    .map(({ projectId, role }) => `${projectId}:${role}`)
+    .sort((left, right) => left.localeCompare(right))
+    .join('|')
+  return [
+    workspaceMembership.id,
+    workspaceMembership.role,
+    workspaceMembership.status,
+    projects,
+  ].join(';')
+}

@@ -3,17 +3,13 @@ import {
   InMemoryDataStore,
   MockAtlasGateway,
   SimulatedNetwork,
+  type AuthorizationSession,
   type AtlasGateway,
   type Clock,
   type RequestSimulator,
 } from '../data'
 import {
-  can,
-  type Membership,
-  type Permission,
-  type ProjectId,
-  type ProjectMember,
-  type User,
+  getPermissionFingerprint,
   type UserId,
   type WorkspaceId,
 } from '../domain'
@@ -23,18 +19,13 @@ import {
   type PreferenceStorage,
 } from '../preferences/storage'
 
-export interface AppSession {
-  readonly user: User
-  readonly workspaceMembership: Membership
-  readonly projectMemberships: readonly ProjectMember[]
-}
+export type AppSession = AuthorizationSession
 
 export interface AppServices {
   readonly gateway: AtlasGateway
   readonly preferences: UserPreferenceRepository
   readonly session: AppSession
   readonly workspaceId: WorkspaceId
-  can(permission: Permission, projectId?: ProjectId): boolean
 }
 
 export interface CreateAppServicesOptions {
@@ -42,12 +33,15 @@ export interface CreateAppServicesOptions {
   readonly simulator?: RequestSimulator
   readonly actorId?: UserId
   readonly preferenceStorage?: PreferenceStorage
+  readonly dataStore?: InMemoryDataStore
 }
 
 export function createAppServices(
   options: CreateAppServicesOptions = {},
 ): AppServices {
-  const fixtures = createAtlasFixtures()
+  const dataStore = options.dataStore ?? new InMemoryDataStore(createAtlasFixtures())
+  const initialSnapshot = dataStore.read()
+  const fixtures = initialSnapshot.data
   const workspaceId = fixtures.workspaces[0]?.id
 
   if (!workspaceId) {
@@ -72,7 +66,16 @@ export function createAppServices(
   const projectMemberships = fixtures.projectMembers.filter(
     (membership) => membership.userId === actorId,
   )
-  const session: AppSession = { user, workspaceMembership, projectMemberships }
+  const session: AppSession = {
+    user,
+    workspaceMembership,
+    projectMemberships,
+    snapshotVersion: initialSnapshot.version,
+    permissionFingerprint: getPermissionFingerprint(
+      workspaceMembership,
+      projectMemberships,
+    ),
+  }
 
   const simulator =
     options.simulator ??
@@ -81,7 +84,7 @@ export function createAppServices(
     })
   const gatewayOptions = {
     actorId,
-    store: new InMemoryDataStore(fixtures),
+    store: dataStore,
     simulator,
     ...(options.clock ? { clock: options.clock } : {}),
   }
@@ -96,17 +99,5 @@ export function createAppServices(
     session,
     gateway: new MockAtlasGateway(gatewayOptions),
     preferences,
-    can: (permission, projectId) =>
-      can(
-        {
-          workspaceMembership,
-          projectMembership:
-            projectMemberships.find(
-              (membership) => membership.projectId === projectId,
-            ) ?? null,
-        },
-        permission,
-        projectId,
-      ),
   }
 }

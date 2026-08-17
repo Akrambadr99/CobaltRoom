@@ -5,15 +5,17 @@ import { createAtlasFixtures } from '../data'
 import { MemoryPreferenceStorage } from '../preferences'
 
 describe('application services', () => {
-  it('binds the default gateway session to the active administrator', () => {
+  it('binds the default gateway session to the active administrator', async () => {
     const services = createAppServices()
 
     expect(services.session.user.displayName).toBe('Omar Haddad')
     expect(services.session.workspaceMembership.role).toBe('admin')
-    expect(services.can('issue:create')).toBe(true)
+    await expect(
+      services.gateway.getAuthorizationSession(services.workspaceId),
+    ).resolves.toMatchObject({ workspaceMembership: { role: 'admin' } })
   })
 
-  it('uses the selected actor for project-scoped authorization decisions', () => {
+  it('uses the selected actor for the live project authorization session', async () => {
     const fixtures = createAtlasFixtures()
     const member = fixtures.memberships.find(({ role }) => role === 'member')
     const projectMembership = fixtures.projectMembers.find(
@@ -29,8 +31,13 @@ describe('application services', () => {
 
     const services = createAppServices({ actorId: member.userId })
 
-    expect(services.can('issue:update', projectMembership.projectId)).toBe(true)
-    expect(services.can('issue:update', otherProject.id)).toBe(false)
+    const session = await services.gateway.getAuthorizationSession(services.workspaceId)
+    expect(session.projectMemberships).toContainEqual(projectMembership)
+    expect(
+      session.projectMemberships.some(
+        (membership) => membership.projectId === otherProject.id,
+      ),
+    ).toBe(false)
   })
 
   it('scopes durable preferences by workspace and actor identity', () => {

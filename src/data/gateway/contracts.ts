@@ -13,6 +13,8 @@ import type {
   Notification,
   NotificationId,
   NotificationPreferences,
+  Membership,
+  ProjectMember,
   Project,
   ProjectId,
   UserId,
@@ -183,6 +185,14 @@ export interface GovernanceReport {
   readonly events: Page<GovernanceAuditEntry>
 }
 
+export interface AuthorizationSession {
+  readonly user: User
+  readonly workspaceMembership: Membership
+  readonly projectMemberships: readonly ProjectMember[]
+  readonly snapshotVersion: number
+  readonly permissionFingerprint: string
+}
+
 export type MutableIssueFields = Pick<
   Issue,
   | 'assigneeId'
@@ -208,6 +218,10 @@ export interface DeleteIssueInput {
 }
 
 export interface AtlasGateway {
+  getAuthorizationSession(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<AuthorizationSession>
   listProjects(
     workspaceId: WorkspaceId,
     options?: RequestOptions,

@@ -13,12 +13,14 @@ import {
   type DashboardWidgetId,
 } from '../../preferences'
 import { useAppServices } from '../providers/app-services-context'
+import { useAuthorization } from '../providers/authorization-context'
 import './pages.css'
 
 const issuePriorities = ['urgent', 'high', 'medium', 'low', 'none'] as const
 
 export function DashboardPage() {
   const services = useAppServices()
+  const authorization = useAuthorization()
   const { analytics, issues } = useDashboardData()
   const preferences = useUserPreferences()
   const updatePriority = useUpdateIssuePriority()
@@ -150,7 +152,7 @@ export function DashboardPage() {
 
         <ol className="issue-list">
           {issues.data.items.map((issue) => {
-            const canUpdate = services.can('issue:update', issue.projectId)
+            const canUpdate = authorization.can('issue:update', issue.projectId)
             const mutationIsPending =
               updatePriority.isPending &&
               updatePriority.variables.issue.id === issue.id
