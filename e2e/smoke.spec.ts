@@ -373,7 +373,15 @@ test('moderates an issue comment with confirmation and an audit trail', async ({
 
   await page.getByRole('button', { name: 'Remove comment' }).click()
   await expect(page.getByText('Remove this comment?')).toBeVisible()
-  await page.getByRole('button', { name: 'Confirm remove' }).click()
+  let confirmRemove = page.getByRole('button', { name: 'Confirm remove' })
+  await expect(confirmRemove).toBeFocused()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  const removeComment = page.getByRole('button', { name: 'Remove comment' })
+  await expect(removeComment).toBeFocused()
+  await removeComment.click()
+  confirmRemove = page.getByRole('button', { name: 'Confirm remove' })
+  await expect(confirmRemove).toBeFocused()
+  await confirmRemove.click()
 
   await expect(page.getByText('Comment removed by moderation.')).toBeVisible()
   const tombstone = page.getByText('Comment removed by Omar Haddad.')

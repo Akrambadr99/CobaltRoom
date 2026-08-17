@@ -3,7 +3,13 @@ import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
 import { useAuthorization } from '../../app/providers/authorization-context'
 import { GatewayConflictError } from '../../data'
 import type { Comment, IssueId, ProjectId, User, UserId } from '../../domain'
+import { useConfirmationFocus } from '../../interactions/use-confirmation-focus'
 import { useDeleteComment, useUpdateComment } from './comment-queries'
+
+interface CommentFeedback {
+  readonly kind: 'error' | 'status'
+  readonly message: string
+}
 
 interface CommentItemProps {
   readonly authorName: string
@@ -31,18 +37,18 @@ export function CommentItem({
   const deleteComment = useDeleteComment(issueId, comment.id)
   const editButtonRef = useRef<HTMLButtonElement>(null)
   const editTextAreaRef = useRef<HTMLTextAreaElement>(null)
-  const deleteButtonRef = useRef<HTMLButtonElement>(null)
   const itemRef = useRef<HTMLLIElement>(null)
   const restoreEditFocusRef = useRef(false)
   const focusDeletedItemRef = useRef(false)
   const restoreDeleteFocusRef = useRef(false)
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const { confirmationRef, triggerRef } = useConfirmationFocus(confirmingDelete)
   const [draft, setDraft] = useState(comment.body)
   const [mentionUserId, setMentionUserId] = useState('')
   const [selectedMentionUserIds, setSelectedMentionUserIds] =
     useState<readonly UserId[]>(mentionedUserIds)
-  const [message, setMessage] = useState('')
+  const [feedback, setFeedback] = useState<CommentFeedback | null>(null)
   const isAuthor = comment.authorId === authorization.session.user.id
   const canEdit =
     !readOnly &&
@@ -56,10 +62,6 @@ export function CommentItem({
       ? authorization.can('comment:delete-own', projectId)
       : authorization.can('comment:moderate', projectId))
   const deleteVerb = isAuthor ? 'Delete' : 'Remove'
-  const messageIsError =
-    message.startsWith('Enter a comment') ||
-    updateComment.isError ||
-    deleteComment.isError
   const messageId = `comment-message-${comment.id}`
 
   useEffect(() => {
@@ -76,17 +78,20 @@ export function CommentItem({
       itemRef.current?.focus()
       focusDeletedItemRef.current = false
     } else if (comment.deletedAt === null && restoreDeleteFocusRef.current) {
-      deleteButtonRef.current?.focus()
+      confirmationRef.current?.focus()
       restoreDeleteFocusRef.current = false
     }
-  }, [comment.deletedAt])
+  }, [comment.deletedAt, confirmationRef])
 
   const handleEdit = (event: SyntheticEvent<HTMLFormElement>): void => {
     event.preventDefault()
     const body = draft.trim()
-    setMessage('')
+    setFeedback(null)
     if (body.length === 0 || body.length > 5_000) {
-      setMessage('Enter a comment between 1 and 5,000 characters.')
+      setFeedback({
+        kind: 'error',
+        message: 'Enter a comment between 1 and 5,000 characters.',
+      })
       return
     }
     const activeMentionUserIds = selectedMentionUserIds.filter((userId) => {
@@ -99,21 +104,23 @@ export function CommentItem({
         onSuccess: () => {
           restoreEditFocusRef.current = true
           setEditing(false)
-          setMessage('Comment updated.')
+          setFeedback({ kind: 'status', message: 'Comment updated.' })
         },
         onError: (error) => {
-          setMessage(
-            error instanceof GatewayConflictError
-              ? 'This comment changed elsewhere. The latest version is loaded; review your draft and retry.'
-              : error.message,
-          )
+          setFeedback({
+            kind: 'error',
+            message:
+              error instanceof GatewayConflictError
+                ? 'This comment changed elsewhere. The latest version is loaded; review your draft and retry.'
+                : error.message,
+          })
         },
       },
     )
   }
 
   const handleDelete = (): void => {
-    setMessage('')
+    setFeedback(null)
     focusDeletedItemRef.current = true
     restoreDeleteFocusRef.current = true
     deleteComment.mutate(
@@ -122,15 +129,22 @@ export function CommentItem({
         onSuccess: () => {
           restoreDeleteFocusRef.current = false
           setConfirmingDelete(false)
-          setMessage(isAuthor ? 'Comment deleted.' : 'Comment removed by moderation.')
+          setFeedback({
+            kind: 'status',
+            message: isAuthor
+              ? 'Comment deleted.'
+              : 'Comment removed by moderation.',
+          })
           focusDeletedItemRef.current = true
         },
         onError: (error) => {
-          setMessage(
-            error instanceof GatewayConflictError
-              ? 'This comment changed elsewhere. The latest version is loaded; review it before trying again.'
-              : error.message,
-          )
+          setFeedback({
+            kind: 'error',
+            message:
+              error instanceof GatewayConflictError
+                ? 'This comment changed elsewhere. The latest version is loaded; review it before trying again.'
+                : error.message,
+          })
         },
       },
     )
@@ -158,8 +172,8 @@ export function CommentItem({
               rows={4}
               maxLength={5_001}
               value={draft}
-              aria-invalid={message.startsWith('Enter a comment')}
-              aria-describedby={message ? messageId : undefined}
+              aria-invalid={feedback?.kind === 'error'}
+              aria-describedby={feedback ? messageId : undefined}
               onChange={(event) => {
                 setDraft(event.currentTarget.value)
               }}
@@ -225,7 +239,7 @@ export function CommentItem({
                 setDraft(comment.body)
                 setSelectedMentionUserIds(mentionedUserIds)
                 setMentionUserId('')
-                setMessage('')
+                setFeedback(null)
               }}
             >
               Cancel
@@ -248,7 +262,7 @@ export function CommentItem({
                 setDraft(comment.body)
                 setSelectedMentionUserIds(mentionedUserIds)
                 setMentionUserId('')
-                setMessage('')
+                setFeedback(null)
               }}
             >
               Edit comment
@@ -259,7 +273,7 @@ export function CommentItem({
               <>
                 <span>{deleteVerb} this comment?</span>
                 <button
-                  ref={deleteButtonRef}
+                  ref={confirmationRef}
                   className="danger-button"
                   type="button"
                   disabled={deleteComment.isPending}
@@ -277,7 +291,7 @@ export function CommentItem({
                   disabled={deleteComment.isPending}
                   onClick={() => {
                     setConfirmingDelete(false)
-                    setMessage('')
+                    setFeedback(null)
                   }}
                 >
                   Cancel
@@ -285,12 +299,12 @@ export function CommentItem({
               </>
             ) : (
               <button
-                ref={deleteButtonRef}
+                ref={triggerRef}
                 className="text-button"
                 type="button"
                 onClick={() => {
                   setConfirmingDelete(true)
-                  setMessage('')
+                  setFeedback(null)
                 }}
               >
                 {deleteVerb} comment
@@ -299,13 +313,13 @@ export function CommentItem({
           ) : null}
         </div>
       ) : null}
-      {message ? (
+      {feedback ? (
         <p
           id={messageId}
-          className={messageIsError ? 'form-error' : 'comment-list__status'}
-          role={messageIsError ? 'alert' : 'status'}
+          className={feedback.kind === 'error' ? 'form-error' : 'comment-list__status'}
+          role={feedback.kind === 'error' ? 'alert' : 'status'}
         >
-          {message}
+          {feedback.message}
         </p>
       ) : null}
     </li>

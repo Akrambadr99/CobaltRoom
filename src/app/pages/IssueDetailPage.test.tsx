@@ -415,6 +415,11 @@ describe('IssueDetailPage', () => {
     await user.click(screen.getByRole('button', { name: 'Edit comment' }))
     const editor = screen.getByRole('textbox', { name: 'Edit comment' })
     await user.clear(editor)
+    await user.click(screen.getByRole('button', { name: 'Save comment' }))
+    expect(editor).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Enter a comment between 1 and 5,000 characters.',
+    )
     await user.type(editor, 'Conflict-safe author revision.')
     await user.click(screen.getByRole('button', { name: 'Save comment' }))
 
@@ -484,7 +489,15 @@ describe('IssueDetailPage', () => {
     await screen.findByText(/include explicit rollback owners/i)
     await user.click(screen.getByRole('button', { name: 'Remove comment' }))
     expect(screen.getByText('Remove this comment?')).toBeVisible()
-    await user.click(screen.getByRole('button', { name: 'Confirm remove' }))
+    let confirmRemove = screen.getByRole('button', { name: 'Confirm remove' })
+    expect(confirmRemove).toHaveFocus()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    const removeComment = screen.getByRole('button', { name: 'Remove comment' })
+    expect(removeComment).toHaveFocus()
+    await user.click(removeComment)
+    confirmRemove = screen.getByRole('button', { name: 'Confirm remove' })
+    expect(confirmRemove).toHaveFocus()
+    await user.click(confirmRemove)
 
     expect(await screen.findByText('Comment removed by moderation.')).toHaveAttribute(
       'role',
