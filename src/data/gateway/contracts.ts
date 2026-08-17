@@ -323,6 +323,19 @@ export interface IssueSubscriptionData {
   readonly subscribed: boolean
 }
 
+export interface ProjectSubscriptionData {
+  readonly projectId: ProjectId
+  readonly subscribers: readonly User[]
+  readonly viewer: User
+  readonly subscribed: boolean
+}
+
+export interface SetProjectSubscriptionInput {
+  readonly projectId: ProjectId
+  readonly subscribed: boolean
+  readonly expectedSubscribed: boolean
+}
+
 export interface SetIssueSubscriptionInput {
   readonly issueId: IssueId
   readonly subscribed: boolean
@@ -725,6 +738,14 @@ export interface ReportingGateway {
 }
 
 export interface CollaborationGateway {
+  getProjectSubscription(
+    projectId: ProjectId,
+    options?: RequestOptions,
+  ): Promise<ProjectSubscriptionData>
+  setProjectSubscription(
+    input: SetProjectSubscriptionInput,
+    options?: RequestOptions,
+  ): Promise<ProjectSubscriptionData>
   getIssueActivity(
     issueId: IssueId,
     options?: RequestOptions,

@@ -86,6 +86,7 @@ describe('permission policy', () => {
 
     expect(can(context, 'workspace:view')).toBe(true)
     expect(can(context, 'project:view')).toBe(true)
+    expect(can(context, 'project:subscribe')).toBe(true)
     expect(can(context, 'issue:view')).toBe(true)
     expect(can(context, 'issue:subscribe')).toBe(true)
     expect(can(context, 'notification-preferences:manage-self')).toBe(true)

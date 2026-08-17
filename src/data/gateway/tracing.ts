@@ -43,6 +43,8 @@ export type GatewayOperation =
   | 'project.summary-list'
   | 'project.metadata.get'
   | 'project.activity.get'
+  | 'project.subscription.get'
+  | 'project.subscription.update'
   | 'project.create'
   | 'project.creation-metadata'
   | 'project.update'

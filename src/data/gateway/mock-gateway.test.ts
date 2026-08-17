@@ -2030,6 +2030,88 @@ describe('MockAtlasGateway', () => {
     )
   })
 
+  it('manages project subscriptions with expected-state conflicts and durable history', async () => {
+    const { fixtures, gateway, store, tracer } = createGateway()
+    const actorId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    const project = fixtures.projects.find(
+      ({ id }) =>
+        !fixtures.projectSubscriptions.some(
+          ({ projectId, userId }) => projectId === id && userId === actorId,
+        ),
+    )
+    const existingSubscriber = fixtures.projectSubscriptions.find(
+      ({ projectId }) => projectId === project?.id,
+    )?.userId
+    if (!actorId || !project || !existingSubscriber) {
+      throw new Error('Expected an unwatched project with a follower fixture.')
+    }
+
+    const initial = await gateway.getProjectSubscription(project.id)
+    expect(initial.subscribed).toBe(false)
+    expect(initial.subscribers.map(({ id }) => id)).toEqual([existingSubscriber])
+
+    const watched = await gateway.setProjectSubscription({
+      projectId: project.id,
+      expectedSubscribed: false,
+      subscribed: true,
+    })
+    expect(watched.subscribed).toBe(true)
+    expect(watched.subscribers.map(({ id }) => id)).toEqual(
+      expect.arrayContaining([actorId, existingSubscriber]),
+    )
+    expect(store.read().data.activityEvents.at(-1)).toMatchObject({
+      action: 'project.subscribed',
+      summary: 'Started watching this project.',
+    })
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'project.subscribed',
+      metadata: { projectId: project.id, subscribed: true },
+    })
+    await expect(
+      gateway.setProjectSubscription({
+        projectId: project.id,
+        expectedSubscribed: false,
+        subscribed: true,
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+
+    const unwatched = await gateway.setProjectSubscription({
+      projectId: project.id,
+      expectedSubscribed: true,
+      subscribed: false,
+    })
+    expect(unwatched.subscribed).toBe(false)
+    expect(unwatched.subscribers.map(({ id }) => id)).toEqual([existingSubscriber])
+    expect(tracer.read().filter(({ phase }) => phase === 'succeeded')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operation: 'project.subscription.get' }),
+        expect.objectContaining({ operation: 'project.subscription.update' }),
+      ]),
+    )
+  })
+
+  it('lets read-only members watch projects without granting mutation access', async () => {
+    const fixtures = createAtlasFixtures()
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    const project = fixtures.projects[0]
+    if (!viewerId || !project) throw new Error('Expected viewer and project fixtures.')
+    const { gateway } = createGateway(new SimulatedNetwork(), viewerId)
+
+    const result = await gateway.setProjectSubscription({
+      projectId: project.id,
+      expectedSubscribed: false,
+      subscribed: true,
+    })
+    expect(result.subscribed).toBe(true)
+    await expect(
+      gateway.updateProject({
+        id: project.id,
+        expectedRevision: project.revision,
+        changes: { description: 'Unauthorized update.' },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+  })
+
   it('lets read-only members watch issues without granting mutation access', async () => {
     const fixtures = createAtlasFixtures()
     const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId

@@ -28,10 +28,12 @@ import type {
   ProjectLeadTransferData,
   ProjectWorkflowAdministrationData,
   ProjectActivityData,
+  ProjectSubscriptionData,
   RequestOptions,
   RemoveProjectMemberInput,
   ResendWorkspaceInvitationInput,
   SetIssueSubscriptionInput,
+  SetProjectSubscriptionInput,
   RevokeWorkspaceInvitationInput,
   ActivateWorkspaceInvitationInput,
   TransferProjectLeadInput,
@@ -1653,6 +1655,91 @@ export class MockAtlasGateway implements AtlasGateway {
     })
   }
 
+  getProjectSubscription(
+    projectId: ProjectId,
+    options?: RequestOptions,
+  ): Promise<ProjectSubscriptionData> {
+    return this.execute('project.subscription.get', options, () => {
+      const data = this.store.read().data
+      const project = data.projects.find(({ id }) => id === projectId)
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('project:view', project.workspaceId, project.id)
+      return this.buildProjectSubscriptionData(data, project)
+    })
+  }
+
+  setProjectSubscription(
+    input: SetProjectSubscriptionInput,
+    options?: RequestOptions,
+  ): Promise<ProjectSubscriptionData> {
+    return this.execute('project.subscription.update', options, (requestId) => {
+      const current = this.store.read()
+      const project = current.data.projects.find(({ id }) => id === input.projectId)
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('project:subscribe', project.workspaceId, project.id)
+
+      const existing = current.data.projectSubscriptions.find(
+        ({ projectId, userId }) => projectId === project.id && userId === this.actorId,
+      )
+      if (Boolean(existing) !== input.expectedSubscribed) {
+        throw new GatewayConflictError(
+          'The project subscription changed in another session. Refresh and try again.',
+        )
+      }
+      if (Boolean(existing) === input.subscribed) {
+        return this.buildProjectSubscriptionData(current.data, project)
+      }
+
+      const occurredAt = this.clock.now()
+      const projectSubscriptions = input.subscribed
+        ? [
+            ...current.data.projectSubscriptions,
+            {
+              id: this.ids.projectSubscription('project'),
+              projectId: project.id,
+              userId: this.actorId,
+              createdAt: occurredAt,
+            },
+          ]
+        : current.data.projectSubscriptions.filter(({ id }) => id !== existing?.id)
+      const action = input.subscribed ? 'project.subscribed' : 'project.unsubscribed'
+      const nextData: AtlasDataSnapshot = {
+        ...current.data,
+        projectSubscriptions,
+        activityEvents: [
+          ...current.data.activityEvents,
+          {
+            id: this.ids.activity(action.replace('.', '_')),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'project',
+            entityId: project.id,
+            action,
+            occurredAt,
+            summary: input.subscribed
+              ? 'Started watching this project.'
+              : 'Stopped watching this project.',
+          },
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit(action.replace('.', '_')),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action,
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: { projectId: project.id, subscribed: input.subscribed },
+          },
+        ],
+      }
+      this.commit(current.version, nextData)
+      return this.buildProjectSubscriptionData(nextData, project)
+    })
+  }
+
   setIssueSubscription(
     input: SetIssueSubscriptionInput,
     options?: RequestOptions,
@@ -2554,6 +2641,44 @@ export class MockAtlasGateway implements AtlasGateway {
 
     return {
       issueId: issue.id,
+      subscribers,
+      viewer,
+      subscribed: subscriberIds.has(this.actorId),
+    }
+  }
+
+  private buildProjectSubscriptionData(
+    data: AtlasDataSnapshot,
+    project: Project,
+  ): ProjectSubscriptionData {
+    const viewer = data.users.find(({ id }) => id === this.actorId)
+    if (!viewer) throw new EntityNotFoundError('User')
+
+    const activeUserIds = new Set(
+      data.memberships
+        .filter(
+          ({ workspaceId, status }) =>
+            workspaceId === project.workspaceId && status === 'active',
+        )
+        .map(({ userId }) => userId),
+    )
+    const subscriberIds = new Set(
+      data.projectSubscriptions
+        .filter(
+          ({ projectId, userId }) =>
+            projectId === project.id && activeUserIds.has(userId),
+        )
+        .map(({ userId }) => userId),
+    )
+    const subscribers = data.users
+      .filter(({ id }) => subscriberIds.has(id))
+      .sort(
+        (left, right) =>
+          left.displayName.localeCompare(right.displayName) || left.id.localeCompare(right.id),
+      )
+
+    return {
+      projectId: project.id,
       subscribers,
       viewer,
       subscribed: subscriberIds.has(this.actorId),
