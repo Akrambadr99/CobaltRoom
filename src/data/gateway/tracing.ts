@@ -29,6 +29,7 @@ export type GatewayOperation =
   | 'issue.create'
   | 'issue.delete'
   | 'issue.get'
+  | 'issue.filter-metadata'
   | 'issue.creation-metadata'
   | 'issue.list'
   | 'issue.subscription.get'

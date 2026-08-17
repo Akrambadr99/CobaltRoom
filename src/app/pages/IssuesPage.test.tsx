@@ -276,6 +276,20 @@ describe('IssuesPage', () => {
     renderIssues()
 
     await screen.findByRole('table', { name: 'Workspace issues' })
+    await user.selectOptions(
+      screen.getByLabelText('Project'),
+      screen.getByRole('option', { name: 'Launch readiness' }),
+    )
+    await user.selectOptions(
+      screen.getByLabelText('Workflow status'),
+      screen.getByRole('option', { name: 'In progress' }),
+    )
+    expect(await screen.findByText('1 matching issue')).toBeVisible()
+    expect(screen.getByTestId('location')).toHaveTextContent('project=')
+    expect(screen.getByTestId('location')).toHaveTextContent('status=')
+
+    await user.selectOptions(screen.getByLabelText('Project'), '')
+    await user.selectOptions(screen.getByLabelText('Workflow status'), '')
     await user.selectOptions(screen.getByLabelText('Priority'), 'high')
 
     expect(await screen.findByText('2 matching issues')).toBeVisible()
@@ -398,6 +412,18 @@ describe('IssuesPage', () => {
 
     expect(await screen.findByText('No matching issues')).toBeVisible()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('canonicalizes unavailable project and workflow filters without a history loop', async () => {
+    renderIssues('/issues?project=prj_removed&status=status_retired&page=3')
+
+    expect(
+      await screen.findByText(
+        'Unavailable project or workflow filters were removed.',
+      ),
+    ).toHaveAttribute('role', 'status')
+    expect(await screen.findByRole('table', { name: 'Workspace issues' })).toBeVisible()
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/issues$/)
   })
 
   it('recovers from a page that is outside the available result set', async () => {

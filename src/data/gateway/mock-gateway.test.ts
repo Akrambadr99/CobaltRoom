@@ -1664,6 +1664,41 @@ describe('MockAtlasGateway', () => {
     })
   })
 
+  it('returns workflow-aware issue filters for every visible project lifecycle', async () => {
+    const { fixtures, gateway, store, tracer } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    const archivedProject = fixtures.projects[0]
+    if (!workspaceId || !archivedProject) {
+      throw new Error('Expected workspace and project fixtures.')
+    }
+    const current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      projects: current.data.projects.map((project) =>
+        project.id === archivedProject.id
+          ? { ...project, status: 'archived' as const, revision: 2 }
+          : project,
+      ),
+    })
+
+    const metadata = await gateway.getIssueFilterMetadata(workspaceId)
+
+    expect(metadata.projects.map(({ project }) => project.name)).toEqual([
+      'Field reliability',
+      'Launch readiness',
+    ])
+    expect(
+      metadata.projects.find(({ project }) => project.id === archivedProject.id),
+    ).toMatchObject({
+      project: { status: 'archived' },
+      statuses: [{ order: 0 }, { order: 1 }, { order: 2 }],
+    })
+    expect(tracer.read().at(-1)).toMatchObject({
+      operation: 'issue.filter-metadata',
+      phase: 'succeeded',
+    })
+  })
+
   it('rejects invalid creation references before committing data', async () => {
     const { fixtures, gateway, store } = createGateway()
     const project = fixtures.projects[0]

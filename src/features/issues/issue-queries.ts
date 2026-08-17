@@ -19,9 +19,9 @@ export function useIssueWorkspaceData(
 ) {
   const { gateway, workspaceId } = useAppServices()
   const query = toIssueQuery(workspaceId, state, pageSize)
-  const projects = useQuery({
-    queryKey: atlasQueryKeys.projects(workspaceId),
-    queryFn: ({ signal }) => gateway.listProjects(workspaceId, { signal }),
+  const filterMetadata = useQuery({
+    queryKey: atlasQueryKeys.issueFilterMetadata(workspaceId),
+    queryFn: ({ signal }) => gateway.getIssueFilterMetadata(workspaceId, { signal }),
   })
   const issues = useQuery({
     queryKey: atlasQueryKeys.issues(workspaceId, query),
@@ -29,7 +29,7 @@ export function useIssueWorkspaceData(
     placeholderData: keepPreviousData,
   })
 
-  return { issues, projects }
+  return { issues, filterMetadata }
 }
 
 export function useIssueCreationMetadata(enabled: boolean) {

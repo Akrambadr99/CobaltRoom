@@ -5,14 +5,17 @@ import type {
 } from '../../data'
 import {
   projectId,
+  workflowStatusId,
   type IssuePriority,
   type ProjectId,
+  type WorkflowStatusId,
   type WorkspaceId,
 } from '../../domain'
 
 export interface IssueWorkspaceState {
   readonly search: string
   readonly projectId: ProjectId | null
+  readonly statusId: WorkflowStatusId | null
   readonly priority: IssuePriority | null
   readonly sortField: IssueSortField
   readonly sortDirection: SortDirection
@@ -22,6 +25,7 @@ export interface IssueWorkspaceState {
 export const issueWorkspaceDefaults: IssueWorkspaceState = {
   search: '',
   projectId: null,
+  statusId: null,
   priority: null,
   sortField: 'updatedAt',
   sortDirection: 'descending',
@@ -56,6 +60,7 @@ export function parseIssueWorkspaceState(
   return {
     search,
     projectId: parseProjectId(parameters.get('project')),
+    statusId: parseStatusId(parameters.get('status')),
     priority: priorities.find((candidate) => candidate === priorityValue) ?? null,
     sortField:
       sortFields.find((candidate) => candidate === sortValue) ??
@@ -78,6 +83,7 @@ export function serializeIssueWorkspaceState(
 
   if (state.search) parameters.set('q', state.search)
   if (state.projectId) parameters.set('project', state.projectId)
+  if (state.statusId) parameters.set('status', state.statusId)
   if (state.priority) parameters.set('priority', state.priority)
   if (state.sortField !== issueWorkspaceDefaults.sortField) {
     parameters.set('sort', state.sortField)
@@ -101,6 +107,7 @@ export function toIssueQuery(
     filters: {
       workspaceId,
       ...(state.projectId ? { projectIds: [state.projectId] } : {}),
+      ...(state.statusId ? { statusIds: [state.statusId] } : {}),
       ...(state.priority ? { priorities: [state.priority] } : {}),
       ...(state.search ? { search: state.search } : {}),
     },
@@ -109,11 +116,52 @@ export function toIssueQuery(
   }
 }
 
+export interface IssueWorkspaceFilterProject {
+  readonly id: ProjectId
+  readonly statusIds: readonly WorkflowStatusId[]
+}
+
+export function reconcileIssueWorkspaceState(
+  state: IssueWorkspaceState,
+  projects: readonly IssueWorkspaceFilterProject[],
+): IssueWorkspaceState {
+  const selectedProject = state.projectId
+    ? projects.find(({ id }) => id === state.projectId)
+    : null
+  const projectId = state.projectId && selectedProject ? state.projectId : null
+  const statusId = state.statusId
+  const statusIsAvailable = statusId
+    ? state.projectId && !selectedProject
+      ? false
+      : projectId
+      ? selectedProject?.statusIds.includes(statusId) === true
+      : projects.some(({ statusIds }) => statusIds.includes(statusId))
+    : true
+
+  if (projectId === state.projectId && statusIsAvailable) return state
+  return {
+    ...state,
+    projectId,
+    statusId: statusIsAvailable ? statusId : null,
+    page: 1,
+  }
+}
+
 function parseProjectId(value: string | null): ProjectId | null {
   if (!value) return null
 
   try {
     return projectId(value)
+  } catch {
+    return null
+  }
+}
+
+function parseStatusId(value: string | null): WorkflowStatusId | null {
+  if (!value) return null
+
+  try {
+    return workflowStatusId(value)
   } catch {
     return null
   }

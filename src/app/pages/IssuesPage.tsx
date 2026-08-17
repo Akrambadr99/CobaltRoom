@@ -1,5 +1,5 @@
-import { useId, useMemo, useState, type SyntheticEvent } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useEffect, useId, useMemo, useState, type SyntheticEvent } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
 import { DataTable, type DataTableColumn } from '../../components/data-table/DataTable'
 import type { IssueSortField } from '../../data'
@@ -11,6 +11,7 @@ import {
 } from '../../features/issues/issue-queries'
 import {
   parseIssueWorkspaceState,
+  reconcileIssueWorkspaceState,
   serializeIssueWorkspaceState,
   type IssueWorkspaceState,
 } from '../../features/issues/issue-workspace-state'
@@ -38,10 +39,11 @@ const priorityOptions: readonly IssuePriority[] = [
 
 export function IssuesPage() {
   const authorization = useAuthorization()
+  const location = useLocation()
   const [parameters, setParameters] = useSearchParams()
   const state = useMemo(() => parseIssueWorkspaceState(parameters), [parameters])
   const preferences = useUserPreferences()
-  const { issues, projects } = useIssueWorkspaceData(
+  const { issues, filterMetadata } = useIssueWorkspaceData(
     state,
     preferences.issuePageSize,
   )
@@ -51,6 +53,7 @@ export function IssuesPage() {
   )
   const [bulkPriority, setBulkPriority] = useState<IssuePriority>('medium')
   const [bulkStatus, setBulkStatus] = useState('')
+  const filterStatus = readFilterStatus(location.state)
   const creatingIssue = parameters.get('create') === '1'
   const canCreateIssue =
     authorization.can('issue:create') ||
@@ -58,9 +61,41 @@ export function IssuesPage() {
       authorization.can('issue:create', projectId),
     )
 
+  const filterProjects = useMemo(
+    () => filterMetadata.data?.projects ?? [],
+    [filterMetadata.data],
+  )
+  const projects = useMemo(
+    () => filterProjects.map(({ project }) => project),
+    [filterProjects],
+  )
+  const projectFilters = useMemo(
+    () => filterProjects.map(({ project, statuses }) => ({
+      id: project.id,
+      statusIds: statuses.map(({ id }) => id),
+    })),
+    [filterProjects],
+  )
+  const statusProjects = state.projectId
+    ? filterProjects.filter(({ project }) => project.id === state.projectId)
+    : filterProjects
+
+  useEffect(() => {
+    if (!filterMetadata.data) return
+    const reconciled = reconcileIssueWorkspaceState(state, projectFilters)
+    if (reconciled === state) return
+    setParameters(serializeIssueWorkspaceState(reconciled), {
+      replace: true,
+      state: {
+        filterStatus: 'Unavailable project or workflow filters were removed.',
+      },
+    })
+  }, [filterMetadata.data, projectFilters, setParameters, state])
+
   const updateState = (changes: Partial<IssueWorkspaceState>) => {
     setParameters(
       serializeIssueWorkspaceState({ ...state, ...changes, page: changes.page ?? 1 }),
+      { state: null },
     )
   }
 
@@ -112,7 +147,7 @@ export function IssuesPage() {
     setBulkStatus(formatBulkResult(result))
   }
 
-  const isInitialLoading = issues.isPending || projects.isPending
+  const isInitialLoading = issues.isPending || filterMetadata.isPending
 
   return (
     <section className="page" aria-labelledby="issues-title">
@@ -167,6 +202,10 @@ export function IssuesPage() {
         }}
       />
 
+      {filterStatus ? (
+        <p className="bulk-status" role="status">{filterStatus}</p>
+      ) : null}
+
       <IssueTableLayoutControls />
 
       <form className="issue-filters" role="search" onSubmit={handleSearch}>
@@ -188,16 +227,44 @@ export function IssuesPage() {
             onChange={(event) => {
               updateState({
                 projectId:
-                  projects.data?.find(({ id }) => id === event.currentTarget.value)
+                  projects.find(({ id }) => id === event.currentTarget.value)
                     ?.id ?? null,
+                statusId:
+                  state.statusId &&
+                  filterProjects
+                    .find(({ project }) => project.id === event.currentTarget.value)
+                    ?.statuses.some(({ id }) => id === state.statusId)
+                    ? state.statusId
+                    : null,
               })
             }}
           >
             <option value="">All projects</option>
-            {projects.data?.map((project) => (
+            {projects.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}
               </option>
+            ))}
+          </select>
+        </label>
+        <label className="issue-filter">
+          <span>Workflow status</span>
+          <select
+            value={state.statusId ?? ''}
+            onChange={(event) => {
+              const statusId = statusProjects
+                .flatMap(({ statuses }) => statuses)
+                .find(({ id }) => id === event.currentTarget.value)?.id ?? null
+              updateState({ statusId })
+            }}
+          >
+            <option value="">All statuses</option>
+            {statusProjects.map(({ project, statuses }) => (
+              <optgroup key={project.id} label={project.name}>
+                {statuses.map((status) => (
+                  <option key={status.id} value={status.id}>{status.name}</option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </label>
@@ -289,14 +356,14 @@ export function IssuesPage() {
         <div className="dashboard-state" role="status" aria-live="polite">
           Loading issues…
         </div>
-      ) : issues.isError || projects.isError ? (
+      ) : issues.isError || filterMetadata.isError ? (
         <div className="dashboard-state dashboard-state--error" role="alert">
           <h2>Issues are unavailable</h2>
           <p>The local service could not load this workspace.</p>
           <button
             className="secondary-button"
             type="button"
-            onClick={() => void Promise.all([issues.refetch(), projects.refetch()])}
+            onClick={() => void Promise.all([issues.refetch(), filterMetadata.refetch()])}
           >
             Retry issues
           </button>
@@ -304,7 +371,7 @@ export function IssuesPage() {
       ) : (
         <IssueResults
           issues={issues.data.items}
-          projects={projects.data}
+          projects={projects}
           pageNumber={issues.data.pageNumber}
           pageCount={issues.data.pageCount}
           totalItems={issues.data.totalItems}
@@ -319,7 +386,7 @@ export function IssuesPage() {
           onTogglePage={togglePage}
           isIssueSelectable={(issue) =>
             authorization.can('issue:update', issue.projectId) &&
-            projects.data.some(
+            projects.some(
               (project) =>
                 project.id === issue.projectId &&
                 (project.status === 'planned' ||
@@ -633,6 +700,13 @@ function IssueTableLayoutControls() {
 
 function capitalize(value: string): string {
   return value.charAt(0).toLocaleUpperCase() + value.slice(1)
+}
+
+function readFilterStatus(state: unknown): string {
+  if (typeof state !== 'object' || state === null || !('filterStatus' in state)) {
+    return ''
+  }
+  return typeof state.filterStatus === 'string' ? state.filterStatus : ''
 }
 
 function formatBulkResult(result: BulkIssueUpdateResult): string {

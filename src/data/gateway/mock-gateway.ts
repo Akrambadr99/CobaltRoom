@@ -13,6 +13,7 @@ import type {
   GovernanceQuery,
   GovernanceReport,
   IssueCreationMetadata,
+  IssueFilterMetadata,
   IssueActivityData,
   IssueSubscriptionData,
   IssueQuery,
@@ -1565,6 +1566,30 @@ export class MockAtlasGateway implements AtlasGateway {
         labels: data.labels
           .filter((label) => label.workspaceId === workspaceId)
           .sort((left, right) => left.name.localeCompare(right.name)),
+      }
+    })
+  }
+
+  getIssueFilterMetadata(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<IssueFilterMetadata> {
+    return this.execute('issue.filter-metadata', options, () => {
+      this.assertPermission('issue:view', workspaceId)
+      const data = this.store.read().data
+
+      return {
+        projects: data.projects
+          .filter((project) => project.workspaceId === workspaceId)
+          .sort((left, right) =>
+            left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
+          )
+          .map((project) => ({
+            project,
+            statuses: data.workflowStatuses
+              .filter(({ projectId }) => projectId === project.id)
+              .sort((left, right) => left.order - right.order),
+          })),
       }
     })
   }

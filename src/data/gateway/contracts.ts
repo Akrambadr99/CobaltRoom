@@ -299,6 +299,15 @@ export interface IssueCreationMetadata {
   readonly labels: readonly Label[]
 }
 
+export interface IssueFilterProjectMetadata {
+  readonly project: Project
+  readonly statuses: readonly WorkflowStatus[]
+}
+
+export interface IssueFilterMetadata {
+  readonly projects: readonly IssueFilterProjectMetadata[]
+}
+
 export interface BoardProjectMetadata {
   readonly project: Project
   readonly statuses: readonly WorkflowStatus[]
@@ -714,6 +723,10 @@ export interface ProjectGateway {
 export interface IssueGateway {
   listIssues(query: IssueQuery, options?: RequestOptions): Promise<Page<Issue>>
   getIssue(id: IssueId, options?: RequestOptions): Promise<Issue>
+  getIssueFilterMetadata(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<IssueFilterMetadata>
   getIssueCreationMetadata(
     workspaceId: WorkspaceId,
     options?: RequestOptions,
