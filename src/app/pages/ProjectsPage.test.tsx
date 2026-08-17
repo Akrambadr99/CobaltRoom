@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 
 import { ProjectsPage } from './ProjectsPage'
 import { AppProviders } from '../providers/AppProviders'
@@ -15,7 +16,9 @@ function renderProjects(simulator: RequestSimulator = new SimulatedNetwork()) {
       queryClient={createAtlasQueryClient()}
       services={services}
     >
-      <ProjectsPage />
+      <MemoryRouter>
+        <ProjectsPage />
+      </MemoryRouter>
     </AppProviders>,
   )
 }
@@ -29,11 +32,19 @@ describe('ProjectsPage', () => {
       name: 'Workspace projects',
     })
     const projectCards = within(projects).getAllByRole('listitem')
+    const firstProjectCard = projectCards[0]
+
+    if (!firstProjectCard) {
+      throw new Error('Expected the first project card.')
+    }
 
     expect(projectCards).toHaveLength(2)
-    expect(projectCards[0]).toHaveTextContent('Field reliability')
-    expect(projectCards[0]).toHaveTextContent('Status: Active')
-    expect(projectCards[0]).toHaveTextContent('3 issues')
+    expect(firstProjectCard).toHaveTextContent('Field reliability')
+    expect(firstProjectCard).toHaveTextContent('Status: Active')
+    expect(firstProjectCard).toHaveTextContent('3 issues')
+    expect(
+      within(firstProjectCard).getByRole('link', { name: 'Field reliability' }),
+    ).toHaveAttribute('href', expect.stringMatching(/^\/projects\/prj_/))
     expect(projectCards[1]).toHaveTextContent('Launch readiness')
     expect(projectCards[1]).toHaveTextContent('3 issues')
   })

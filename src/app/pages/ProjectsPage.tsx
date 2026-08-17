@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 import { useProjectsIndexData } from '../../features/projects/project-queries'
 import type { ProjectStatus } from '../../domain'
 import './pages.css'
@@ -56,7 +58,14 @@ export function ProjectsPage() {
                   </span>
                 </header>
                 <div>
-                  <h2>{project.name}</h2>
+                  <h2>
+                    <Link
+                      className="project-card__link"
+                      to={`/projects/${project.id}`}
+                    >
+                      {project.name}
+                    </Link>
+                  </h2>
                   <p>{project.description}</p>
                 </div>
                 <p className="project-card__count">

@@ -254,6 +254,24 @@
   letter-spacing: -0.025em;
 }
 
+.project-card__link {
+  color: inherit;
+  text-decoration-thickness: 0.08em;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.2em;
+}
+
+.project-card__link:hover {
+  color: var(--color-accent);
+  text-decoration-color: currentColor;
+}
+
+.project-card__link:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 3px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
 .project-card p {
   margin: 0;
   color: var(--color-text-muted);
@@ -262,6 +280,48 @@
 .project-card__count {
   font-size: 0.8125rem;
   font-weight: 700;
+}
+
+.project-detail-header {
+  display: grid;
+  gap: var(--space-6);
+  max-width: 52rem;
+}
+
+.project-detail-header h1 {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: clamp(2rem, 5vw, 3rem);
+  letter-spacing: -0.045em;
+}
+
+.project-detail-header p:last-child {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 1.0625rem;
+}
+
+.project-issue-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.project-issue-list li {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+}
+
+.project-issue-list li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.project-issue-list span {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  text-transform: capitalize;
 }
 
 .text-link {
@@ -304,6 +364,14 @@
 
   .priority-field {
     flex-basis: auto;
+  }
+
+  .project-issue-list li {
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+  }
+
+  .project-issue-list li > span:last-child {
+    grid-column: 2;
   }
 
   .error-page {

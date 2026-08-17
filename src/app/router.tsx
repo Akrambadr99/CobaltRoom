@@ -5,6 +5,7 @@ import { AppShell } from './layout/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
+import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 
 export const appRoutes: RouteObject[] = [
@@ -17,6 +18,10 @@ export const appRoutes: RouteObject[] = [
       {
         path: 'projects',
         element: <ProjectsPage />,
+      },
+      {
+        path: 'projects/:projectId',
+        element: <ProjectDetailPage />,
       },
       {
         path: 'issues',

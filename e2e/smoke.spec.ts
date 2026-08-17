@@ -31,4 +31,11 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
     page.getByRole('heading', { level: 2, name: 'Field reliability' }),
   ).toBeVisible()
   await expect(page.getByText('3 issues').first()).toBeVisible()
+
+  await page.getByRole('link', { name: 'Field reliability' }).click()
+  await expect(page).toHaveURL(/\/projects\/prj_/)
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Field reliability' }),
+  ).toBeVisible()
+  await expect(page.getByText('Close the device telemetry coverage gap')).toBeVisible()
 })
