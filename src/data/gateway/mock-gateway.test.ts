@@ -138,6 +138,61 @@ describe('MockAtlasGateway', () => {
     ).rejects.toBeInstanceOf(ForbiddenGatewayError)
   })
 
+  it('updates notification preferences with revision and audit enforcement', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    if (!workspaceId) throw new Error('Expected a fixture workspace.')
+
+    const current = await gateway.getNotificationPreferences(workspaceId)
+    const updated = await gateway.updateNotificationPreferences({
+      workspaceId,
+      expectedRevision: current.revision,
+      assignments: current.assignments,
+      comments: false,
+      issueUpdates: current.issueUpdates,
+    })
+    expect(updated).toMatchObject({ comments: false, revision: 2 })
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'notification.preferences.updated',
+      outcome: 'succeeded',
+      metadata: { revision: 2 },
+    })
+    await expect(
+      gateway.updateNotificationPreferences({
+        workspaceId,
+        expectedRevision: current.revision,
+        assignments: false,
+        comments: false,
+        issueUpdates: false,
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+  })
+
+  it('suppresses notification production according to recipient preferences', async () => {
+    const fixtures = createAtlasFixtures()
+    const adminId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    const issue = fixtures.issues.find(
+      ({ assigneeId }) => assigneeId !== null && assigneeId !== adminId,
+    )
+    if (!adminId || !issue?.assigneeId) {
+      throw new Error('Expected an administrator and externally assigned issue.')
+    }
+    const configured = {
+      ...fixtures,
+      notificationPreferences: fixtures.notificationPreferences.map((preferences) =>
+        preferences.userId === issue.assigneeId
+          ? { ...preferences, comments: false }
+          : preferences,
+      ),
+    }
+    const store = new InMemoryDataStore(configured)
+    const gateway = new MockAtlasGateway({ actorId: adminId, store })
+    const before = store.read().data.notifications.length
+
+    await gateway.createComment({ issueId: issue.id, body: 'Delivery is disabled.' })
+    expect(store.read().data.notifications).toHaveLength(before)
+  })
+
   it('cancels in-flight reads and records a cancellation trace', async () => {
     vi.useFakeTimers()
     const simulator = new SimulatedNetwork({ latency: () => 5_000 })

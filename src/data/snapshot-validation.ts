@@ -151,6 +151,24 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
       )
     }
   }
+
+  const notificationPreferenceOwners = new Set<string>()
+  for (const preference of snapshot.notificationPreferences) {
+    const ownerKey = `${preference.workspaceId}:${preference.userId}`
+    if (
+      !users.has(preference.userId) ||
+      !workspaces.has(preference.workspaceId) ||
+      !Number.isSafeInteger(preference.revision) ||
+      preference.revision < 1 ||
+      notificationPreferenceOwners.has(ownerKey)
+    ) {
+      throw new DataIntegrityError(
+        'notificationPreferences',
+        'Notification preferences require a unique workspace user and valid revision.',
+      )
+    }
+    notificationPreferenceOwners.add(ownerKey)
+  }
 }
 
 const collectionNames = [
@@ -167,6 +185,7 @@ const collectionNames = [
   'activityEvents',
   'auditEvents',
   'notifications',
+  'notificationPreferences',
 ] as const satisfies readonly (keyof AtlasDataSnapshot)[]
 
 function assertUniqueIds(

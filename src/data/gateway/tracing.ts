@@ -15,6 +15,8 @@ export type GatewayOperation =
   | 'notification.list'
   | 'notification.mark-all-read'
   | 'notification.mark-read'
+  | 'notification.preferences.get'
+  | 'notification.preferences.update'
   | 'project.list'
 
 export type RequestPhase = 'cancelled' | 'failed' | 'started' | 'succeeded'

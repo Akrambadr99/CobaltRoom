@@ -8,7 +8,7 @@ import { BoardPage } from './pages/BoardPage'
 import { IssuesPage } from './pages/IssuesPage'
 import { IssueDetailPage } from './pages/IssueDetailPage'
 import { NotFoundPage } from './pages/NotFoundPage'
-import { PlaceholderPage } from './pages/PlaceholderPage'
+import { SettingsPage } from './pages/SettingsPage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 
@@ -45,12 +45,7 @@ export const appRoutes: RouteObject[] = [
       },
       {
         path: 'settings',
-        element: (
-          <PlaceholderPage
-            title="Settings"
-            description="Manage workspace preferences and operating conventions."
-          />
-        ),
+        element: <SettingsPage />,
       },
       { path: '*', element: <NotFoundPage /> },
     ],

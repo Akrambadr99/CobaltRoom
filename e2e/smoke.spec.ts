@@ -241,3 +241,21 @@ test('persists dashboard widgets and reviews authoritative analytics', async ({
   ).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Issues by priority' })).toBeVisible()
 })
+
+test('configures notification delivery and device settings', async ({ page }) => {
+  await page.goto('/settings')
+  const comments = page.getByRole('checkbox', { name: /New comments/ })
+  await expect(comments).toBeChecked()
+  await comments.click()
+  await expect(page.getByText('Notification preferences saved.')).toBeVisible()
+  await expect(comments).not.toBeChecked()
+
+  await page.getByRole('link', { name: 'Dashboard', exact: true }).click()
+  await page.getByRole('link', { name: 'Settings' }).click()
+  await expect(comments).not.toBeChecked()
+
+  await page.getByRole('combobox', { name: 'Issues per page' }).selectOption('10')
+  await expect(page.getByText('Device preferences saved.')).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('combobox', { name: 'Issues per page' })).toHaveValue('10')
+})

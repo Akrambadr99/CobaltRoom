@@ -28,4 +28,6 @@ export const atlasQueryKeys = {
     ['workspaces', workspaceId, 'issues', 'detail', issueId, 'activity'] as const,
   notifications: (workspaceId: WorkspaceId) =>
     ['workspaces', workspaceId, 'notifications'] as const,
+  notificationPreferences: (workspaceId: WorkspaceId) =>
+    ['workspaces', workspaceId, 'notifications', 'preferences'] as const,
 }

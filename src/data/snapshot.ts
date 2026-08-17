@@ -7,6 +7,7 @@ import type {
   Label,
   Membership,
   Notification,
+  NotificationPreferences,
   Project,
   ProjectMember,
   User,
@@ -28,6 +29,7 @@ export interface AtlasDataSnapshot {
   readonly activityEvents: readonly ActivityEvent[]
   readonly auditEvents: readonly AuditEvent[]
   readonly notifications: readonly Notification[]
+  readonly notificationPreferences: readonly NotificationPreferences[]
 }
 
 export interface VersionedSnapshot {

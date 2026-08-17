@@ -386,5 +386,19 @@ export function createAtlasFixtures(
         readAt: createdAt,
       },
     ],
+    notificationPreferences: [
+      productLead,
+      operationsLead,
+      engineer,
+      observer,
+    ].map((user) => ({
+      id: ids.notificationPreference(user.initials.toLocaleLowerCase()),
+      workspaceId: workspace.id,
+      userId: user.id,
+      assignments: true,
+      comments: true,
+      issueUpdates: true,
+      revision: 1,
+    })),
   }
 }

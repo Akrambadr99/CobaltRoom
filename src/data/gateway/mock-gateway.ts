@@ -12,6 +12,7 @@ import type {
   Page,
   RequestOptions,
   UpdateIssueInput,
+  UpdateNotificationPreferencesInput,
   WorkspaceAnalytics,
 } from './contracts'
 import { buildWorkspaceAnalytics } from './analytics'
@@ -41,6 +42,8 @@ import {
   type Issue,
   type IssueId,
   type Notification,
+  type NotificationKind,
+  type NotificationPreferences,
   type Permission,
   type Project,
   type ProjectId,
@@ -327,6 +330,72 @@ export class MockAtlasGateway implements AtlasGateway {
     })
   }
 
+  getNotificationPreferences(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<NotificationPreferences> {
+    return this.execute('notification.preferences.get', options, () => {
+      this.assertPermission('workspace:view', workspaceId)
+      const preferences = this.store.read().data.notificationPreferences.find(
+        (candidate) =>
+          candidate.workspaceId === workspaceId && candidate.userId === this.actorId,
+      )
+      if (!preferences) throw new EntityNotFoundError('Notification preferences')
+      return preferences
+    })
+  }
+
+  updateNotificationPreferences(
+    input: UpdateNotificationPreferencesInput,
+    options?: RequestOptions,
+  ): Promise<NotificationPreferences> {
+    return this.execute('notification.preferences.update', options, (requestId) => {
+      this.assertPermission('workspace:view', input.workspaceId)
+      const current = this.store.read()
+      const index = current.data.notificationPreferences.findIndex(
+        (candidate) =>
+          candidate.workspaceId === input.workspaceId &&
+          candidate.userId === this.actorId,
+      )
+      const preferences = current.data.notificationPreferences[index]
+      if (!preferences) throw new EntityNotFoundError('Notification preferences')
+      if (preferences.revision !== input.expectedRevision) {
+        throw new GatewayConflictError(
+          'Notification preferences changed after they were loaded. Refresh and try again.',
+        )
+      }
+
+      const occurredAt = this.clock.now()
+      const updated: NotificationPreferences = {
+        ...preferences,
+        assignments: input.assignments,
+        comments: input.comments,
+        issueUpdates: input.issueUpdates,
+        revision: preferences.revision + 1,
+      }
+      const notificationPreferences = [...current.data.notificationPreferences]
+      notificationPreferences[index] = updated
+      this.commit(current.version, {
+        ...current.data,
+        notificationPreferences,
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit('notification_preferences_updated'),
+            workspaceId: input.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action: 'notification.preferences.updated',
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: { revision: updated.revision },
+          },
+        ],
+      })
+      return updated
+    })
+  }
+
   createComment(
     input: CreateCommentInput,
     options?: RequestOptions,
@@ -384,7 +453,14 @@ export class MockAtlasGateway implements AtlasGateway {
           },
         ],
         notifications:
-          issue.assigneeId && issue.assigneeId !== this.actorId
+          issue.assigneeId &&
+          issue.assigneeId !== this.actorId &&
+          this.allowsNotification(
+            current.data,
+            issue.workspaceId,
+            issue.assigneeId,
+            'comment',
+          )
             ? [
                 ...current.data.notifications,
                 {
@@ -452,7 +528,14 @@ export class MockAtlasGateway implements AtlasGateway {
         ...current.data,
         issues: [...current.data.issues, issue],
         notifications:
-          issue.assigneeId && issue.assigneeId !== this.actorId
+          issue.assigneeId &&
+          issue.assigneeId !== this.actorId &&
+          this.allowsNotification(
+            current.data,
+            issue.workspaceId,
+            issue.assigneeId,
+            'assignment',
+          )
             ? [
                 ...current.data.notifications,
                 {
@@ -560,7 +643,14 @@ export class MockAtlasGateway implements AtlasGateway {
           },
         ],
         notifications:
-          notificationRecipient && notificationRecipient !== this.actorId
+          notificationRecipient &&
+          notificationRecipient !== this.actorId &&
+          this.allowsNotification(
+            current.data,
+            issue.workspaceId,
+            notificationRecipient,
+            assignmentChanged ? 'assignment' : 'issue-update',
+          )
             ? [
                 ...current.data.notifications,
                 {
@@ -679,6 +769,22 @@ export class MockAtlasGateway implements AtlasGateway {
     if (notification.recipientId !== this.actorId) {
       throw new ForbiddenGatewayError()
     }
+  }
+
+  private allowsNotification(
+    data: AtlasDataSnapshot,
+    workspaceId: WorkspaceId,
+    recipientId: UserId,
+    kind: NotificationKind,
+  ): boolean {
+    const preferences = data.notificationPreferences.find(
+      (candidate) =>
+        candidate.workspaceId === workspaceId && candidate.userId === recipientId,
+    )
+    if (!preferences) return false
+    if (kind === 'assignment') return preferences.assignments
+    if (kind === 'comment') return preferences.comments
+    return preferences.issueUpdates
   }
 
   private hasPermission(

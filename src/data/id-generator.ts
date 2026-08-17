@@ -7,6 +7,7 @@ import {
   labelId,
   membershipId,
   notificationId,
+  notificationPreferenceId,
   projectId,
   projectMemberId,
   userId,
@@ -20,6 +21,7 @@ import {
   type LabelId,
   type MembershipId,
   type NotificationId,
+  type NotificationPreferenceId,
   type ProjectId,
   type ProjectMemberId,
   type UserId,
@@ -91,6 +93,10 @@ export class DeterministicIdGenerator {
 
   notification(scope: string): NotificationId {
     return notificationId(this.next('notification', scope))
+  }
+
+  notificationPreference(scope: string): NotificationPreferenceId {
+    return notificationPreferenceId(this.next('notification_pref', scope))
   }
 
   private next(prefix: string, scope: string): string {

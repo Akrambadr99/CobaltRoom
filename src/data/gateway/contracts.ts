@@ -11,6 +11,7 @@ import type {
   LabelId,
   Notification,
   NotificationId,
+  NotificationPreferences,
   Project,
   ProjectId,
   UserId,
@@ -120,6 +121,14 @@ export interface MarkNotificationReadInput {
   readonly read: boolean
 }
 
+export interface UpdateNotificationPreferencesInput {
+  readonly workspaceId: WorkspaceId
+  readonly expectedRevision: number
+  readonly assignments: boolean
+  readonly comments: boolean
+  readonly issueUpdates: boolean
+}
+
 export interface AnalyticsBreakdown<TValue extends string> {
   readonly value: TValue
   readonly count: number
@@ -214,6 +223,14 @@ export interface AtlasGateway {
     workspaceId: WorkspaceId,
     options?: RequestOptions,
   ): Promise<number>
+  getNotificationPreferences(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<NotificationPreferences>
+  updateNotificationPreferences(
+    input: UpdateNotificationPreferencesInput,
+    options?: RequestOptions,
+  ): Promise<NotificationPreferences>
   createIssue(input: CreateIssueInput, options?: RequestOptions): Promise<Issue>
   updateIssue(input: UpdateIssueInput, options?: RequestOptions): Promise<Issue>
   deleteIssue(input: DeleteIssueInput, options?: RequestOptions): Promise<void>
