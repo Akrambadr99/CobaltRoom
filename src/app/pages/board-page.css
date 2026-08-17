@@ -48,6 +48,7 @@
 
 .board-project-picker select:focus-visible,
 .kanban-card__move select:focus-visible,
+.kanban-card__drag-handle:focus-visible,
 .kanban-card a:focus-visible {
   outline: 3px solid var(--color-focus);
   outline-offset: 2px;
@@ -99,6 +100,12 @@
   scroll-snap-align: start;
 }
 
+.kanban-column[data-drag-target='true'] {
+  border-color: var(--color-accent);
+  background: var(--color-bg-accent-subtle);
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
 .kanban-column__header {
   display: flex;
   align-items: center;
@@ -144,6 +151,32 @@
   border-radius: var(--radius-md);
   background: var(--color-bg-surface);
   box-shadow: var(--shadow-sm);
+}
+
+.kanban-card[data-dragging='true'] {
+  opacity: 0.55;
+}
+
+.kanban-card__drag-handle {
+  min-height: 2.25rem;
+  padding: 0 var(--space-3);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: var(--color-bg-subtle);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: grab;
+}
+
+.kanban-card__drag-handle:active {
+  cursor: grabbing;
+}
+
+.kanban-card__drag-handle:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .kanban-card__identifier {

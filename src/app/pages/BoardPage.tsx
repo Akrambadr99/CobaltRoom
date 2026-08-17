@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import {
@@ -16,6 +23,11 @@ export function BoardPage() {
   const authorization = useAuthorization()
   const [searchParams, setSearchParams] = useSearchParams()
   const [announcement, setAnnouncement] = useState<string | null>(null)
+  const [draggedIssueId, setDraggedIssueId] = useState<Issue['id'] | null>(null)
+  const [dragTargetStatusId, setDragTargetStatusId] =
+    useState<WorkflowStatusId | null>(null)
+  const [dragFocusIssueId, setDragFocusIssueId] = useState<Issue['id'] | null>(null)
+  const dragHandleRefs = useRef(new Map<Issue['id'], HTMLButtonElement>())
   const metadata = useBoardMetadata()
   const requestedProjectId = searchParams.get('project')
   const selectedProject =
@@ -30,6 +42,14 @@ export function BoardPage() {
     [issues.data],
   )
   const totalIssues = issues.data?.pages[0]?.totalItems ?? 0
+
+  useEffect(() => {
+    if (dragFocusIssueId === null || moveIssue.isPending) return
+    const handle = dragHandleRefs.current.get(dragFocusIssueId)
+    if (!handle) return
+    handle.focus()
+    setDragFocusIssueId(null)
+  }, [dragFocusIssueId, loadedIssues, moveIssue.isPending])
 
   useEffect(() => {
     if (!selectedProject || requestedProjectId === selectedProject.project.id) {
@@ -79,14 +99,7 @@ export function BoardPage() {
     })
   }
 
-  const handleStatusChange = (
-    issue: Issue,
-    event: ChangeEvent<HTMLSelectElement>,
-  ): void => {
-    const statusId = parseStatusId(
-      event.currentTarget.value,
-      selectedProject.statuses.map(({ id }) => id),
-    )
+  const moveToStatus = (issue: Issue, statusId: WorkflowStatusId): void => {
     const targetStatus = selectedProject.statuses.find(({ id }) => id === statusId)
     setAnnouncement(null)
     moveIssue.mutate(
@@ -100,6 +113,74 @@ export function BoardPage() {
         },
       },
     )
+  }
+
+  const handleStatusChange = (
+    issue: Issue,
+    event: ChangeEvent<HTMLSelectElement>,
+  ): void => {
+    moveToStatus(
+      issue,
+      parseStatusId(
+        event.currentTarget.value,
+        selectedProject.statuses.map(({ id }) => id),
+      ),
+    )
+  }
+
+  const handleDragStart = (
+    issue: Issue,
+    event: DragEvent<HTMLButtonElement>,
+  ): void => {
+    if (!authorization.can('issue:update', issue.projectId) || moveIssue.isPending) {
+      event.preventDefault()
+      return
+    }
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', issue.id)
+    setDraggedIssueId(issue.id)
+    setDragTargetStatusId(null)
+    setAnnouncement(`Dragging ${issue.title}. Drop it on a workflow column.`)
+  }
+
+  const handleDragEnd = (): void => {
+    setDraggedIssueId(null)
+    setDragTargetStatusId(null)
+  }
+
+  const handleDragOver = (
+    statusId: WorkflowStatusId,
+    event: DragEvent<HTMLElement>,
+  ): void => {
+    const draggedIssue = loadedIssues.find(({ id }) => id === draggedIssueId)
+    if (!draggedIssue || moveIssue.isPending) return
+    if (draggedIssue.statusId === statusId) {
+      setDragTargetStatusId(null)
+      return
+    }
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setDragTargetStatusId(statusId)
+  }
+
+  const handleDrop = (
+    statusId: WorkflowStatusId,
+    event: DragEvent<HTMLElement>,
+  ): void => {
+    event.preventDefault()
+    const transferredIssueId = event.dataTransfer.getData('text/plain')
+    const issue = loadedIssues.find(
+      ({ id }) => id === draggedIssueId && id === transferredIssueId,
+    )
+    setDraggedIssueId(null)
+    setDragTargetStatusId(null)
+    if (!issue || issue.statusId === statusId) return
+    if (!authorization.can('issue:update', issue.projectId)) {
+      setAnnouncement(`${issue.title} cannot be moved with your current permissions.`)
+      return
+    }
+    setDragFocusIssueId(issue.id)
+    moveToStatus(issue, statusId)
   }
 
   return (
@@ -123,8 +204,9 @@ export function BoardPage() {
       </header>
 
       <p className="board-instructions" id="board-move-instructions">
-        Use each issue’s status menu to move it without drag and drop. Changes save
-        immediately and return to the previous status if the request fails.
+        Drag an issue by its handle, or use its status menu as a keyboard-accessible
+        alternative. Changes save immediately and return to the previous status if
+        the request fails.
       </p>
 
       {issues.isPending ? (
@@ -163,7 +245,14 @@ export function BoardPage() {
               <section
                 className="kanban-column"
                 aria-labelledby={`status-${status.id}`}
+                data-drag-target={dragTargetStatusId === status.id || undefined}
                 key={status.id}
+                onDragOver={(event) => {
+                  handleDragOver(status.id, event)
+                }}
+                onDrop={(event) => {
+                  handleDrop(status.id, event)
+                }}
               >
                 <header className="kanban-column__header">
                   <h2 id={`status-${status.id}`}>{status.name}</h2>
@@ -188,7 +277,10 @@ export function BoardPage() {
 
                       return (
                         <li key={issue.id}>
-                          <article className="kanban-card">
+                          <article
+                            className="kanban-card"
+                            data-dragging={draggedIssueId === issue.id || undefined}
+                          >
                             <p className="kanban-card__identifier">
                               {selectedProject.project.key}-{issue.number} · {issue.type}
                             </p>
@@ -201,6 +293,23 @@ export function BoardPage() {
                               </span>
                               {issue.dueDate ? <span>Due {issue.dueDate}</span> : null}
                             </div>
+                            <button
+                              className="kanban-card__drag-handle"
+                              type="button"
+                              draggable={canMove && !moveIssue.isPending}
+                              disabled={!canMove || moveIssue.isPending}
+                              aria-describedby="board-move-instructions"
+                              ref={(element) => {
+                                if (element) dragHandleRefs.current.set(issue.id, element)
+                                else dragHandleRefs.current.delete(issue.id)
+                              }}
+                              onDragStart={(event) => {
+                                handleDragStart(issue, event)
+                              }}
+                              onDragEnd={handleDragEnd}
+                            >
+                              Drag {issue.title}
+                            </button>
                             <label className="kanban-card__move">
                               <span>Move {issue.title}</span>
                               <select

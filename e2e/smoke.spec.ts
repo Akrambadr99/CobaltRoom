@@ -114,7 +114,7 @@ test('moves work across the accessible project board', async ({ page }) => {
     page.getByRole('heading', { level: 1, name: 'Board' }),
   ).toBeVisible()
   await expect(
-    page.getByText(/use each issue’s status menu to move it without drag and drop/i),
+    page.getByText(/use its status menu as a keyboard-accessible alternative/i),
   ).toBeVisible()
 
   const moveControl = page.getByRole('combobox', {
@@ -131,6 +131,31 @@ test('moves work across the accessible project board', async ({ page }) => {
   await expect(page).toHaveURL(/\/issues\/issue_/)
   await expect(page.getByText('Investigating')).toBeVisible()
   await expect(page.getByText('Moved from Triage to Investigating.')).toBeVisible()
+})
+
+test('moves board work with a pointer while preserving the keyboard alternative', async ({
+  page,
+}) => {
+  await page.goto('/board')
+  const issueTitle = 'Close the device telemetry coverage gap'
+  const dragHandle = page.getByRole('button', { name: `Drag ${issueTitle}` })
+  const targetColumn = page.locator('section.kanban-column').filter({
+    has: page.getByRole('heading', { level: 2, name: 'Resolved' }),
+  })
+
+  await dragHandle.dragTo(targetColumn)
+
+  await expect(targetColumn.getByRole('link', { name: issueTitle })).toBeVisible()
+  await expect(
+    page.getByText(`${issueTitle} moved to Resolved.`),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: `Drag ${issueTitle}` })).toBeFocused()
+  const moveControl = page.getByRole('combobox', { name: `Move ${issueTitle}` })
+  const resolvedValue = await moveControl
+    .locator('option', { hasText: 'Resolved' })
+    .getAttribute('value')
+  if (!resolvedValue) throw new Error('Expected the resolved workflow value.')
+  await expect(moveControl).toHaveValue(resolvedValue)
 })
 
 test('searches globally with the keyboard shortcut', async ({ page }) => {

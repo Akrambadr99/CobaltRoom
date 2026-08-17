@@ -1,6 +1,6 @@
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { BoardPage } from './BoardPage'
 import { AppProviders } from '../providers/AppProviders'
@@ -12,7 +12,7 @@ import {
   SimulatedNetwork,
 } from '../../data'
 import { issueId, type UserId } from '../../domain'
-import { render, screen, waitFor, within } from '../../test/render'
+import { fireEvent, render, screen, waitFor, within } from '../../test/render'
 
 function LocationProbe() {
   const location = useLocation()
@@ -133,6 +133,86 @@ describe('BoardPage', () => {
     })
   })
 
+  it('moves an issue with a pointer drag and restores focus to its handle', async () => {
+    renderBoard()
+    const issue = createAtlasFixtures().issues.find(
+      ({ title }) => title === 'Close the device telemetry coverage gap',
+    )
+    if (!issue) throw new Error('Expected reliability issue fixture.')
+    const handle = await screen.findByRole('button', {
+      name: 'Drag Close the device telemetry coverage gap',
+    })
+    const targetColumn = getColumn('Resolved')
+    const setData = vi.fn()
+    const dataTransfer = {
+      dropEffect: 'none',
+      effectAllowed: 'none',
+      getData: vi.fn(() => issue.id),
+      setData,
+    } as unknown as DataTransfer
+
+    fireEvent.dragStart(handle, { dataTransfer })
+    fireEvent.dragOver(targetColumn, { dataTransfer })
+    expect(targetColumn).toHaveAttribute('data-drag-target', 'true')
+    fireEvent.drop(targetColumn, { dataTransfer })
+
+    expect(
+      await screen.findByText(
+        'Close the device telemetry coverage gap moved to Resolved.',
+      ),
+    ).toBeVisible()
+    const restoredHandle = within(getColumn('Resolved')).getByRole('button', {
+      name: 'Drag Close the device telemetry coverage gap',
+    })
+    await waitFor(() => {
+      expect(restoredHandle).toHaveFocus()
+    })
+    expect(setData).toHaveBeenCalledWith('text/plain', issue.id)
+  })
+
+  it('rolls back a pointer drop after a revision conflict and restores focus', async () => {
+    const { services } = renderBoard()
+    const issue = createAtlasFixtures().issues.find(
+      ({ title }) => title === 'Close the device telemetry coverage gap',
+    )
+    if (!issue) throw new Error('Expected reliability issue fixture.')
+    const handle = await screen.findByRole('button', {
+      name: 'Drag Close the device telemetry coverage gap',
+    })
+    await services.gateway.updateIssue({
+      id: issue.id,
+      expectedRevision: issue.revision,
+      changes: { priority: 'low' },
+    })
+    const dataTransfer = {
+      dropEffect: 'none',
+      effectAllowed: 'none',
+      getData: vi.fn(() => issue.id),
+      setData: vi.fn(),
+    } as unknown as DataTransfer
+
+    fireEvent.dragStart(handle, { dataTransfer })
+    fireEvent.dragOver(getColumn('Resolved'), { dataTransfer })
+    fireEvent.drop(getColumn('Resolved'), { dataTransfer })
+
+    expect(
+      await screen.findByText(
+        'Close the device telemetry coverage gap changed elsewhere. The latest board state has been restored.',
+      ),
+    ).toBeVisible()
+    const restoredHandle = within(getColumn('Investigating')).getByRole('button', {
+      name: 'Drag Close the device telemetry coverage gap',
+    })
+    await waitFor(() => {
+      expect(restoredHandle).toHaveFocus()
+    })
+    expect(
+      within(getColumn('Resolved')).queryByText(
+        'Close the device telemetry coverage gap',
+      ),
+    ).not.toBeInTheDocument()
+  })
+
   it('rolls back an optimistic move when the gateway fails', async () => {
     const user = userEvent.setup()
     const simulator = new SimulatedNetwork({
@@ -183,7 +263,12 @@ describe('BoardPage', () => {
       }),
     ).toBeDisabled()
     expect(
-      screen.getByText(/use each issue’s status menu to move it without drag and drop/i),
+      screen.getByRole('button', {
+        name: 'Drag Close the device telemetry coverage gap',
+      }),
+    ).toBeDisabled()
+    expect(
+      screen.getByText(/use its status menu as a keyboard-accessible alternative/i),
     ).toBeVisible()
   })
 
