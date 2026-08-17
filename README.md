@@ -30,5 +30,15 @@ npm run build
 ```
 
 `npm run test:e2e` starts the Vite development server and requires the Playwright
-Chromium browser installed by `npx playwright install chromium`. The application
-is currently a foundation screen rather than a completed product workflow.
+Chromium browser installed by `npx playwright install chromium`.
+
+## Current product surfaces
+
+- Operational dashboard with live issue metrics and priority mutations
+- Project index and deep-linked project context
+- Issues workspace with URL-backed search, filters, sorting, and pagination
+
+Application data is served through a typed asynchronous gateway backed by an
+in-memory versioned store. This keeps local development deterministic while
+preserving cancellation, conflict, tracing, and error boundaries expected from
+a production transport.

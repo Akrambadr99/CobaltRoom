@@ -3,6 +3,7 @@ import { createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { RouteErrorBoundary } from './errors/RouteErrorBoundary'
 import { AppShell } from './layout/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
+import { IssuesPage } from './pages/IssuesPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
@@ -25,12 +26,7 @@ export const appRoutes: RouteObject[] = [
       },
       {
         path: 'issues',
-        element: (
-          <PlaceholderPage
-            title="Issues"
-            description="Review assigned, active, and upcoming work in one place."
-          />
-        ),
+        element: <IssuesPage />,
       },
       {
         path: 'board',

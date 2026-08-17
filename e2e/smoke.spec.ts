@@ -38,4 +38,14 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
     page.getByRole('heading', { level: 1, name: 'Field reliability' }),
   ).toBeVisible()
   await expect(page.getByText('Close the device telemetry coverage gap')).toBeVisible()
+
+  await page.getByRole('link', { name: 'Issues' }).click()
+  await expect(page).toHaveURL('/issues')
+  await expect(page.getByRole('table', { name: 'Workspace issues' })).toBeVisible()
+  await expect(page.getByText('6 matching issues')).toBeVisible()
+
+  await page.getByRole('searchbox', { name: 'Search issues' }).fill('restart')
+  await page.getByRole('button', { name: 'Search' }).click()
+  await expect(page).toHaveURL('/issues?q=restart')
+  await expect(page.getByText('Review intermittent restart incidents')).toBeVisible()
 })
