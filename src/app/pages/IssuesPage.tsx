@@ -1,4 +1,11 @@
-import { useEffect, useId, useMemo, useState, type SyntheticEvent } from 'react'
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type SyntheticEvent,
+} from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
 import { DataTable, type DataTableColumn } from '../../components/data-table/DataTable'
@@ -42,6 +49,7 @@ export function IssuesPage() {
   const location = useLocation()
   const [parameters, setParameters] = useSearchParams()
   const state = useMemo(() => parseIssueWorkspaceState(parameters), [parameters])
+  const pendingState = useRef(state)
   const preferences = useUserPreferences()
   const { issues, filterMetadata } = useIssueWorkspaceData(
     state,
@@ -81,6 +89,10 @@ export function IssuesPage() {
     : filterProjects
 
   useEffect(() => {
+    pendingState.current = state
+  }, [state])
+
+  useEffect(() => {
     if (!filterMetadata.data) return
     const reconciled = reconcileIssueWorkspaceState(state, projectFilters)
     if (reconciled === state) return
@@ -93,10 +105,13 @@ export function IssuesPage() {
   }, [filterMetadata.data, projectFilters, setParameters, state])
 
   const updateState = (changes: Partial<IssueWorkspaceState>) => {
-    setParameters(
-      serializeIssueWorkspaceState({ ...state, ...changes, page: changes.page ?? 1 }),
-      { state: null },
-    )
+    const nextState = {
+      ...pendingState.current,
+      ...changes,
+      page: changes.page ?? 1,
+    }
+    pendingState.current = nextState
+    setParameters(serializeIssueWorkspaceState(nextState), { state: null })
   }
 
   const handleSearch = (event: SyntheticEvent<HTMLFormElement>) => {

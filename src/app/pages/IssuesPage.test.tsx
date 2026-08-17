@@ -13,7 +13,7 @@ import {
 } from '../../data'
 import type { UserId } from '../../domain'
 import { MemoryPreferenceStorage, type PreferenceStorage } from '../../preferences'
-import { fireEvent, render, screen, waitFor, within } from '../../test/render'
+import { act, fireEvent, render, screen, waitFor, within } from '../../test/render'
 
 function LocationProbe() {
   const location = useLocation()
@@ -312,6 +312,40 @@ describe('IssuesPage', () => {
     await user.click(screen.getByRole('button', { name: /Title/ }))
     expect(screen.getByTestId('location')).toHaveTextContent('sort=title')
     expect(screen.getByTestId('location')).toHaveTextContent('direction=ascending')
+  })
+
+  it('composes rapid filter changes without dropping earlier URL state', async () => {
+    renderIssues()
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    const project = screen.getByRole<HTMLSelectElement>('combobox', {
+      name: 'Project',
+    })
+    const status = screen.getByRole<HTMLSelectElement>('combobox', {
+      name: 'Workflow status',
+    })
+    const projectValue = screen
+      .getByRole('option', { name: 'Launch readiness' })
+      .getAttribute('value')
+    const statusValue = screen
+      .getByRole('option', { name: 'Done' })
+      .getAttribute('value')
+    if (!projectValue || !statusValue) {
+      throw new Error('Expected launch workflow filter values.')
+    }
+
+    act(() => {
+      fireEvent.change(project, { target: { value: projectValue } })
+      fireEvent.change(status, { target: { value: statusValue } })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        `project=${projectValue}`,
+      )
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        `status=${statusValue}`,
+      )
+    })
   })
 
   it('persists, applies, and deletes private views with a page-size preference', async () => {
