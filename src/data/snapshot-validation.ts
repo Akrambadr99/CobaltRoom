@@ -116,6 +116,27 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
       )
     }
   }
+
+  for (const activity of snapshot.activityEvents) {
+    if (!workspaces.has(activity.workspaceId) || !users.has(activity.actorId)) {
+      throw new DataIntegrityError(
+        'activityEvents',
+        'Activity events must reference an existing workspace and actor.',
+      )
+    }
+  }
+
+  for (const audit of snapshot.auditEvents) {
+    if (
+      !workspaces.has(audit.workspaceId) ||
+      (audit.actorId !== null && !users.has(audit.actorId))
+    ) {
+      throw new DataIntegrityError(
+        'auditEvents',
+        'Audit events must reference an existing workspace and optional actor.',
+      )
+    }
+  }
 }
 
 const collectionNames = [

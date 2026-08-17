@@ -1,4 +1,9 @@
-import { useState, type ReactElement, type SyntheticEvent } from 'react'
+import {
+  useRef,
+  useState,
+  type ReactElement,
+  type SyntheticEvent,
+} from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { ModalDialog } from '../../components/dialog/ModalDialog'
@@ -11,6 +16,8 @@ import {
 } from '../../domain'
 import {
   useIssueDetailData,
+  useIssueActivityData,
+  useCreateIssueComment,
   useOptimisticIssueUpdate,
 } from '../../features/issues/issue-detail-queries'
 import {
@@ -41,6 +48,7 @@ export function IssueDetailPage() {
 function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId }>) {
   const services = useAppServices()
   const { issue, projects } = useIssueDetailData(requestedIssueId)
+  const activity = useIssueActivityData(requestedIssueId)
   const [editing, setEditing] = useState(false)
   const [status, setStatus] = useState('')
 
@@ -128,6 +136,12 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
         </div>
       </dl>
 
+      <IssueCollaboration
+        issue={issue.data}
+        activity={activity}
+        canComment={services.can('comment:create', issue.data.projectId)}
+      />
+
       {editing ? (
         <IssueEditDialog
           issue={issue.data}
@@ -141,6 +155,167 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
         />
       ) : null}
     </section>
+  )
+}
+
+function IssueCollaboration({
+  issue,
+  activity,
+  canComment,
+}: Readonly<{
+  issue: Issue
+  activity: ReturnType<typeof useIssueActivityData>
+  canComment: boolean
+}>) {
+  if (activity.isPending) {
+    return (
+      <section className="issue-collaboration" aria-label="Issue collaboration">
+        <div className="dashboard-state" role="status">
+          Loading comments and activity…
+        </div>
+      </section>
+    )
+  }
+
+  if (activity.isError) {
+    return (
+      <section className="issue-collaboration" aria-label="Issue collaboration">
+        <div className="dashboard-state dashboard-state--error" role="alert">
+          <p>Comments and activity could not be loaded.</p>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void activity.refetch()}
+          >
+            Retry history
+          </button>
+        </div>
+      </section>
+    )
+  }
+
+  const usersById = new Map(activity.data.users.map((user) => [user.id, user]))
+
+  return (
+    <section className="issue-collaboration" aria-label="Issue collaboration">
+      <div className="issue-collaboration__column">
+        <header>
+          <p className="page-eyebrow">Discussion</p>
+          <h2>Comments</h2>
+        </header>
+        {canComment ? <CommentForm issueId={issue.id} /> : null}
+        {activity.data.comments.length === 0 ? (
+          <p className="issue-collaboration__empty">No comments yet.</p>
+        ) : (
+          <ol className="comment-list">
+            {activity.data.comments.map((comment) => (
+              <li key={comment.id}>
+                <div className="comment-list__meta">
+                  <strong>
+                    {usersById.get(comment.authorId)?.displayName ?? 'Unknown member'}
+                  </strong>
+                  <time dateTime={comment.createdAt}>
+                    {formatTimestamp(comment.createdAt)}
+                  </time>
+                </div>
+                <p>{comment.body}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+      <div className="issue-collaboration__column">
+        <header>
+          <p className="page-eyebrow">Record</p>
+          <h2>Activity</h2>
+        </header>
+        {activity.data.activityEvents.length === 0 ? (
+          <p className="issue-collaboration__empty">No activity recorded yet.</p>
+        ) : (
+          <ol className="activity-list">
+            {activity.data.activityEvents.map((event) => (
+              <li key={event.id}>
+                <span className="activity-list__marker" aria-hidden="true" />
+                <div>
+                  <p>
+                    <strong>
+                      {usersById.get(event.actorId)?.displayName ?? 'Unknown member'}
+                    </strong>{' '}
+                    {event.summary}
+                  </p>
+                  <time dateTime={event.occurredAt}>
+                    {formatTimestamp(event.occurredAt)}
+                  </time>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function CommentForm({ issueId }: Readonly<{ issueId: IssueId }>) {
+  const createComment = useCreateIssueComment(issueId)
+  const textAreaRef = useRef<HTMLTextAreaElement>(null)
+  const [body, setBody] = useState('')
+  const [validationError, setValidationError] = useState('')
+  const [status, setStatus] = useState('')
+
+  const handleSubmit = (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const normalized = body.trim()
+    setStatus('')
+    if (normalized.length === 0 || normalized.length > 5_000) {
+      setValidationError('Enter a comment between 1 and 5,000 characters.')
+      return
+    }
+
+    setValidationError('')
+    createComment.mutate(normalized, {
+      onSuccess: () => {
+        setBody('')
+        setStatus('Comment added.')
+        textAreaRef.current?.focus()
+      },
+    })
+  }
+
+  return (
+    <form className="comment-form" aria-label="Add comment" onSubmit={handleSubmit}>
+      <label htmlFor="new-comment">Add a comment</label>
+      <textarea
+        ref={textAreaRef}
+        id="new-comment"
+        rows={4}
+        maxLength={5_001}
+        value={body}
+        aria-invalid={Boolean(validationError)}
+        aria-describedby="comment-guidance"
+        onChange={(event) => {
+          setBody(event.currentTarget.value)
+        }}
+      />
+      <div className="comment-form__footer">
+        <p id="comment-guidance">
+          {validationError || `${body.length.toString()} of 5,000 characters`}
+        </p>
+        <button
+          className="primary-button"
+          type="submit"
+          disabled={createComment.isPending}
+        >
+          {createComment.isPending ? 'Adding…' : 'Add comment'}
+        </button>
+      </div>
+      {createComment.isError ? (
+        <p className="form-error" role="alert">
+          {createComment.error.message}
+        </p>
+      ) : null}
+      {status ? <p role="status">{status}</p> : null}
+    </form>
   )
 }
 
@@ -330,4 +505,12 @@ function parseIssueId(value: string | undefined): IssueId | null {
 
 function capitalize(value: string): string {
   return value.charAt(0).toLocaleUpperCase() + value.slice(1)
+}
+
+function formatTimestamp(value: string): string {
+  return new Intl.DateTimeFormat('en', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(value))
 }

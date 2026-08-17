@@ -6,9 +6,15 @@ import { IssueDetailPage } from './IssueDetailPage'
 import { AppProviders } from '../providers/AppProviders'
 import { createAtlasQueryClient } from '../query-client'
 import { createAppServices } from '../services'
-import { createAtlasFixtures, SimulatedNetwork } from '../../data'
-import type { UserId } from '../../domain'
-import { render, screen } from '../../test/render'
+import {
+  createAtlasFixtures,
+  FixedClock,
+  SimulatedNetwork,
+  type Clock,
+  type RequestSimulator,
+} from '../../data'
+import { isoDateTime, type UserId } from '../../domain'
+import { render, screen, within } from '../../test/render'
 
 function getFixtureIssue() {
   const issue = createAtlasFixtures().issues[0]
@@ -16,10 +22,16 @@ function getFixtureIssue() {
   return issue
 }
 
-function renderIssueDetail(path: string, actorId?: UserId) {
+function renderIssueDetail(
+  path: string,
+  actorId?: UserId,
+  simulator: RequestSimulator = new SimulatedNetwork(),
+  clock?: Clock,
+) {
   const services = createAppServices({
-    simulator: new SimulatedNetwork(),
+    simulator,
     ...(actorId ? { actorId } : {}),
+    ...(clock ? { clock } : {}),
   })
   render(
     <AppProviders queryClient={createAtlasQueryClient()} services={services}>
@@ -42,6 +54,10 @@ describe('IssueDetailPage', () => {
     expect(screen.getByText('Loading issue…')).toBeVisible()
     expect(await screen.findByRole('heading', { name: issue.title })).toBeVisible()
     expect(screen.getByText('Launch readiness')).toBeVisible()
+    expect(
+      await screen.findByText(/include explicit rollback owners/i),
+    ).toBeVisible()
+    expect(screen.getByText(/Moved the launch brief into progress/i)).toBeVisible()
 
     const editButton = screen.getByRole('button', { name: 'Edit issue' })
     await user.click(editButton)
@@ -120,5 +136,85 @@ describe('IssueDetailPage', () => {
     expect(
       screen.queryByRole('button', { name: 'Edit issue' }),
     ).not.toBeInTheDocument()
+    expect(
+      await screen.findByText(/include explicit rollback owners/i),
+    ).toBeVisible()
+    expect(screen.queryByRole('form', { name: 'Add comment' })).not.toBeInTheDocument()
+  })
+
+  it('validates and creates a comment with focus-preserving feedback', async () => {
+    const user = userEvent.setup()
+    const issue = getFixtureIssue()
+    const clock = new FixedClock(isoDateTime('2026-03-01T10:30:00.000Z'))
+    renderIssueDetail(
+      `/issues/${issue.id}`,
+      undefined,
+      new SimulatedNetwork(),
+      clock,
+    )
+
+    const comment = await screen.findByLabelText('Add a comment')
+    await user.click(screen.getByRole('button', { name: 'Add comment' }))
+    expect(
+      screen.getByText('Enter a comment between 1 and 5,000 characters.'),
+    ).toBeVisible()
+
+    await user.type(comment, 'Confirmed the escalation and rollback owners.')
+    await user.click(screen.getByRole('button', { name: 'Add comment' }))
+
+    const status = await screen.findByText('Comment added.')
+    expect(status).toHaveAttribute('role', 'status')
+    expect(comment).toHaveValue('')
+    expect(comment).toHaveFocus()
+    expect(
+      screen.getByText('Confirmed the escalation and rollback owners.'),
+    ).toBeVisible()
+    const activityColumn = screen
+      .getByRole('heading', { name: 'Activity' })
+      .closest<HTMLElement>('.issue-collaboration__column')
+    if (!activityColumn) throw new Error('Expected the activity column.')
+    expect(within(activityColumn).getByText('Added a comment.')).toBeVisible()
+    expect(screen.getAllByText('Mar 1, 2026, 10:30 AM')).toHaveLength(2)
+  })
+
+  it('offers independent recovery when collaboration history fails', async () => {
+    const issue = getFixtureIssue()
+    renderIssueDetail(
+      `/issues/${issue.id}`,
+      undefined,
+      new SimulatedNetwork({
+        failure: (operation) =>
+          operation === 'issue.activity' ? 'Scripted history failure.' : null,
+      }),
+    )
+
+    expect(await screen.findByRole('heading', { name: issue.title })).toBeVisible()
+    expect(
+      await screen.findByText('Comments and activity could not be loaded.'),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Retry history' })).toBeEnabled()
+  })
+
+  it('preserves a comment draft when submission fails', async () => {
+    const user = userEvent.setup()
+    const issue = getFixtureIssue()
+    renderIssueDetail(
+      `/issues/${issue.id}`,
+      undefined,
+      new SimulatedNetwork({
+        failure: (operation) =>
+          operation === 'comment.create' ? 'Comment service unavailable.' : null,
+      }),
+    )
+
+    const comment = await screen.findByLabelText('Add a comment')
+    await user.type(comment, 'Keep this draft after failure.')
+    await user.click(screen.getByRole('button', { name: 'Add comment' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Comment service unavailable.',
+    )
+    expect(comment).toHaveValue('Keep this draft after failure.')
+    expect(screen.getByRole('button', { name: 'Add comment' })).toBeEnabled()
   })
 })

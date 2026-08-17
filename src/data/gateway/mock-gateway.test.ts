@@ -317,6 +317,67 @@ describe('MockAtlasGateway', () => {
     ).rejects.toBeInstanceOf(GatewayConflictError)
   })
 
+  it('creates a comment with deterministic activity and audit records', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const issue = fixtures.issues[0]
+
+    if (!issue) throw new Error('Expected a fixture issue.')
+
+    const comment = await gateway.createComment({
+      issueId: issue.id,
+      body: '  Confirmed the rollback owner and escalation window.  ',
+    })
+
+    expect(comment).toMatchObject({
+      issueId: issue.id,
+      body: 'Confirmed the rollback owner and escalation window.',
+      createdAt: '2026-02-01T08:00:00.000Z',
+      editedAt: null,
+    })
+    const snapshot = store.read().data
+    expect(snapshot.activityEvents.at(-1)).toMatchObject({
+      entityId: issue.id,
+      action: 'comment.created',
+      summary: 'Added a comment.',
+    })
+    expect(snapshot.auditEvents.at(-1)).toMatchObject({
+      requestId: 'req_000001',
+      action: 'comment.created',
+      outcome: 'succeeded',
+      metadata: { issueId: issue.id, commentId: comment.id },
+    })
+
+    const activity = await gateway.getIssueActivity(issue.id)
+    expect(activity.comments[0]).toEqual(comment)
+    expect(activity.activityEvents[0]?.action).toBe('comment.created')
+    expect(activity.users.some(({ id }) => id === comment.authorId)).toBe(true)
+  })
+
+  it('rejects invalid and permission-bypassing comment submissions', async () => {
+    const fixtures = createAtlasFixtures()
+    const issue = fixtures.issues[0]
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+
+    if (!issue || !viewerId) {
+      throw new Error('Expected issue and viewer fixtures.')
+    }
+
+    const { gateway: adminGateway, store } = createGateway()
+    const originalCommentCount = store.read().data.comments.length
+    await expect(
+      adminGateway.createComment({ issueId: issue.id, body: '   ' }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+    expect(store.read().data.comments).toHaveLength(originalCommentCount)
+
+    const { gateway: viewerGateway } = createGateway(
+      new SimulatedNetwork(),
+      viewerId,
+    )
+    await expect(
+      viewerGateway.createComment({ issueId: issue.id, body: 'Bypass attempt' }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+  })
+
   it('rejects mutation bypass attempts for a read-only actor', async () => {
     const fixtures = createAtlasFixtures()
     const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
@@ -423,6 +484,12 @@ describe('MockAtlasGateway', () => {
     const snapshot = store.read().data
     expect(snapshot.issues.some(({ id }) => id === issue.id)).toBe(false)
     expect(snapshot.comments.some(({ issueId }) => issueId === issue.id)).toBe(false)
+    expect(
+      snapshot.activityEvents.some(
+        ({ entityKind, entityId }) =>
+          entityKind === 'issue' && entityId === issue.id,
+      ),
+    ).toBe(false)
     expect(
       snapshot.issueRelations.some(
         ({ sourceIssueId, targetIssueId }) =>

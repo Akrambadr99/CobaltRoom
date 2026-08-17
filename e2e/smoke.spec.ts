@@ -64,6 +64,11 @@ test('loads the shell and navigates with accessible controls', async ({ page }) 
   await expect(
     page.getByRole('heading', { level: 1, name: 'Review restart incident clusters' }),
   ).toBeVisible()
+
+  await page.getByLabel('Add a comment').fill('Confirmed incident owners and next steps.')
+  await page.getByRole('button', { name: 'Add comment' }).click()
+  await expect(page.getByText('Comment added.')).toBeVisible()
+  await expect(page.getByText('Confirmed incident owners and next steps.')).toBeVisible()
 })
 
 test('creates a permission-aware issue with workflow metadata', async ({ page }) => {

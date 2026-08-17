@@ -1,8 +1,10 @@
 import type {
   AtlasGateway,
+  CreateCommentInput,
   CreateIssueInput,
   DeleteIssueInput,
   IssueCreationMetadata,
+  IssueActivityData,
   IssueQuery,
   Page,
   RequestOptions,
@@ -29,6 +31,8 @@ import type { AtlasDataSnapshot } from '../snapshot'
 import { StaleSnapshotError, type InMemoryDataStore } from '../store'
 import {
   can,
+  type ActivityEvent,
+  type Comment,
   type Issue,
   type IssueId,
   type Permission,
@@ -52,6 +56,18 @@ export interface MockAtlasGatewayOptions {
   readonly idGenerator?: DeterministicIdGenerator
   readonly simulator?: RequestSimulator
   readonly tracer?: RequestTracer
+}
+
+function compareTimelineEntries(
+  left: Comment | ActivityEvent,
+  right: Comment | ActivityEvent,
+): number {
+  const leftTimestamp = 'createdAt' in left ? left.createdAt : left.occurredAt
+  const rightTimestamp = 'createdAt' in right ? right.createdAt : right.occurredAt
+
+  return (
+    rightTimestamp.localeCompare(leftTimestamp) || right.id.localeCompare(left.id)
+  )
 }
 
 export class MockAtlasGateway implements AtlasGateway {
@@ -157,6 +173,102 @@ export class MockAtlasGateway implements AtlasGateway {
           .filter((label) => label.workspaceId === workspaceId)
           .sort((left, right) => left.name.localeCompare(right.name)),
       }
+    })
+  }
+
+  getIssueActivity(
+    issueId: IssueId,
+    options?: RequestOptions,
+  ): Promise<IssueActivityData> {
+    return this.execute('issue.activity', options, () => {
+      const data = this.store.read().data
+      const issue = data.issues.find(({ id }) => id === issueId)
+
+      if (!issue) throw new EntityNotFoundError('Issue')
+      this.assertPermission('issue:view', issue.workspaceId, issue.projectId)
+
+      const comments = data.comments
+        .filter(({ issueId: commentIssueId }) => commentIssueId === issueId)
+        .sort(compareTimelineEntries)
+      const activityEvents = data.activityEvents
+        .filter(
+          ({ entityKind, entityId }) =>
+            entityKind === 'issue' && entityId === issueId,
+        )
+        .sort(compareTimelineEntries)
+      const userIds = new Set([
+        ...comments.map(({ authorId }) => authorId),
+        ...activityEvents.map(({ actorId }) => actorId),
+      ])
+
+      return {
+        comments,
+        activityEvents,
+        users: data.users.filter(({ id }) => userIds.has(id)),
+      }
+    })
+  }
+
+  createComment(
+    input: CreateCommentInput,
+    options?: RequestOptions,
+  ): Promise<Comment> {
+    return this.execute('comment.create', options, (requestId) => {
+      const current = this.store.read()
+      const issue = current.data.issues.find(({ id }) => id === input.issueId)
+
+      if (!issue) throw new EntityNotFoundError('Issue')
+      this.assertPermission('comment:create', issue.workspaceId, issue.projectId)
+
+      const body = input.body.trim()
+      if (body.length === 0 || body.length > 5_000) {
+        throw new InvalidGatewayRequestError(
+          'Comments must contain 1 to 5,000 characters.',
+        )
+      }
+
+      const occurredAt = this.clock.now()
+      const comment: Comment = {
+        id: this.ids.comment('issue'),
+        issueId: issue.id,
+        authorId: this.actorId,
+        body,
+        createdAt: occurredAt,
+        editedAt: null,
+      }
+      const nextData: AtlasDataSnapshot = {
+        ...current.data,
+        comments: [...current.data.comments, comment],
+        activityEvents: [
+          ...current.data.activityEvents,
+          {
+            id: this.ids.activity('comment_created'),
+            workspaceId: issue.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'issue',
+            entityId: issue.id,
+            action: 'comment.created',
+            occurredAt,
+            summary: 'Added a comment.',
+          },
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit('comment_created'),
+            workspaceId: issue.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action: 'comment.created',
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: { issueId: issue.id, commentId: comment.id },
+          },
+        ],
+      }
+
+      this.commit(current.version, nextData)
+      return comment
     })
   }
 
@@ -285,6 +397,10 @@ export class MockAtlasGateway implements AtlasGateway {
             sourceIssueId !== issue.id && targetIssueId !== issue.id,
         ),
         comments: current.data.comments.filter(({ issueId }) => issueId !== issue.id),
+        activityEvents: current.data.activityEvents.filter(
+          ({ entityKind, entityId }) =>
+            entityKind !== 'issue' || entityId !== issue.id,
+        ),
       }
 
       this.commit(current.version, nextData)
@@ -294,7 +410,7 @@ export class MockAtlasGateway implements AtlasGateway {
   private async execute<T>(
     operation: GatewayOperation,
     options: RequestOptions | undefined,
-    perform: () => T,
+    perform: (requestId: string) => T,
   ): Promise<T> {
     const requestId = this.nextRequestId()
     this.trace(requestId, operation, 'started')
@@ -306,7 +422,7 @@ export class MockAtlasGateway implements AtlasGateway {
         throw new RequestCancelledError()
       }
 
-      const result = perform()
+      const result = perform(requestId)
       this.trace(requestId, operation, 'succeeded')
       return result
     } catch (error) {

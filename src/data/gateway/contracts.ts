@@ -1,5 +1,7 @@
 import type {
   Issue,
+  ActivityEvent,
+  Comment,
   IssueId,
   IssuePriority,
   IssueType,
@@ -85,6 +87,17 @@ export interface IssueCreationMetadata {
   readonly labels: readonly Label[]
 }
 
+export interface IssueActivityData {
+  readonly comments: readonly Comment[]
+  readonly activityEvents: readonly ActivityEvent[]
+  readonly users: readonly User[]
+}
+
+export interface CreateCommentInput {
+  readonly issueId: IssueId
+  readonly body: string
+}
+
 export type MutableIssueFields = Pick<
   Issue,
   | 'assigneeId'
@@ -120,6 +133,14 @@ export interface AtlasGateway {
     workspaceId: WorkspaceId,
     options?: RequestOptions,
   ): Promise<IssueCreationMetadata>
+  getIssueActivity(
+    issueId: IssueId,
+    options?: RequestOptions,
+  ): Promise<IssueActivityData>
+  createComment(
+    input: CreateCommentInput,
+    options?: RequestOptions,
+  ): Promise<Comment>
   createIssue(input: CreateIssueInput, options?: RequestOptions): Promise<Issue>
   updateIssue(input: UpdateIssueInput, options?: RequestOptions): Promise<Issue>
   deleteIssue(input: DeleteIssueInput, options?: RequestOptions): Promise<void>

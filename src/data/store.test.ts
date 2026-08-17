@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createAtlasFixtures } from './fixtures'
 import { DataIntegrityError } from './snapshot-validation'
 import { InMemoryDataStore, StaleSnapshotError } from './store'
+import { userId } from '../domain'
 
 describe('InMemoryDataStore', () => {
   it('isolates stored state from caller-owned snapshots', () => {
@@ -92,5 +93,32 @@ describe('InMemoryDataStore', () => {
 
     expect(() => store.commit(current.version, orphanedIssues)).toThrow()
     expect(store.read().version).toBe(0)
+  })
+
+  it('rejects activity and audit records with orphaned actors', () => {
+    const seed = createAtlasFixtures()
+    const activity = seed.activityEvents[0]
+    const audit = seed.auditEvents[0]
+
+    if (!activity || !audit) throw new Error('Expected history fixtures.')
+
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          activityEvents: [
+            { ...activity, actorId: userId('usr_missing_activity_actor') },
+          ],
+        }),
+    ).toThrow(DataIntegrityError)
+    expect(
+      () =>
+        new InMemoryDataStore({
+          ...seed,
+          auditEvents: [
+            { ...audit, actorId: userId('usr_missing_audit_actor') },
+          ],
+        }),
+    ).toThrow(DataIntegrityError)
   })
 })

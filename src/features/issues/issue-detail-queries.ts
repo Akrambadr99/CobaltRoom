@@ -19,6 +19,29 @@ export function useIssueDetailData(issueId: IssueId) {
   return { issue, projects }
 }
 
+export function useIssueActivityData(issueId: IssueId) {
+  const { gateway, workspaceId } = useAppServices()
+
+  return useQuery({
+    queryKey: atlasQueryKeys.issueActivity(workspaceId, issueId),
+    queryFn: ({ signal }) => gateway.getIssueActivity(issueId, { signal }),
+  })
+}
+
+export function useCreateIssueComment(issueId: IssueId) {
+  const { gateway, workspaceId } = useAppServices()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (body: string) => gateway.createComment({ issueId, body }),
+    onSettled: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: atlasQueryKeys.issueActivity(workspaceId, issueId),
+      })
+    },
+  })
+}
+
 interface UpdateIssueVariables {
   readonly issue: Issue
   readonly changes: Partial<MutableIssueFields>
