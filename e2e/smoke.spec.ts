@@ -158,6 +158,25 @@ test('moves board work with a pointer while preserving the keyboard alternative'
   await expect(moveControl).toHaveValue(resolvedValue)
 })
 
+test('moderates an issue comment with confirmation and an audit trail', async ({
+  page,
+}) => {
+  await page.goto('/issues')
+  await page
+    .getByRole('link', { name: 'Publish the launch readiness brief' })
+    .click()
+
+  await page.getByRole('button', { name: 'Remove comment' }).click()
+  await expect(page.getByText('Remove this comment?')).toBeVisible()
+  await page.getByRole('button', { name: 'Confirm remove' }).click()
+
+  await expect(page.getByText('Comment removed by moderation.')).toBeVisible()
+  const tombstone = page.getByText('Comment removed by Omar Haddad.')
+  await expect(tombstone).toBeVisible()
+  await expect(tombstone.locator('..')).toBeFocused()
+  await expect(page.getByText('Removed a comment as a moderator.')).toBeVisible()
+})
+
 test('searches globally with the keyboard shortcut', async ({ page }) => {
   await page.goto('/')
 

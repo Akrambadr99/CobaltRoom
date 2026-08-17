@@ -140,6 +140,8 @@ describe('IssueDetailPage', () => {
       await screen.findByText(/include explicit rollback owners/i),
     ).toBeVisible()
     expect(screen.queryByRole('form', { name: 'Add comment' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit comment/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove comment/i })).not.toBeInTheDocument()
   })
 
   it('validates and creates a comment with focus-preserving feedback', async () => {
@@ -216,5 +218,84 @@ describe('IssueDetailPage', () => {
     )
     expect(comment).toHaveValue('Keep this draft after failure.')
     expect(screen.getByRole('button', { name: 'Add comment' })).toBeEnabled()
+  })
+
+  it('recovers an author edit draft after a comment revision conflict', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const issue = fixtures.issues[0]
+    const comment = fixtures.comments[0]
+    if (!issue || !comment) throw new Error('Expected issue and comment fixtures.')
+    const services = renderIssueDetail(`/issues/${issue.id}`, comment.authorId)
+
+    await screen.findByText(comment.body)
+    await services.gateway.updateComment({
+      id: comment.id,
+      expectedRevision: comment.revision,
+      body: 'A concurrent author revision.',
+    })
+    await user.click(screen.getByRole('button', { name: 'Edit comment' }))
+    const editor = screen.getByRole('textbox', { name: 'Edit comment' })
+    await user.clear(editor)
+    await user.type(editor, 'Conflict-safe author revision.')
+    await user.click(screen.getByRole('button', { name: 'Save comment' }))
+
+    expect(
+      await screen.findByText(/comment changed elsewhere.*latest version is loaded/i),
+    ).toHaveAttribute('role', 'alert')
+    expect(editor).toHaveValue('Conflict-safe author revision.')
+    await user.click(screen.getByRole('button', { name: 'Save comment' }))
+
+    expect(await screen.findByText('Comment updated.')).toHaveAttribute('role', 'status')
+    expect(screen.getByText('Conflict-safe author revision.')).toBeVisible()
+    expect(screen.getByText(/· edited$/i)).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Edit comment' })).toHaveFocus()
+  })
+
+  it('moderates a comment through confirmation and focuses its tombstone', async () => {
+    const user = userEvent.setup()
+    const issue = getFixtureIssue()
+    renderIssueDetail(`/issues/${issue.id}`)
+
+    await screen.findByText(/include explicit rollback owners/i)
+    await user.click(screen.getByRole('button', { name: 'Remove comment' }))
+    expect(screen.getByText('Remove this comment?')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Confirm remove' }))
+
+    expect(await screen.findByText('Comment removed by moderation.')).toHaveAttribute(
+      'role',
+      'status',
+    )
+    const tombstone = screen.getByText('Comment removed by Omar Haddad.')
+    expect(tombstone).toBeVisible()
+    expect(tombstone.closest('li')).toHaveFocus()
+    expect(screen.getByText('Removed a comment as a moderator.')).toBeVisible()
+    expect(
+      screen.queryByText(/include explicit rollback owners/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('restores comment content and confirmation focus when moderation fails', async () => {
+    const user = userEvent.setup()
+    const issue = getFixtureIssue()
+    renderIssueDetail(
+      `/issues/${issue.id}`,
+      undefined,
+      new SimulatedNetwork({
+        failure: (operation) =>
+          operation === 'comment.delete' ? 'Moderation service unavailable.' : null,
+      }),
+    )
+
+    await screen.findByText(/include explicit rollback owners/i)
+    await user.click(screen.getByRole('button', { name: 'Remove comment' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm remove' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Moderation service unavailable.',
+    )
+    expect(screen.getByText(/include explicit rollback owners/i)).toBeVisible()
+    expect(screen.queryByText(/comment removed by Omar Haddad/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm remove' })).toHaveFocus()
   })
 })

@@ -109,10 +109,21 @@ export function assertValidSnapshot(snapshot: AtlasDataSnapshot): void {
   assertIssueRelations(snapshot.issues, snapshot.issueRelations)
 
   for (const comment of snapshot.comments) {
-    if (!issues.has(comment.issueId) || !users.has(comment.authorId)) {
+    const deletionIsConsistent =
+      comment.deletedAt === null
+        ? comment.deletedById === null && comment.body.trim().length > 0
+        : comment.deletedById !== null && comment.body.length === 0
+    if (
+      !issues.has(comment.issueId) ||
+      !users.has(comment.authorId) ||
+      (comment.deletedById !== null && !users.has(comment.deletedById)) ||
+      !Number.isSafeInteger(comment.revision) ||
+      comment.revision < 1 ||
+      !deletionIsConsistent
+    ) {
       throw new DataIntegrityError(
         'comments',
-        'Comments must reference an existing issue and author.',
+        'Comments require valid references, revisions, content, and deletion state.',
       )
     }
   }

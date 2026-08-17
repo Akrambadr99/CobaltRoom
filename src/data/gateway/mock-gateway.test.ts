@@ -614,8 +614,10 @@ describe('MockAtlasGateway', () => {
     expect(comment).toMatchObject({
       issueId: issue.id,
       body: 'Confirmed the rollback owner and escalation window.',
+      revision: 1,
       createdAt: '2026-02-01T08:00:00.000Z',
       editedAt: null,
+      deletedAt: null,
     })
     const snapshot = store.read().data
     expect(snapshot.activityEvents.at(-1)).toMatchObject({
@@ -634,6 +636,89 @@ describe('MockAtlasGateway', () => {
     expect(activity.comments[0]).toEqual(comment)
     expect(activity.activityEvents[0]?.action).toBe('comment.created')
     expect(activity.users.some(({ id }) => id === comment.authorId)).toBe(true)
+  })
+
+  it('edits author comments with revision and audit enforcement', async () => {
+    const fixtures = createAtlasFixtures()
+    const comment = fixtures.comments[0]
+    const authorId = comment?.authorId
+    if (!comment || !authorId) throw new Error('Expected an authored comment fixture.')
+    const { gateway, store } = createGateway(new SimulatedNetwork(), authorId)
+
+    const updated = await gateway.updateComment({
+      id: comment.id,
+      expectedRevision: comment.revision,
+      body: '  Include named rollback and escalation owners.  ',
+    })
+
+    expect(updated).toMatchObject({
+      body: 'Include named rollback and escalation owners.',
+      revision: 2,
+      editedAt: '2026-02-01T08:00:00.000Z',
+    })
+    expect(store.read().data.activityEvents.at(-1)).toMatchObject({
+      action: 'comment.updated',
+      summary: 'Edited a comment.',
+    })
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'comment.updated',
+      metadata: { commentId: comment.id, revision: 2 },
+    })
+    await expect(
+      gateway.updateComment({
+        id: comment.id,
+        expectedRevision: comment.revision,
+        body: 'Overwrite a stale revision.',
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+  })
+
+  it('tombstones moderated comments and rejects authorization bypasses', async () => {
+    const fixtures = createAtlasFixtures()
+    const comment = fixtures.comments[0]
+    const adminId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    if (!comment || !adminId || !viewerId) {
+      throw new Error('Expected comment, administrator, and viewer fixtures.')
+    }
+    const store = new InMemoryDataStore(fixtures)
+    const adminGateway = new MockAtlasGateway({ actorId: adminId, store })
+    const viewerGateway = new MockAtlasGateway({ actorId: viewerId, store })
+
+    await expect(
+      adminGateway.updateComment({
+        id: comment.id,
+        expectedRevision: comment.revision,
+        body: 'Moderators may not rewrite another author.',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+    await expect(
+      viewerGateway.deleteComment({
+        id: comment.id,
+        expectedRevision: comment.revision,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+
+    const deleted = await adminGateway.deleteComment({
+      id: comment.id,
+      expectedRevision: comment.revision,
+    })
+    expect(deleted).toMatchObject({
+      body: '',
+      revision: 2,
+      deletedById: adminId,
+    })
+    expect(deleted.deletedAt).not.toBeNull()
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'comment.moderated',
+      metadata: { moderated: true, commentId: comment.id },
+    })
+    await expect(
+      adminGateway.deleteComment({
+        id: comment.id,
+        expectedRevision: comment.revision,
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
   })
 
   it('creates notifications at the mutation boundary for non-actor assignees', async () => {

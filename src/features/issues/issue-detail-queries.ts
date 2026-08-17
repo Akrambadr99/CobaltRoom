@@ -42,6 +42,9 @@ export function useCreateIssueComment(issueId: IssueId) {
         queryClient.invalidateQueries({
           queryKey: atlasQueryKeys.notificationInbox(workspaceId),
         }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.governanceReports(workspaceId),
+        }),
       ])
     },
   })

@@ -8,6 +8,7 @@ import { Link, useParams } from 'react-router-dom'
 
 import { ModalDialog } from '../../components/dialog/ModalDialog'
 import { GatewayConflictError } from '../../data'
+import { CommentItem } from '../../features/comments/CommentItem'
 import {
   issueId,
   type Issue,
@@ -209,17 +210,21 @@ function IssueCollaboration({
         ) : (
           <ol className="comment-list">
             {activity.data.comments.map((comment) => (
-              <li key={comment.id}>
-                <div className="comment-list__meta">
-                  <strong>
-                    {usersById.get(comment.authorId)?.displayName ?? 'Unknown member'}
-                  </strong>
-                  <time dateTime={comment.createdAt}>
-                    {formatTimestamp(comment.createdAt)}
-                  </time>
-                </div>
-                <p>{comment.body}</p>
-              </li>
+              <CommentItem
+                key={comment.id}
+                issueId={issue.id}
+                projectId={issue.projectId}
+                comment={comment}
+                authorName={
+                  usersById.get(comment.authorId)?.displayName ?? 'Unknown member'
+                }
+                deletedByName={
+                  comment.deletedById
+                    ? (usersById.get(comment.deletedById)?.displayName ??
+                      'Unknown moderator')
+                    : null
+                }
+              />
             ))}
           </ol>
         )}

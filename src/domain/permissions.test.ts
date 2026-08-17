@@ -48,8 +48,8 @@ describe('permission policy', () => {
   })
 
   it.each([
-    ['lead', ['project:update', 'project:archive', 'issue:delete']],
-    ['contributor', ['issue:create', 'issue:update', 'comment:create']],
+    ['lead', ['project:update', 'project:archive', 'issue:delete', 'comment:moderate']],
+    ['contributor', ['issue:create', 'issue:update', 'comment:create', 'comment:edit-own']],
     ['viewer', []],
   ] as const)(
     'applies project-scoped permissions for a %s',
@@ -90,6 +90,22 @@ describe('permission policy', () => {
     expect(can(context, 'notification-preferences:manage-self')).toBe(true)
     expect(can(context, 'audit:view')).toBe(false)
     expect(can(context, 'issue:create', testIds.project)).toBe(false)
+  })
+
+  it('separates author comment actions from moderation', () => {
+    const contributor = {
+      workspaceMembership: createTestMembership({ role: 'member' }),
+      projectMembership: createTestProjectMember({ role: 'contributor' }),
+    }
+    const lead = {
+      workspaceMembership: createTestMembership({ role: 'member' }),
+      projectMembership: createTestProjectMember({ role: 'lead' }),
+    }
+
+    expect(can(contributor, 'comment:edit-own', testIds.project)).toBe(true)
+    expect(can(contributor, 'comment:delete-own', testIds.project)).toBe(true)
+    expect(can(contributor, 'comment:moderate', testIds.project)).toBe(false)
+    expect(can(lead, 'comment:moderate', testIds.project)).toBe(true)
   })
 
   it('changes the permission fingerprint for role and project-scope changes', () => {

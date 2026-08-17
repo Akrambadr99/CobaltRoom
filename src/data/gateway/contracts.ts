@@ -3,6 +3,7 @@ import type {
   ActivityEvent,
   AuditEvent,
   Comment,
+  CommentId,
   IssueId,
   IssuePriority,
   IssueType,
@@ -112,6 +113,17 @@ export interface IssueActivityData {
 export interface CreateCommentInput {
   readonly issueId: IssueId
   readonly body: string
+}
+
+export interface UpdateCommentInput {
+  readonly id: CommentId
+  readonly expectedRevision: number
+  readonly body: string
+}
+
+export interface DeleteCommentInput {
+  readonly id: CommentId
+  readonly expectedRevision: number
 }
 
 export interface NotificationQuery {
@@ -254,6 +266,14 @@ export interface AtlasGateway {
   ): Promise<IssueActivityData>
   createComment(
     input: CreateCommentInput,
+    options?: RequestOptions,
+  ): Promise<Comment>
+  updateComment(
+    input: UpdateCommentInput,
+    options?: RequestOptions,
+  ): Promise<Comment>
+  deleteComment(
+    input: DeleteCommentInput,
     options?: RequestOptions,
   ): Promise<Comment>
   listNotifications(

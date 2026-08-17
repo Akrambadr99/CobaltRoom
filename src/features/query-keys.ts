@@ -6,8 +6,10 @@ export const atlasQueryKeys = {
     ['authorization', workspaceId] as const,
   analytics: (workspaceId: WorkspaceId) =>
     ['workspaces', workspaceId, 'analytics'] as const,
+  governanceReports: (workspaceId: WorkspaceId) =>
+    ['workspaces', workspaceId, 'governance'] as const,
   governance: (query: GovernanceQuery) =>
-    ['workspaces', query.workspaceId, 'governance', query] as const,
+    [...atlasQueryKeys.governanceReports(query.workspaceId), query] as const,
   globalSearch: (workspaceId: WorkspaceId, search: string) =>
     ['workspaces', workspaceId, 'search', search] as const,
   boardMetadata: (workspaceId: WorkspaceId) =>

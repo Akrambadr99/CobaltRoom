@@ -4,6 +4,7 @@ import type {
   BoardMetadata,
   CreateCommentInput,
   CreateIssueInput,
+  DeleteCommentInput,
   DeleteIssueInput,
   GovernanceQuery,
   GovernanceReport,
@@ -16,6 +17,7 @@ import type {
   Page,
   RequestOptions,
   UpdateIssueInput,
+  UpdateCommentInput,
   UpdateNotificationPreferencesInput,
   WorkspaceAnalytics,
 } from './contracts'
@@ -477,8 +479,11 @@ export class MockAtlasGateway implements AtlasGateway {
         issueId: issue.id,
         authorId: this.actorId,
         body,
+        revision: 1,
         createdAt: occurredAt,
         editedAt: null,
+        deletedAt: null,
+        deletedById: null,
       }
       const nextData: AtlasDataSnapshot = {
         ...current.data,
@@ -537,6 +542,153 @@ export class MockAtlasGateway implements AtlasGateway {
 
       this.commit(current.version, nextData)
       return comment
+    })
+  }
+
+  updateComment(
+    input: UpdateCommentInput,
+    options?: RequestOptions,
+  ): Promise<Comment> {
+    return this.execute('comment.update', options, (requestId) => {
+      const current = this.store.read()
+      const index = current.data.comments.findIndex(({ id }) => id === input.id)
+      const comment = current.data.comments[index]
+      const issue = current.data.issues.find(({ id }) => id === comment?.issueId)
+      if (!comment || !issue) throw new EntityNotFoundError('Comment')
+      if (comment.authorId !== this.actorId) {
+        throw new ForbiddenGatewayError('Only the comment author can edit it.')
+      }
+      this.assertPermission('comment:edit-own', issue.workspaceId, issue.projectId)
+      if (comment.deletedAt !== null || comment.revision !== input.expectedRevision) {
+        throw new GatewayConflictError(
+          'The comment changed or was removed. Refresh and try again.',
+        )
+      }
+      const body = input.body.trim()
+      if (body.length === 0 || body.length > 5_000) {
+        throw new InvalidGatewayRequestError(
+          'Comments must contain 1 to 5,000 characters.',
+        )
+      }
+      if (body === comment.body) return comment
+
+      const occurredAt = this.clock.now()
+      const updated: Comment = {
+        ...comment,
+        body,
+        revision: comment.revision + 1,
+        editedAt: occurredAt,
+      }
+      const comments = [...current.data.comments]
+      comments[index] = updated
+      this.commit(current.version, {
+        ...current.data,
+        comments,
+        activityEvents: [
+          ...current.data.activityEvents,
+          {
+            id: this.ids.activity('comment_updated'),
+            workspaceId: issue.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'issue',
+            entityId: issue.id,
+            action: 'comment.updated',
+            occurredAt,
+            summary: 'Edited a comment.',
+          },
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit('comment_updated'),
+            workspaceId: issue.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action: 'comment.updated',
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: {
+              issueId: issue.id,
+              commentId: updated.id,
+              revision: updated.revision,
+            },
+          },
+        ],
+      })
+      return updated
+    })
+  }
+
+  deleteComment(
+    input: DeleteCommentInput,
+    options?: RequestOptions,
+  ): Promise<Comment> {
+    return this.execute('comment.delete', options, (requestId) => {
+      const current = this.store.read()
+      const index = current.data.comments.findIndex(({ id }) => id === input.id)
+      const comment = current.data.comments[index]
+      const issue = current.data.issues.find(({ id }) => id === comment?.issueId)
+      if (!comment || !issue) throw new EntityNotFoundError('Comment')
+      const moderated = comment.authorId !== this.actorId
+      this.assertPermission(
+        moderated ? 'comment:moderate' : 'comment:delete-own',
+        issue.workspaceId,
+        issue.projectId,
+      )
+      if (comment.deletedAt !== null || comment.revision !== input.expectedRevision) {
+        throw new GatewayConflictError(
+          'The comment changed or was already removed. Refresh and try again.',
+        )
+      }
+
+      const occurredAt = this.clock.now()
+      const deleted: Comment = {
+        ...comment,
+        body: '',
+        revision: comment.revision + 1,
+        deletedAt: occurredAt,
+        deletedById: this.actorId,
+      }
+      const comments = [...current.data.comments]
+      comments[index] = deleted
+      const action = moderated ? 'comment.moderated' : 'comment.deleted'
+      const idScope = moderated ? 'comment_moderated' : 'comment_deleted'
+      this.commit(current.version, {
+        ...current.data,
+        comments,
+        activityEvents: [
+          ...current.data.activityEvents,
+          {
+            id: this.ids.activity(idScope),
+            workspaceId: issue.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'issue',
+            entityId: issue.id,
+            action,
+            occurredAt,
+            summary: moderated ? 'Removed a comment as a moderator.' : 'Deleted a comment.',
+          },
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit(idScope),
+            workspaceId: issue.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action,
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: {
+              issueId: issue.id,
+              commentId: deleted.id,
+              revision: deleted.revision,
+              moderated,
+            },
+          },
+        ],
+      })
+      return deleted
     })
   }
 

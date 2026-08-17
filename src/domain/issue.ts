@@ -53,6 +53,9 @@ export interface Comment {
   readonly issueId: IssueId
   readonly authorId: UserId
   readonly body: string
+  readonly revision: number
   readonly createdAt: IsoDateTime
   readonly editedAt: IsoDateTime | null
+  readonly deletedAt: IsoDateTime | null
+  readonly deletedById: UserId | null
 }

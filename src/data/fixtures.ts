@@ -334,8 +334,11 @@ export function createAtlasFixtures(
         issueId: launchBrief.id,
         authorId: productLead.id,
         body: 'Please include explicit rollback owners in the final brief.',
+        revision: 1,
         createdAt,
         editedAt: null,
+        deletedAt: null,
+        deletedById: null,
       },
     ],
     activityEvents: [

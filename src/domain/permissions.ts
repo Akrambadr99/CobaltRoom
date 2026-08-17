@@ -18,7 +18,9 @@ export const permissions = [
   'issue:update',
   'issue:delete',
   'comment:create',
-  'comment:delete',
+  'comment:edit-own',
+  'comment:delete-own',
+  'comment:moderate',
   'audit:view',
 ] as const
 
@@ -46,7 +48,9 @@ const workspacePermissions: Readonly<Record<WorkspaceRole, ReadonlySet<Permissio
     'issue:update',
     'issue:delete',
     'comment:create',
-    'comment:delete',
+    'comment:edit-own',
+    'comment:delete-own',
+    'comment:moderate',
     'audit:view',
   ]),
   member: new Set([
@@ -78,13 +82,16 @@ const projectPermissions: Readonly<
     'issue:update',
     'issue:delete',
     'comment:create',
-    'comment:delete',
+    'comment:edit-own',
+    'comment:delete-own',
+    'comment:moderate',
   ]),
   contributor: new Set([
     'issue:create',
     'issue:update',
     'comment:create',
-    'comment:delete',
+    'comment:edit-own',
+    'comment:delete-own',
   ]),
   viewer: new Set(),
 }
