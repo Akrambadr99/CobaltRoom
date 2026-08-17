@@ -147,6 +147,43 @@ test('governs project lifecycle changes and archival', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Edit project' })).toHaveCount(0)
 })
 
+test('governs project membership and assigned-work reassignment', async ({ page }) => {
+  await page.goto('/projects')
+  await page.getByRole('link', { name: 'Launch readiness' }).click()
+  const members = page.getByRole('table', {
+    name: 'Project membership administration',
+  })
+  await expect(members).toBeVisible()
+
+  await page.getByRole('button', { name: 'Add member' }).click()
+  let dialog = page.getByRole('dialog', { name: 'Add project member' })
+  await dialog.getByLabel('Member').selectOption({
+    label: 'Theo Martin · theo@example.test',
+  })
+  await dialog.getByLabel('Project role').selectOption('viewer')
+  await dialog.getByRole('button', { name: 'Add member' }).click()
+  await expect(dialog).not.toBeVisible()
+  await expect(members.getByRole('row', { name: /Theo Martin/ })).toContainText(
+    'Viewer',
+  )
+
+  await members.getByRole('button', { name: 'Manage Maya Chen' }).click()
+  dialog = page.getByRole('dialog', { name: 'Manage Maya Chen' })
+  await dialog.getByRole('button', { name: 'Remove from project' }).click()
+  const confirmation = page.getByRole('dialog', { name: 'Remove Maya Chen?' })
+  await expect(confirmation.getByLabel('Reassign 1 assigned issue to')).toHaveValue(
+    /usr_.*operations_lead/,
+  )
+  const remove = confirmation.getByRole('button', { name: 'Remove member' })
+  await expect(remove).toBeFocused()
+  await remove.click()
+  await expect(confirmation).not.toBeVisible()
+  await expect(members.getByRole('row', { name: /Maya Chen/ })).not.toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Project activity' }).locator('xpath=ancestor::section[1]'),
+  ).toContainText('Removed Maya Chen and reassigned 1 issue')
+})
+
 test('creates a permission-aware issue with workflow metadata', async ({ page }) => {
   await page.goto('/issues')
   await expect(page.getByRole('table', { name: 'Workspace issues' })).toBeVisible()

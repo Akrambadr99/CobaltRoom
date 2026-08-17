@@ -18,6 +18,8 @@ import type {
   MembershipId,
   MembershipStatus,
   ProjectMember,
+  ProjectMemberId,
+  ProjectMemberRole,
   Project,
   ProjectId,
   ProjectStatus,
@@ -69,6 +71,47 @@ export interface ProjectSummary {
 export interface ProjectEditMetadata {
   readonly project: Project
   readonly eligibleLeads: readonly User[]
+}
+
+export type AssignableProjectRole = Exclude<ProjectMemberRole, 'lead'>
+
+export interface ProjectMembershipQuery {
+  readonly projectId: ProjectId
+  readonly search?: string
+  readonly page?: PageRequest
+}
+
+export interface ProjectMembershipEntry {
+  readonly membership: ProjectMember
+  readonly user: User
+  readonly workspaceStatus: MembershipStatus
+  readonly assignedIssueCount: number
+}
+
+export interface ProjectMembershipAdministrationData {
+  readonly project: Project
+  readonly members: Page<ProjectMembershipEntry>
+  readonly eligibleUsers: readonly User[]
+  readonly reassignmentUsers: readonly User[]
+}
+
+export interface AddProjectMemberInput {
+  readonly projectId: ProjectId
+  readonly expectedProjectRevision: number
+  readonly userId: UserId
+  readonly role: AssignableProjectRole
+}
+
+export interface UpdateProjectMemberInput {
+  readonly id: ProjectMemberId
+  readonly expectedProjectRevision: number
+  readonly role: AssignableProjectRole
+}
+
+export interface RemoveProjectMemberInput {
+  readonly id: ProjectMemberId
+  readonly expectedProjectRevision: number
+  readonly reassignIssuesTo: UserId | null
 }
 
 export interface ProjectCreationMetadata {
@@ -351,6 +394,22 @@ export interface AtlasGateway {
     projectId: ProjectId,
     options?: RequestOptions,
   ): Promise<ProjectEditMetadata>
+  getProjectMembershipAdministration(
+    query: ProjectMembershipQuery,
+    options?: RequestOptions,
+  ): Promise<ProjectMembershipAdministrationData>
+  addProjectMember(
+    input: AddProjectMemberInput,
+    options?: RequestOptions,
+  ): Promise<Project>
+  updateProjectMember(
+    input: UpdateProjectMemberInput,
+    options?: RequestOptions,
+  ): Promise<Project>
+  removeProjectMember(
+    input: RemoveProjectMemberInput,
+    options?: RequestOptions,
+  ): Promise<Project>
   getProjectCreationMetadata(
     workspaceId: WorkspaceId,
     options?: RequestOptions,

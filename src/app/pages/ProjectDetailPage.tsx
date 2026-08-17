@@ -16,6 +16,7 @@ import {
   useProjectDetail,
   useUpdateProject,
 } from '../../features/projects/project-queries'
+import { ProjectMembershipPanel } from '../../features/projects/ProjectMembershipPanel'
 import { useAuthorization } from '../providers/authorization-context'
 import './pages.css'
 
@@ -182,6 +183,11 @@ function LoadedProject({
           </nav>
         ) : null}
       </section>
+
+      <ProjectMembershipPanel
+        projectId={project.id}
+        canManage={authorization.can('members:manage')}
+      />
 
       <ProjectActivityPanel
         activity={activity}

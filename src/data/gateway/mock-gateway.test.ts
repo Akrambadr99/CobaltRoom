@@ -483,6 +483,217 @@ describe('MockAtlasGateway', () => {
     ).rejects.toBeInstanceOf(ForbiddenGatewayError)
   })
 
+  it('adds and changes project members through the project revision boundary', async () => {
+    const { fixtures, gateway, store, tracer } = createGateway()
+    const project = fixtures.projects[0]
+    const observer = fixtures.users.find(({ displayName }) => displayName === 'Theo Martin')
+    if (!project || !observer) throw new Error('Expected project membership fixtures.')
+
+    const directory = await gateway.getProjectMembershipAdministration({
+      projectId: project.id,
+      search: 'omar',
+    })
+    expect(directory.members).toMatchObject({ totalItems: 1, pageCount: 1 })
+    expect(directory.members.items[0]).toMatchObject({
+      membership: { role: 'lead' },
+      user: { displayName: 'Omar Haddad' },
+      workspaceStatus: 'active',
+      assignedIssueCount: 2,
+    })
+    expect(directory.eligibleUsers).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: observer.id })]),
+    )
+
+    const afterAdd = await gateway.addProjectMember({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      userId: observer.id,
+      role: 'viewer',
+    })
+    const added = store.read().data.projectMembers.find(
+      ({ projectId, userId }) => projectId === project.id && userId === observer.id,
+    )
+    if (!added) throw new Error('Expected the added project member.')
+    const afterUpdate = await gateway.updateProjectMember({
+      id: added.id,
+      expectedProjectRevision: afterAdd.revision,
+      role: 'contributor',
+    })
+
+    expect(afterUpdate.revision).toBe(3)
+    expect(store.read().data.projectMembers.find(({ id }) => id === added.id)?.role)
+      .toBe('contributor')
+    expect(store.read().data.activityEvents.slice(-2).map(({ action }) => action))
+      .toEqual(['project.membership.updated', 'project.membership.updated'])
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'project.member.updated',
+      metadata: { fromRole: 'viewer', toRole: 'contributor', toRevision: 3 },
+    })
+    expect(tracer.read().at(-1)).toMatchObject({
+      operation: 'administration.project-members.update',
+      phase: 'succeeded',
+    })
+    await expect(
+      gateway.updateProjectMember({
+        id: added.id,
+        expectedProjectRevision: afterAdd.revision,
+        role: 'viewer',
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+  })
+
+  it('rechecks concurrent issue ownership and requires governed reassignment on removal', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const project = fixtures.projects[0]
+    const observer = fixtures.users.find(({ displayName }) => displayName === 'Theo Martin')
+    if (!project || !observer) throw new Error('Expected project membership fixtures.')
+    const afterAdd = await gateway.addProjectMember({
+      projectId: project.id,
+      expectedProjectRevision: project.revision,
+      userId: observer.id,
+      role: 'contributor',
+    })
+    const added = store.read().data.projectMembers.find(
+      ({ projectId, userId }) => projectId === project.id && userId === observer.id,
+    )
+    const lead = store.read().data.projectMembers.find(
+      ({ projectId, role }) => projectId === project.id && role === 'lead',
+    )
+    const issue = store.read().data.issues.find(({ projectId }) => projectId === project.id)
+    if (!added || !lead || !issue) throw new Error('Expected removal fixtures.')
+
+    const beforeConcurrentAssignment = await gateway.getProjectMembershipAdministration({
+      projectId: project.id,
+    })
+    expect(
+      beforeConcurrentAssignment.members.items.find(({ membership }) => membership.id === added.id)
+        ?.assignedIssueCount,
+    ).toBe(0)
+    const current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      issues: current.data.issues.map((candidate) =>
+        candidate.id === issue.id
+          ? { ...candidate, assigneeId: observer.id, revision: candidate.revision + 1 }
+          : candidate,
+      ),
+    })
+    await expect(
+      gateway.removeProjectMember({
+        id: added.id,
+        expectedProjectRevision: afterAdd.revision,
+        reassignIssuesTo: null,
+      }),
+    ).rejects.toBeInstanceOf(GatewayConflictError)
+
+    const removed = await gateway.removeProjectMember({
+      id: added.id,
+      expectedProjectRevision: afterAdd.revision,
+      reassignIssuesTo: lead.userId,
+    })
+    expect(removed.revision).toBe(3)
+    expect(store.read().data.projectMembers.some(({ id }) => id === added.id)).toBe(false)
+    expect(store.read().data.issues.find(({ id }) => id === issue.id)).toMatchObject({
+      assigneeId: lead.userId,
+      revision: issue.revision + 2,
+    })
+    expect(store.read().data.auditEvents.at(-1)).toMatchObject({
+      action: 'project.member.removed',
+      metadata: { reassignedIssueCount: 1, reassignedTo: lead.userId },
+    })
+    const reassignmentActivity = store.read().data.activityEvents.at(-1)
+    expect(reassignmentActivity).toMatchObject({
+      action: 'issue.assignee.reassigned',
+      entityId: issue.id,
+    })
+    expect(reassignmentActivity?.summary).toContain('from Theo Martin to Omar Haddad')
+  })
+
+  it('protects project membership mutations from suspended candidates and stale administrators', async () => {
+    const { fixtures, gateway, store } = createGateway()
+    const project = fixtures.projects[0]
+    const observer = fixtures.users.find(({ displayName }) => displayName === 'Theo Martin')
+    const observerMembership = fixtures.memberships.find(({ userId }) => userId === observer?.id)
+    const admin = fixtures.memberships.find(({ role }) => role === 'admin')
+    if (!project || !observer || !observerMembership || !admin) {
+      throw new Error('Expected authorization fixtures.')
+    }
+    const suspended = store.read()
+    store.commit(suspended.version, {
+      ...suspended.data,
+      memberships: suspended.data.memberships.map((membership) =>
+        membership.id === observerMembership.id
+          ? { ...membership, status: 'suspended' as const, revision: 2 }
+          : membership,
+      ),
+    })
+    await expect(
+      gateway.addProjectMember({
+        projectId: project.id,
+        expectedProjectRevision: project.revision,
+        userId: observer.id,
+        role: 'viewer',
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+
+    const revoked = store.read()
+    store.commit(revoked.version, {
+      ...revoked.data,
+      memberships: revoked.data.memberships.map((membership) =>
+        membership.id === admin.id
+          ? { ...membership, role: 'viewer' as const, revision: 2 }
+          : membership,
+      ),
+    })
+    await expect(
+      gateway.getProjectMembershipAdministration({ projectId: project.id }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+  })
+
+  it('rejects duplicate, no-op, and lead-bypassing project membership changes', async () => {
+    const { fixtures, gateway } = createGateway()
+    const project = fixtures.projects[0]
+    const lead = fixtures.projectMembers.find(
+      ({ projectId, role }) => projectId === project?.id && role === 'lead',
+    )
+    const contributor = fixtures.projectMembers.find(
+      ({ projectId, role }) => projectId === project?.id && role === 'contributor',
+    )
+    if (!project || !lead || !contributor) {
+      throw new Error('Expected protected project membership fixtures.')
+    }
+
+    await expect(
+      gateway.addProjectMember({
+        projectId: project.id,
+        expectedProjectRevision: project.revision,
+        userId: contributor.userId,
+        role: 'viewer',
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+    await expect(
+      gateway.updateProjectMember({
+        id: contributor.id,
+        expectedProjectRevision: project.revision,
+        role: 'contributor',
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+    await expect(
+      gateway.updateProjectMember({
+        id: lead.id,
+        expectedProjectRevision: project.revision,
+        role: 'viewer',
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+    await expect(
+      gateway.removeProjectMember({
+        id: lead.id,
+        expectedProjectRevision: project.revision,
+        reassignIssuesTo: contributor.userId,
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+  })
+
   it('returns filtered, sorted, and paginated issues asynchronously', async () => {
     const { fixtures, gateway, tracer } = createGateway()
     const workspaceId = fixtures.workspaces[0]?.id

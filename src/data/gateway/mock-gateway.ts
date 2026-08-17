@@ -1,5 +1,6 @@
 import type {
   AtlasGateway,
+  AddProjectMemberInput,
   ArchiveProjectInput,
   AuthorizationSession,
   BoardMetadata,
@@ -20,12 +21,16 @@ import type {
   ProjectSummaryQuery,
   ProjectCreationMetadata,
   ProjectEditMetadata,
+  ProjectMembershipAdministrationData,
+  ProjectMembershipQuery,
   ProjectActivityData,
   RequestOptions,
+  RemoveProjectMemberInput,
   UpdateIssueInput,
   UpdateCommentInput,
   UpdateNotificationPreferencesInput,
   UpdateProjectInput,
+  UpdateProjectMemberInput,
   UpdateWorkspaceMembershipInput,
   WorkspaceAdministrationData,
   WorkspaceAdministrationQuery,
@@ -58,6 +63,7 @@ import {
   can,
   getPermissionFingerprint,
   type ActivityEvent,
+  type AuditEvent,
   type Comment,
   type Issue,
   type IssueId,
@@ -69,6 +75,7 @@ import {
   type Permission,
   type Project,
   type ProjectId,
+  type ProjectMember,
   type ProjectStatus,
   type WorkflowStatusCategory,
   type UserId,
@@ -109,6 +116,10 @@ const membershipStatuses: ReadonlySet<MembershipStatus> = new Set([
   'invited',
   'active',
   'suspended',
+])
+const assignableProjectRoles = new Set<ProjectMember['role']>([
+  'contributor',
+  'viewer',
 ])
 
 export interface MockAtlasGatewayOptions {
@@ -414,6 +425,307 @@ export class MockAtlasGateway implements AtlasGateway {
           .filter(({ id }) => activeUserIds.has(id) && projectUserIds.has(id))
           .sort((left, right) => left.displayName.localeCompare(right.displayName)),
       }
+    })
+  }
+
+  getProjectMembershipAdministration(
+    query: ProjectMembershipQuery,
+    options?: RequestOptions,
+  ): Promise<ProjectMembershipAdministrationData> {
+    return this.execute('administration.project-members.get', options, () => {
+      const data = this.store.read().data
+      const project = data.projects.find(({ id }) => id === query.projectId)
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('members:manage', project.workspaceId)
+      const usersById = new Map(data.users.map((user) => [user.id, user]))
+      const activeWorkspaceUserIds = new Set(
+        data.memberships
+          .filter(
+            (membership) =>
+              membership.workspaceId === project.workspaceId &&
+              membership.status === 'active',
+          )
+          .map(({ userId }) => userId),
+      )
+      const projectMemberships = data.projectMembers.filter(
+        ({ projectId }) => projectId === project.id,
+      )
+      const projectUserIds = new Set(projectMemberships.map(({ userId }) => userId))
+      const search = query.search?.trim().toLocaleLowerCase() ?? ''
+      const entries = projectMemberships
+        .map((membership) => {
+          const user = usersById.get(membership.userId)
+          const workspaceMembership = data.memberships.find(
+            (candidate) =>
+              candidate.workspaceId === project.workspaceId &&
+              candidate.userId === membership.userId,
+          )
+          if (!user) throw new EntityNotFoundError('Project member')
+          if (!workspaceMembership) {
+            throw new EntityNotFoundError('Project member workspace access')
+          }
+          return {
+            membership,
+            user,
+            workspaceStatus: workspaceMembership.status,
+            assignedIssueCount: data.issues.filter(
+              (issue) =>
+                issue.projectId === project.id && issue.assigneeId === membership.userId,
+            ).length,
+          }
+        })
+        .filter(
+          ({ user }) =>
+            search.length === 0 ||
+            `${user.displayName} ${user.email}`.toLocaleLowerCase().includes(search),
+        )
+        .sort(
+          (left, right) =>
+            (left.membership.role === 'lead' ? -1 : 0) -
+              (right.membership.role === 'lead' ? -1 : 0) ||
+            left.user.displayName.localeCompare(right.user.displayName),
+        )
+      const byName = (left: { displayName: string }, right: { displayName: string }) =>
+        left.displayName.localeCompare(right.displayName)
+      return {
+        project,
+        members: paginate(entries, validatePage(query.page ?? { number: 1, size: 10 })),
+        eligibleUsers: data.users
+          .filter(
+            ({ id }) =>
+              activeWorkspaceUserIds.has(id) && !projectUserIds.has(id),
+          )
+          .sort(byName),
+        reassignmentUsers: data.users
+          .filter(
+            ({ id }) => activeWorkspaceUserIds.has(id) && projectUserIds.has(id),
+          )
+          .sort(byName),
+      }
+    })
+  }
+
+  addProjectMember(
+    input: AddProjectMemberInput,
+    options?: RequestOptions,
+  ): Promise<Project> {
+    return this.execute('administration.project-members.add', options, (requestId) => {
+      const current = this.store.read()
+      const projectIndex = current.data.projects.findIndex(({ id }) => id === input.projectId)
+      const project = current.data.projects[projectIndex]
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('members:manage', project.workspaceId)
+      this.assertProjectOpen(current.data, project.id)
+      this.assertProjectRevision(project, input.expectedProjectRevision)
+      this.assertAssignableProjectRole(input.role)
+      if (
+        current.data.projectMembers.some(
+          ({ projectId, userId }) => projectId === project.id && userId === input.userId,
+        )
+      ) {
+        throw new InvalidGatewayRequestError('This user is already a project member.')
+      }
+      const workspaceMembership = current.data.memberships.find(
+        ({ workspaceId, userId }) =>
+          workspaceId === project.workspaceId && userId === input.userId,
+      )
+      if (workspaceMembership?.status !== 'active') {
+        throw new InvalidGatewayRequestError(
+          'Only active workspace members can join a project.',
+        )
+      }
+      const user = current.data.users.find(({ id }) => id === input.userId)
+      if (!user) throw new EntityNotFoundError('Workspace member')
+      const occurredAt = this.clock.now()
+      const updatedProject = { ...project, revision: project.revision + 1, updatedAt: occurredAt }
+      const projects = [...current.data.projects]
+      projects[projectIndex] = updatedProject
+      this.commit(current.version, {
+        ...current.data,
+        projects,
+        projectMembers: [
+          ...current.data.projectMembers,
+          {
+            id: this.ids.projectMember('member_added'),
+            projectId: project.id,
+            userId: input.userId,
+            role: input.role,
+          },
+        ],
+        activityEvents: [
+          ...current.data.activityEvents,
+          this.projectMembershipActivity(project, occurredAt, `Added ${user.displayName} as ${input.role}.`),
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          this.projectMembershipAudit(requestId, project, occurredAt, 'project.member.added', {
+            userId: input.userId,
+            role: input.role,
+            fromRevision: project.revision,
+            toRevision: updatedProject.revision,
+          }),
+        ],
+      })
+      return updatedProject
+    })
+  }
+
+  updateProjectMember(
+    input: UpdateProjectMemberInput,
+    options?: RequestOptions,
+  ): Promise<Project> {
+    return this.execute('administration.project-members.update', options, (requestId) => {
+      const current = this.store.read()
+      const memberIndex = current.data.projectMembers.findIndex(({ id }) => id === input.id)
+      const member = current.data.projectMembers[memberIndex]
+      if (!member) throw new EntityNotFoundError('Project member')
+      const projectIndex = current.data.projects.findIndex(({ id }) => id === member.projectId)
+      const project = current.data.projects[projectIndex]
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('members:manage', project.workspaceId)
+      this.assertProjectOpen(current.data, project.id)
+      this.assertProjectRevision(project, input.expectedProjectRevision)
+      this.assertAssignableProjectRole(input.role)
+      if (member.role === 'lead') {
+        throw new InvalidGatewayRequestError('Transfer project leadership before changing this role.')
+      }
+      if (member.role === input.role) {
+        throw new InvalidGatewayRequestError('Choose a different project role.')
+      }
+      const user = current.data.users.find(({ id }) => id === member.userId)
+      if (!user) throw new EntityNotFoundError('Project member')
+      const occurredAt = this.clock.now()
+      const updatedProject = { ...project, revision: project.revision + 1, updatedAt: occurredAt }
+      const projects = [...current.data.projects]
+      projects[projectIndex] = updatedProject
+      const projectMembers = [...current.data.projectMembers]
+      projectMembers[memberIndex] = { ...member, role: input.role }
+      this.commit(current.version, {
+        ...current.data,
+        projects,
+        projectMembers,
+        activityEvents: [
+          ...current.data.activityEvents,
+          this.projectMembershipActivity(project, occurredAt, `Changed ${user.displayName} from ${member.role} to ${input.role}.`),
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          this.projectMembershipAudit(requestId, project, occurredAt, 'project.member.updated', {
+            userId: member.userId,
+            fromRole: member.role,
+            toRole: input.role,
+            fromRevision: project.revision,
+            toRevision: updatedProject.revision,
+          }),
+        ],
+      })
+      return updatedProject
+    })
+  }
+
+  removeProjectMember(
+    input: RemoveProjectMemberInput,
+    options?: RequestOptions,
+  ): Promise<Project> {
+    return this.execute('administration.project-members.remove', options, (requestId) => {
+      const current = this.store.read()
+      const member = current.data.projectMembers.find(({ id }) => id === input.id)
+      if (!member) throw new EntityNotFoundError('Project member')
+      const projectIndex = current.data.projects.findIndex(({ id }) => id === member.projectId)
+      const project = current.data.projects[projectIndex]
+      if (!project) throw new EntityNotFoundError('Project')
+      this.assertPermission('members:manage', project.workspaceId)
+      this.assertProjectOpen(current.data, project.id)
+      this.assertProjectRevision(project, input.expectedProjectRevision)
+      if (member.role === 'lead') {
+        throw new InvalidGatewayRequestError('Transfer project leadership before removing the lead.')
+      }
+      const assignedIssues = current.data.issues.filter(
+        (issue) => issue.projectId === project.id && issue.assigneeId === member.userId,
+      )
+      if (assignedIssues.length > 0 && input.reassignIssuesTo === null) {
+        throw new GatewayConflictError(
+          'This member owns project issues. Choose an active project member for reassignment.',
+        )
+      }
+      if (input.reassignIssuesTo === member.userId) {
+        throw new InvalidGatewayRequestError('Choose a different member for reassignment.')
+      }
+      if (input.reassignIssuesTo !== null) {
+        const validTarget = current.data.projectMembers.some(
+          ({ projectId, userId }) =>
+            projectId === project.id && userId === input.reassignIssuesTo,
+        ) && current.data.memberships.some(
+          ({ workspaceId, userId, status }) =>
+            workspaceId === project.workspaceId &&
+            userId === input.reassignIssuesTo &&
+            status === 'active',
+        )
+        if (!validTarget) {
+          throw new InvalidGatewayRequestError(
+            'Issue reassignment requires an active member of this project.',
+          )
+        }
+      }
+      const user = current.data.users.find(({ id }) => id === member.userId)
+      if (!user) throw new EntityNotFoundError('Project member')
+      const reassignmentUser = input.reassignIssuesTo
+        ? current.data.users.find(({ id }) => id === input.reassignIssuesTo)
+        : null
+      if (input.reassignIssuesTo && !reassignmentUser) {
+        throw new EntityNotFoundError('Issue reassignment member')
+      }
+      const occurredAt = this.clock.now()
+      const updatedProject = { ...project, revision: project.revision + 1, updatedAt: occurredAt }
+      const projects = [...current.data.projects]
+      projects[projectIndex] = updatedProject
+      const reassignedIssueIds = new Set(assignedIssues.map(({ id }) => id))
+      const issues = current.data.issues.map((issue) =>
+        reassignedIssueIds.has(issue.id)
+          ? {
+              ...issue,
+              assigneeId: input.reassignIssuesTo,
+              revision: issue.revision + 1,
+              updatedAt: occurredAt,
+            }
+          : issue,
+      )
+      this.commit(current.version, {
+        ...current.data,
+        projects,
+        issues,
+        projectMembers: current.data.projectMembers.filter(({ id }) => id !== member.id),
+        activityEvents: [
+          ...current.data.activityEvents,
+          this.projectMembershipActivity(
+            project,
+            occurredAt,
+            `Removed ${user.displayName}${assignedIssues.length > 0 ? ` and reassigned ${assignedIssues.length.toString()} ${assignedIssues.length === 1 ? 'issue' : 'issues'}` : ''}.`,
+          ),
+          ...assignedIssues.map((issue) => ({
+            id: this.ids.activity('project_member_issue_reassigned'),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'issue' as const,
+            entityId: issue.id,
+            action: 'issue.assignee.reassigned',
+            occurredAt,
+            summary: `Reassigned ${this.issueReference(current.data, issue)} from ${user.displayName} to ${reassignmentUser?.displayName ?? 'Unassigned'}.`,
+          })),
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          this.projectMembershipAudit(requestId, project, occurredAt, 'project.member.removed', {
+            userId: member.userId,
+            role: member.role,
+            reassignedIssueCount: assignedIssues.length,
+            reassignedTo: input.reassignIssuesTo,
+            fromRevision: project.revision,
+            toRevision: updatedProject.revision,
+          }),
+        ],
+      })
+      return updatedProject
     })
   }
 
@@ -1605,6 +1917,58 @@ export class MockAtlasGateway implements AtlasGateway {
         gatewayError,
       )
       throw gatewayError
+    }
+  }
+
+  private assertProjectRevision(project: Project, expectedRevision: number): void {
+    if (project.revision !== expectedRevision) {
+      throw new GatewayConflictError(
+        'This project changed after it was loaded. Refresh and try again.',
+      )
+    }
+  }
+
+  private assertAssignableProjectRole(role: ProjectMember['role']): void {
+    if (!assignableProjectRoles.has(role) || role === 'lead') {
+      throw new InvalidGatewayRequestError(
+        'Project member roles must be contributor or viewer.',
+      )
+    }
+  }
+
+  private projectMembershipActivity(
+    project: Project,
+    occurredAt: ActivityEvent['occurredAt'],
+    summary: string,
+  ): ActivityEvent {
+    return {
+      id: this.ids.activity('project_membership'),
+      workspaceId: project.workspaceId,
+      actorId: this.actorId,
+      entityKind: 'project',
+      entityId: project.id,
+      action: 'project.membership.updated',
+      occurredAt,
+      summary,
+    }
+  }
+
+  private projectMembershipAudit(
+    requestId: string,
+    project: Project,
+    occurredAt: AuditEvent['occurredAt'],
+    action: string,
+    metadata: AuditEvent['metadata'],
+  ): AuditEvent {
+    return {
+      id: this.ids.audit('project_membership'),
+      workspaceId: project.workspaceId,
+      actorId: this.actorId,
+      requestId,
+      action,
+      outcome: 'succeeded',
+      occurredAt,
+      metadata: { projectId: project.id, ...metadata },
     }
   }
 
