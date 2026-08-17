@@ -9,6 +9,7 @@ import type {
 } from './contracts'
 import {
   EntityNotFoundError,
+  ForbiddenGatewayError,
   GatewayConflictError,
   GatewayError,
   InvalidGatewayRequestError,
@@ -25,10 +26,20 @@ import { SystemClock, type Clock } from '../clock'
 import { DeterministicIdGenerator } from '../id-generator'
 import type { AtlasDataSnapshot } from '../snapshot'
 import { StaleSnapshotError, type InMemoryDataStore } from '../store'
-import type { Issue, IssueId, Project, WorkspaceId } from '../../domain'
+import {
+  can,
+  type Issue,
+  type IssueId,
+  type Permission,
+  type Project,
+  type ProjectId,
+  type UserId,
+  type WorkspaceId,
+} from '../../domain'
 
 export interface MockAtlasGatewayOptions {
   readonly store: InMemoryDataStore
+  readonly actorId: UserId
   readonly clock?: Clock
   readonly idGenerator?: DeterministicIdGenerator
   readonly simulator?: RequestSimulator
@@ -37,6 +48,7 @@ export interface MockAtlasGatewayOptions {
 
 export class MockAtlasGateway implements AtlasGateway {
   private readonly store: InMemoryDataStore
+  private readonly actorId: UserId
   private readonly clock: Clock
   private readonly ids: DeterministicIdGenerator
   private readonly simulator: RequestSimulator
@@ -45,6 +57,7 @@ export class MockAtlasGateway implements AtlasGateway {
 
   constructor(options: MockAtlasGatewayOptions) {
     this.store = options.store
+    this.actorId = options.actorId
     this.clock = options.clock ?? new SystemClock()
     this.ids = options.idGenerator ?? new DeterministicIdGenerator('gateway')
     this.simulator = options.simulator ?? new SimulatedNetwork()
@@ -55,18 +68,20 @@ export class MockAtlasGateway implements AtlasGateway {
     workspaceId: WorkspaceId,
     options?: RequestOptions,
   ): Promise<readonly Project[]> {
-    return this.execute('project.list', options, () =>
-      this.store
+    return this.execute('project.list', options, () => {
+      this.assertPermission('project:view', workspaceId)
+      return this.store
         .read()
         .data.projects.filter((project) => project.workspaceId === workspaceId)
-        .sort((left, right) => left.name.localeCompare(right.name)),
-    )
+        .sort((left, right) => left.name.localeCompare(right.name))
+    })
   }
 
   listIssues(query: IssueQuery, options?: RequestOptions): Promise<Page<Issue>> {
-    return this.execute('issue.list', options, () =>
-      queryIssues(this.store.read().data.issues, query),
-    )
+    return this.execute('issue.list', options, () => {
+      this.assertPermission('issue:view', query.filters.workspaceId)
+      return queryIssues(this.store.read().data.issues, query)
+    })
   }
 
   getIssue(id: IssueId, options?: RequestOptions): Promise<Issue> {
@@ -77,6 +92,7 @@ export class MockAtlasGateway implements AtlasGateway {
         throw new EntityNotFoundError('Issue')
       }
 
+      this.assertPermission('issue:view', issue.workspaceId, issue.projectId)
       return issue
     })
   }
@@ -94,6 +110,8 @@ export class MockAtlasGateway implements AtlasGateway {
           'New issues must reference a project in their workspace.',
         )
       }
+
+      this.assertPermission('issue:create', input.workspaceId, project.id)
 
       const title = input.title.trim()
       if (title.length === 0) {
@@ -139,6 +157,8 @@ export class MockAtlasGateway implements AtlasGateway {
         throw new EntityNotFoundError('Issue')
       }
 
+      this.assertPermission('issue:update', issue.workspaceId, issue.projectId)
+
       if (issue.revision !== input.expectedRevision) {
         throw new GatewayConflictError(
           'The issue changed after it was loaded. Refresh and try again.',
@@ -176,6 +196,8 @@ export class MockAtlasGateway implements AtlasGateway {
       if (!issue) {
         throw new EntityNotFoundError('Issue')
       }
+
+      this.assertPermission('issue:delete', issue.workspaceId, issue.projectId)
 
       if (issue.revision !== input.expectedRevision) {
         throw new GatewayConflictError(
@@ -230,6 +252,33 @@ export class MockAtlasGateway implements AtlasGateway {
         gatewayError,
       )
       throw gatewayError
+    }
+  }
+
+  private assertPermission(
+    permission: Permission,
+    workspaceId: WorkspaceId,
+    projectId?: ProjectId,
+  ): void {
+    const data = this.store.read().data
+    const workspaceMembership = data.memberships.find(
+      (membership) =>
+        membership.workspaceId === workspaceId && membership.userId === this.actorId,
+    )
+
+    if (!workspaceMembership) {
+      throw new ForbiddenGatewayError()
+    }
+
+    const projectMembership = projectId
+      ? (data.projectMembers.find(
+          (membership) =>
+            membership.projectId === projectId && membership.userId === this.actorId,
+        ) ?? null)
+      : null
+
+    if (!can({ workspaceMembership, projectMembership }, permission, projectId)) {
+      throw new ForbiddenGatewayError()
     }
   }
 

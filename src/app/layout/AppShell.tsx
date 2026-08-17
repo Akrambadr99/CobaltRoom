@@ -1,9 +1,12 @@
 import { Link, Outlet } from 'react-router-dom'
 
 import { PrimaryNavigation } from '../navigation/PrimaryNavigation'
+import { useAppServices } from '../providers/app-services-context'
 import './app-shell.css'
 
 export function AppShell() {
+  const { session } = useAppServices()
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -32,11 +35,14 @@ export function AppShell() {
             <p className="app-topbar__label">Workspace</p>
             <p className="app-topbar__name">Atlas Operations</p>
           </div>
-          <div className="user-summary" aria-label="Signed in as Akram Badr">
+          <div
+            className="user-summary"
+            aria-label={`Signed in as ${session.user.displayName}`}
+          >
             <span className="user-summary__avatar" aria-hidden="true">
-              AB
+              {session.user.initials}
             </span>
-            <span className="user-summary__name">Akram Badr</span>
+            <span className="user-summary__name">{session.user.displayName}</span>
           </div>
         </header>
 

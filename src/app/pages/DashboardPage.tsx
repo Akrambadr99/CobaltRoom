@@ -5,11 +5,13 @@ import {
   useUpdateIssuePriority,
 } from '../../features/dashboard/dashboard-queries'
 import type { Issue, IssuePriority } from '../../domain'
+import { useAppServices } from '../providers/app-services-context'
 import './pages.css'
 
 const issuePriorities = ['urgent', 'high', 'medium', 'low', 'none'] as const
 
 export function DashboardPage() {
+  const services = useAppServices()
   const { issues, projects } = useDashboardData()
   const updatePriority = useUpdateIssuePriority()
   const [mutationMessage, setMutationMessage] = useState<string | null>(null)
@@ -99,6 +101,7 @@ export function DashboardPage() {
 
         <ol className="issue-list">
           {issues.data.items.map((issue) => {
+            const canUpdate = services.can('issue:update', issue.projectId)
             const mutationIsPending =
               updatePriority.isPending &&
               updatePriority.variables.issue.id === issue.id
@@ -115,7 +118,7 @@ export function DashboardPage() {
                   <span>Priority for {issue.title}</span>
                   <select
                     value={issue.priority}
-                    disabled={mutationIsPending}
+                    disabled={!canUpdate || mutationIsPending}
                     onChange={(event) => {
                       handlePriorityChange(issue, event)
                     }}

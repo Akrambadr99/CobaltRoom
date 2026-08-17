@@ -5,11 +5,22 @@ import { DashboardPage } from './DashboardPage'
 import { AppProviders } from '../providers/AppProviders'
 import { createAtlasQueryClient } from '../query-client'
 import { createAppServices } from '../services'
-import { SimulatedNetwork, type RequestSimulator } from '../../data'
+import {
+  createAtlasFixtures,
+  SimulatedNetwork,
+  type RequestSimulator,
+} from '../../data'
+import type { UserId } from '../../domain'
 import { render, screen } from '../../test/render'
 
-function renderDashboard(simulator: RequestSimulator = new SimulatedNetwork()) {
-  const services = createAppServices({ simulator })
+function renderDashboard(
+  simulator: RequestSimulator = new SimulatedNetwork(),
+  actorId?: UserId,
+) {
+  const services = createAppServices({
+    simulator,
+    ...(actorId ? { actorId } : {}),
+  })
   const queryClient = createAtlasQueryClient()
 
   return {
@@ -79,5 +90,20 @@ describe('DashboardPage', () => {
     expect(
       screen.getByRole('button', { name: 'Retry dashboard' }),
     ).toBeEnabled()
+  })
+
+  it('disables inline mutation controls for a read-only actor', async () => {
+    const fixtures = createAtlasFixtures()
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+
+    if (!viewerId) throw new Error('Expected a read-only fixture actor.')
+
+    renderDashboard(new SimulatedNetwork(), viewerId)
+
+    expect(
+      await screen.findByRole('combobox', {
+        name: 'Priority for Publish the launch readiness brief',
+      }),
+    ).toBeDisabled()
   })
 })

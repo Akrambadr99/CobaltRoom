@@ -7,16 +7,34 @@ import {
   type Clock,
   type RequestSimulator,
 } from '../data'
-import type { WorkspaceId } from '../domain'
+import {
+  can,
+  type Membership,
+  type Permission,
+  type ProjectId,
+  type ProjectMember,
+  type User,
+  type UserId,
+  type WorkspaceId,
+} from '../domain'
+
+export interface AppSession {
+  readonly user: User
+  readonly workspaceMembership: Membership
+  readonly projectMemberships: readonly ProjectMember[]
+}
 
 export interface AppServices {
   readonly gateway: AtlasGateway
+  readonly session: AppSession
   readonly workspaceId: WorkspaceId
+  can(permission: Permission, projectId?: ProjectId): boolean
 }
 
 export interface CreateAppServicesOptions {
   readonly clock?: Clock
   readonly simulator?: RequestSimulator
+  readonly actorId?: UserId
 }
 
 export function createAppServices(
@@ -29,12 +47,33 @@ export function createAppServices(
     throw new Error('Atlas Ops requires a default workspace fixture.')
   }
 
+  const defaultMembership = fixtures.memberships.find(
+    ({ role, status, workspaceId: memberWorkspaceId }) =>
+      memberWorkspaceId === workspaceId && role === 'admin' && status === 'active',
+  )
+  const actorId = options.actorId ?? defaultMembership?.userId
+  const user = fixtures.users.find(({ id }) => id === actorId)
+  const workspaceMembership = fixtures.memberships.find(
+    (membership) =>
+      membership.workspaceId === workspaceId && membership.userId === actorId,
+  )
+
+  if (!actorId || !user || !workspaceMembership) {
+    throw new Error('Atlas Ops requires an actor with workspace membership.')
+  }
+
+  const projectMemberships = fixtures.projectMembers.filter(
+    (membership) => membership.userId === actorId,
+  )
+  const session: AppSession = { user, workspaceMembership, projectMemberships }
+
   const simulator =
     options.simulator ??
     new SimulatedNetwork({
       latency: (operation) => (operation.endsWith('.list') ? 80 : 120),
     })
   const gatewayOptions = {
+    actorId,
     store: new InMemoryDataStore(fixtures),
     simulator,
     ...(options.clock ? { clock: options.clock } : {}),
@@ -42,6 +81,19 @@ export function createAppServices(
 
   return {
     workspaceId,
+    session,
     gateway: new MockAtlasGateway(gatewayOptions),
+    can: (permission, projectId) =>
+      can(
+        {
+          workspaceMembership,
+          projectMembership:
+            projectMemberships.find(
+              (membership) => membership.projectId === projectId,
+            ) ?? null,
+        },
+        permission,
+        projectId,
+      ),
   }
 }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   EntityNotFoundError,
+  ForbiddenGatewayError,
   GatewayConflictError,
   RequestCancelledError,
   SimulatedGatewayError,
@@ -12,18 +13,31 @@ import { InMemoryRequestTracer } from './tracing'
 import { FixedClock } from '../clock'
 import { createAtlasFixtures } from '../fixtures'
 import { InMemoryDataStore } from '../store'
-import { isoDateTime, issueId } from '../../domain'
+import { isoDateTime, issueId, type UserId } from '../../domain'
 
 afterEach(() => {
   vi.useRealTimers()
 })
 
-function createGateway(simulator = new SimulatedNetwork()) {
+function createGateway(
+  simulator = new SimulatedNetwork(),
+  requestedActorId?: UserId,
+) {
   const fixtures = createAtlasFixtures()
+  const defaultActorId = fixtures.memberships.find(
+    ({ role }) => role === 'admin',
+  )?.userId
+  const actorId = requestedActorId ?? defaultActorId
+
+  if (!actorId) {
+    throw new Error('Expected an administrative fixture actor.')
+  }
+
   const store = new InMemoryDataStore(fixtures)
   const tracer = new InMemoryRequestTracer()
   const clock = new FixedClock(isoDateTime('2026-02-01T08:00:00.000Z'))
   const gateway = new MockAtlasGateway({
+    actorId,
     store,
     tracer,
     clock,
@@ -172,6 +186,96 @@ describe('MockAtlasGateway', () => {
         changes: { priority: 'low' },
       }),
     ).rejects.toBeInstanceOf(GatewayConflictError)
+  })
+
+  it('rejects mutation bypass attempts for a read-only actor', async () => {
+    const fixtures = createAtlasFixtures()
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+
+    if (!viewerId) {
+      throw new Error('Expected a read-only fixture actor.')
+    }
+
+    const { gateway, tracer } = createGateway(new SimulatedNetwork(), viewerId)
+    const issue = fixtures.issues[0]
+
+    if (!issue) {
+      throw new Error('Expected a fixture issue.')
+    }
+
+    await expect(
+      gateway.updateIssue({
+        id: issue.id,
+        expectedRevision: issue.revision,
+        changes: { priority: 'low' },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+    expect(tracer.read().at(-1)).toMatchObject({
+      operation: 'issue.update',
+      phase: 'failed',
+      errorCode: 'forbidden',
+    })
+  })
+
+  it('limits member mutations to projects where the actor has a project role', async () => {
+    const fixtures = createAtlasFixtures()
+    const memberId = fixtures.memberships.find(({ role }) => role === 'member')?.userId
+    const permittedProject = fixtures.projectMembers.find(
+      ({ userId }) => userId === memberId,
+    )?.projectId
+    const permittedIssue = fixtures.issues.find(
+      ({ projectId }) => projectId === permittedProject,
+    )
+    const deniedIssue = fixtures.issues.find(
+      ({ projectId }) => projectId !== permittedProject,
+    )
+
+    if (!memberId || !permittedIssue || !deniedIssue) {
+      throw new Error('Expected project-scoped member fixtures.')
+    }
+
+    const { gateway } = createGateway(new SimulatedNetwork(), memberId)
+
+    await expect(
+      gateway.updateIssue({
+        id: permittedIssue.id,
+        expectedRevision: permittedIssue.revision,
+        changes: { priority: 'medium' },
+      }),
+    ).resolves.toMatchObject({ priority: 'medium' })
+    await expect(
+      gateway.updateIssue({
+        id: deniedIssue.id,
+        expectedRevision: deniedIssue.revision,
+        changes: { priority: 'medium' },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenGatewayError)
+  })
+
+  it('denies reads when workspace membership is suspended', async () => {
+    const fixtures = createAtlasFixtures()
+    const actor = fixtures.memberships.find(({ role }) => role === 'viewer')
+
+    if (!actor) {
+      throw new Error('Expected a fixture actor.')
+    }
+
+    const suspendedFixtures = {
+      ...fixtures,
+      memberships: fixtures.memberships.map((membership) =>
+        membership.id === actor.id
+          ? { ...membership, status: 'suspended' as const }
+          : membership,
+      ),
+    }
+    const gateway = new MockAtlasGateway({
+      actorId: actor.userId,
+      store: new InMemoryDataStore(suspendedFixtures),
+    })
+
+    await expect(gateway.listProjects(actor.workspaceId)).rejects.toBeInstanceOf(
+      ForbiddenGatewayError,
+    )
   })
 
   it('deletes a leaf issue and its related comments and relations', async () => {

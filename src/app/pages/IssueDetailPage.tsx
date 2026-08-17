@@ -17,6 +17,7 @@ import {
   validateIssueEditDraft,
   type IssueEditDraft,
 } from '../../features/issues/issue-form'
+import { useAppServices } from '../providers/app-services-context'
 import './issues-page.css'
 import './pages.css'
 
@@ -38,6 +39,7 @@ export function IssueDetailPage() {
 }
 
 function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId }>) {
+  const services = useAppServices()
   const { issue, projects } = useIssueDetailData(requestedIssueId)
   const [editing, setEditing] = useState(false)
   const [status, setStatus] = useState('')
@@ -70,6 +72,7 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
   }
 
   const project = projects.data.find(({ id }) => id === issue.data.projectId)
+  const canEdit = services.can('issue:update', issue.data.projectId)
 
   return (
     <section className="page" aria-labelledby="issue-detail-title">
@@ -84,16 +87,20 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
           <h1 id="issue-detail-title">{issue.data.title}</h1>
           <p>{issue.data.description || 'No description provided.'}</p>
         </div>
-        <button
-          className="primary-button"
-          type="button"
-          onClick={() => {
-            setStatus('')
-            setEditing(true)
-          }}
-        >
-          Edit issue
-        </button>
+        {canEdit ? (
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => {
+              setStatus('')
+              setEditing(true)
+            }}
+          >
+            Edit issue
+          </button>
+        ) : (
+          <p className="page-eyebrow">Read-only access</p>
+        )}
       </header>
 
       {status ? (

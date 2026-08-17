@@ -79,4 +79,37 @@ describe('DataTable', () => {
     await user.click(selectAll)
     expect(onToggleAllRows).toHaveBeenCalledWith(rows, true)
   })
+
+  it('excludes permission-disabled rows from page selection', async () => {
+    const user = userEvent.setup()
+    const onToggleAllRows = vi.fn()
+    const rows = [
+      { id: 'one', title: 'Editable record' },
+      { id: 'two', title: 'Read-only record' },
+    ]
+
+    render(
+      <DataTable
+        caption="Permission-aware records"
+        columns={columns}
+        getRowKey={(row) => row.id}
+        rows={rows}
+        selection={{
+          getLabel: (row) => `Select ${row.title}`,
+          isRowSelectable: (row) => row.id === 'one',
+          isSelected: () => false,
+          onToggleRow: vi.fn(),
+          onToggleAllRows,
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole('checkbox', { name: 'Select Read-only record' }),
+    ).toBeDisabled()
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Select all rows on this page' }),
+    )
+    expect(onToggleAllRows).toHaveBeenCalledWith([rows[0]], true)
+  })
 })

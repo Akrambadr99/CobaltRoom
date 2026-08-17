@@ -14,6 +14,7 @@ import {
   serializeIssueWorkspaceState,
   type IssueWorkspaceState,
 } from '../../features/issues/issue-workspace-state'
+import { useAppServices } from '../providers/app-services-context'
 import './issues-page.css'
 import './pages.css'
 
@@ -26,6 +27,7 @@ const priorityOptions: readonly IssuePriority[] = [
 ]
 
 export function IssuesPage() {
+  const services = useAppServices()
   const [parameters, setParameters] = useSearchParams()
   const state = useMemo(() => parseIssueWorkspaceState(parameters), [parameters])
   const { issues, projects } = useIssueWorkspaceData(state)
@@ -256,6 +258,9 @@ export function IssuesPage() {
           onSort={handleSort}
           onToggleIssue={toggleIssue}
           onTogglePage={togglePage}
+          isIssueSelectable={(issue) =>
+            services.can('issue:update', issue.projectId)
+          }
         />
       )}
     </section>
@@ -275,6 +280,7 @@ interface IssueResultsProps {
   readonly onSort: (field: string) => void
   readonly onToggleIssue: (issue: Issue, selected: boolean) => void
   readonly onTogglePage: (issues: readonly Issue[], selected: boolean) => void
+  readonly isIssueSelectable: (issue: Issue) => boolean
 }
 
 function IssueResults({
@@ -290,6 +296,7 @@ function IssueResults({
   onSort,
   onToggleIssue,
   onTogglePage,
+  isIssueSelectable,
 }: IssueResultsProps) {
   const projectById = new Map(projects.map((project) => [project.id, project]))
   const columns: readonly DataTableColumn<Issue>[] = [
@@ -380,6 +387,7 @@ function IssueResults({
         onSort={onSort}
         selection={{
           getLabel: (issue) => `Select ${issue.title}`,
+          isRowSelectable: isIssueSelectable,
           isSelected: (issue) => selectedIssues.has(issue.id),
           onToggleRow: onToggleIssue,
           onToggleAllRows: onTogglePage,

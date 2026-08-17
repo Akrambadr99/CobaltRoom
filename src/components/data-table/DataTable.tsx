@@ -16,6 +16,7 @@ export interface DataTableSort {
 
 export interface DataTableSelection<TRow> {
   readonly getLabel: (row: TRow) => string
+  readonly isRowSelectable?: (row: TRow) => boolean
   readonly isSelected: (row: TRow) => boolean
   readonly onToggleRow: (row: TRow, selected: boolean) => void
   readonly onToggleAllRows: (rows: readonly TRow[], selected: boolean) => void
@@ -40,10 +41,14 @@ export function DataTable<TRow>({
   onSort,
   selection,
 }: DataTableProps<TRow>) {
+  const selectableRows = selection
+    ? rows.filter((row) => selection.isRowSelectable?.(row) !== false)
+    : []
   const selectedRowCount = selection
-    ? rows.filter((row) => selection.isSelected(row)).length
+    ? selectableRows.filter((row) => selection.isSelected(row)).length
     : 0
-  const allRowsSelected = rows.length > 0 && selectedRowCount === rows.length
+  const allRowsSelected =
+    selectableRows.length > 0 && selectedRowCount === selectableRows.length
   const someRowsSelected = selectedRowCount > 0 && !allRowsSelected
 
   return (
@@ -57,9 +62,10 @@ export function DataTable<TRow>({
                 <IndeterminateCheckbox
                   aria-label="Select all rows on this page"
                   checked={allRowsSelected}
+                  disabled={selectableRows.length === 0}
                   indeterminate={someRowsSelected}
                   onChange={(selected) => {
-                    selection.onToggleAllRows(rows, selected)
+                    selection.onToggleAllRows(selectableRows, selected)
                   }}
                 />
               </th>
@@ -104,6 +110,7 @@ export function DataTable<TRow>({
                   <IndeterminateCheckbox
                     aria-label={selection.getLabel(row)}
                     checked={selection.isSelected(row)}
+                    disabled={selection.isRowSelectable?.(row) === false}
                     indeterminate={false}
                     onChange={(selected) => {
                       selection.onToggleRow(row, selected)
@@ -125,6 +132,7 @@ export function DataTable<TRow>({
 interface IndeterminateCheckboxProps {
   readonly 'aria-label': string
   readonly checked: boolean
+  readonly disabled?: boolean
   readonly indeterminate: boolean
   readonly onChange: (checked: boolean) => void
 }
@@ -132,6 +140,7 @@ interface IndeterminateCheckboxProps {
 function IndeterminateCheckbox({
   'aria-label': ariaLabel,
   checked,
+  disabled = false,
   indeterminate,
   onChange,
 }: IndeterminateCheckboxProps) {
@@ -149,6 +158,7 @@ function IndeterminateCheckbox({
       aria-label={ariaLabel}
       type="checkbox"
       checked={checked}
+      disabled={disabled}
       onChange={(event) => {
         onChange(event.currentTarget.checked)
       }}

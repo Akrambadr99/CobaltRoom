@@ -6,7 +6,8 @@ import { IssuesPage } from './IssuesPage'
 import { AppProviders } from '../providers/AppProviders'
 import { createAtlasQueryClient } from '../query-client'
 import { createAppServices } from '../services'
-import { SimulatedNetwork } from '../../data'
+import { createAtlasFixtures, SimulatedNetwork } from '../../data'
+import type { UserId } from '../../domain'
 import { render, screen, within } from '../../test/render'
 
 function LocationProbe() {
@@ -17,11 +18,15 @@ function LocationProbe() {
 function renderIssues(
   path = '/issues',
   simulator = new SimulatedNetwork(),
+  actorId?: UserId,
 ) {
   return render(
     <AppProviders
       queryClient={createAtlasQueryClient()}
-      services={createAppServices({ simulator })}
+      services={createAppServices({
+        simulator,
+        ...(actorId ? { actorId } : {}),
+      })}
     >
       <MemoryRouter initialEntries={[path]}>
         <Routes>
@@ -62,6 +67,25 @@ describe('IssuesPage', () => {
     expect(await screen.findByText('Page 2 of 2')).toBeVisible()
     expect(screen.getByTestId('location')).toHaveTextContent('page=2')
     expect(within(table).getAllByRole('row')).toHaveLength(2)
+  })
+
+  it('prevents selecting issues a read-only actor cannot mutate', async () => {
+    const fixtures = createAtlasFixtures()
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+
+    if (!viewerId) throw new Error('Expected a read-only fixture actor.')
+
+    renderIssues('/issues', new SimulatedNetwork(), viewerId)
+
+    const table = await screen.findByRole('table', { name: 'Workspace issues' })
+    expect(
+      within(table).getByRole('checkbox', {
+        name: 'Select all rows on this page',
+      }),
+    ).toBeDisabled()
+    for (const checkbox of within(table).getAllByRole('checkbox')) {
+      expect(checkbox).toBeDisabled()
+    }
   })
 
   it('writes filters and sorting to the URL', async () => {

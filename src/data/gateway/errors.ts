@@ -1,6 +1,7 @@
 export type GatewayErrorCode =
   | 'cancelled'
   | 'conflict'
+  | 'forbidden'
   | 'invalid-request'
   | 'not-found'
   | 'simulated-failure'
@@ -42,6 +43,13 @@ export class GatewayConflictError extends GatewayError {
   constructor(message: string) {
     super('conflict', message)
     this.name = 'GatewayConflictError'
+  }
+}
+
+export class ForbiddenGatewayError extends GatewayError {
+  constructor(message = 'You do not have permission to perform this action.') {
+    super('forbidden', message)
+    this.name = 'ForbiddenGatewayError'
   }
 }
 

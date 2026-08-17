@@ -7,6 +7,7 @@ import { AppProviders } from '../providers/AppProviders'
 import { createAtlasQueryClient } from '../query-client'
 import { createAppServices } from '../services'
 import { createAtlasFixtures, SimulatedNetwork } from '../../data'
+import type { UserId } from '../../domain'
 import { render, screen } from '../../test/render'
 
 function getFixtureIssue() {
@@ -15,8 +16,11 @@ function getFixtureIssue() {
   return issue
 }
 
-function renderIssueDetail(path: string) {
-  const services = createAppServices({ simulator: new SimulatedNetwork() })
+function renderIssueDetail(path: string, actorId?: UserId) {
+  const services = createAppServices({
+    simulator: new SimulatedNetwork(),
+    ...(actorId ? { actorId } : {}),
+  })
   render(
     <AppProviders queryClient={createAtlasQueryClient()} services={services}>
       <MemoryRouter initialEntries={[path]}>
@@ -98,5 +102,23 @@ describe('IssueDetailPage', () => {
       'href',
       '/issues',
     )
+  })
+
+  it('presents issues as read-only when the actor cannot update them', async () => {
+    const fixtures = createAtlasFixtures()
+    const issue = fixtures.issues[0]
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+
+    if (!issue || !viewerId) {
+      throw new Error('Expected issue and viewer fixtures.')
+    }
+
+    renderIssueDetail(`/issues/${issue.id}`, viewerId)
+
+    expect(await screen.findByRole('heading', { name: issue.title })).toBeVisible()
+    expect(screen.getByText('Read-only access')).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Edit issue' }),
+    ).not.toBeInTheDocument()
   })
 })
