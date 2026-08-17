@@ -1,9 +1,15 @@
 import { useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 
+import { atlasQueryKeys } from '../../app/query/keys'
+import { useAppServices } from '../../app/providers/app-services-context'
 import { useAuthorization } from '../../app/providers/authorization-context'
-import { serializeIssueWorkspaceState } from '../issues'
-import { useUserPreferences } from '../../preferences'
+import {
+  reconcileIssueWorkspaceState,
+  serializeIssueWorkspaceState,
+} from '../issues'
+import { useUserPreferences, type SavedIssueView } from '../../preferences'
 
 export type CommandCategory = 'Actions' | 'Navigation' | 'Saved views'
 
@@ -13,11 +19,14 @@ export interface AppCommand {
   readonly label: string
   readonly keywords: readonly string[]
   readonly shortcut?: string
-  execute(): void
+  execute(): void | Promise<void>
 }
 
 export function useAppCommands(): readonly AppCommand[] {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { gateway, preferences: preferenceRepository, workspaceId } =
+    useAppServices()
   const authorization = useAuthorization()
   const preferences = useUserPreferences()
 
@@ -62,25 +71,65 @@ export function useAppCommands(): readonly AppCommand[] {
           ),
         ]
       : []
+    const openSavedView =
+      (view: SavedIssueView) => async (): Promise<void> => {
+        const metadata = await queryClient.fetchQuery({
+          queryKey: atlasQueryKeys.issueFilterMetadata(workspaceId),
+          queryFn: ({ signal }) =>
+            gateway.getIssueFilterMetadata(workspaceId, { signal }),
+          staleTime: 0,
+        })
+        const reconciled = reconcileIssueWorkspaceState(
+          view.state,
+          metadata.projects.map(({ project, statuses }) => ({
+            id: project.id,
+            statusIds: statuses.map(({ id }) => id),
+          })),
+        )
+        let filterStatus = ''
+        if (reconciled !== view.state) {
+          try {
+            preferenceRepository.updateIssueViewState(view.id, reconciled)
+            filterStatus =
+              'Unavailable workflow filters were removed and the saved view was updated.'
+          } catch (error) {
+            filterStatus = error instanceof Error
+              ? `Unavailable workflow filters were removed, but ${error.message.toLocaleLowerCase()}`
+              : 'Unavailable workflow filters were removed, but the saved view could not be updated.'
+          }
+        }
+        void navigate(
+          `/issues?${serializeIssueWorkspaceState(reconciled).toString()}`,
+          { state: filterStatus ? { filterStatus } : null },
+        )
+      }
     const savedViewCommands = preferences.savedIssueViews.map((view) =>
       command(
         `saved-view.${view.id}`,
         `Open saved view: ${view.name}`,
         'Saved views',
-        navigateTo(`/issues?${serializeIssueWorkspaceState(view.state).toString()}`),
+        openSavedView(view),
         ['filter', 'issues', view.name],
       ),
     )
 
     return [...actionCommands, ...navigationCommands, ...savedViewCommands]
-  }, [authorization, navigate, preferences.savedIssueViews])
+  }, [
+    authorization,
+    gateway,
+    navigate,
+    preferenceRepository,
+    preferences.savedIssueViews,
+    queryClient,
+    workspaceId,
+  ])
 }
 
 function command(
   id: string,
   label: string,
   category: CommandCategory,
-  execute: () => void,
+  execute: () => void | Promise<void>,
   keywords: readonly string[],
 ): AppCommand {
   return { id, label, category, execute, keywords }

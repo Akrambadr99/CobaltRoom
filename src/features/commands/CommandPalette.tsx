@@ -1,6 +1,7 @@
 import { useId, useMemo, useState, type KeyboardEvent } from 'react'
 
 import { filterCommands, useAppCommands, type AppCommand } from './command-registry'
+import { classifyAppError } from '../../app/errors/classify-app-error'
 import { ModalDialog } from '../../components/dialog/ModalDialog'
 import './command-palette.css'
 
@@ -12,6 +13,8 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const commands = useAppCommands()
   const [search, setSearch] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
+  const [pendingCommandId, setPendingCommandId] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState('')
   const titleId = useId()
   const descriptionId = useId()
   const listId = useId()
@@ -22,9 +25,18 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const safeActiveIndex = Math.min(activeIndex, filteredCommands.length - 1)
   const activeCommand = filteredCommands[safeActiveIndex]
 
-  const execute = (command: AppCommand): void => {
-    onClose()
-    command.execute()
+  const execute = async (command: AppCommand): Promise<void> => {
+    if (pendingCommandId) return
+    setErrorMessage('')
+    setPendingCommandId(command.id)
+    try {
+      await command.execute()
+      setPendingCommandId(null)
+      onClose()
+    } catch (error) {
+      setPendingCommandId(null)
+      setErrorMessage(classifyAppError(error).message)
+    }
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
@@ -42,7 +54,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       )
     } else if (event.key === 'Enter' && activeCommand) {
       event.preventDefault()
-      execute(activeCommand)
+      void execute(activeCommand)
     }
   }
 
@@ -50,9 +62,11 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     <ModalDialog
       titleId={titleId}
       descriptionId={descriptionId}
-      onRequestClose={onClose}
+      onRequestClose={() => {
+        if (!pendingCommandId) onClose()
+      }}
     >
-      <div className="command-palette">
+      <div className="command-palette" aria-busy={pendingCommandId !== null}>
         <div className="command-palette__header">
           <h2 id={titleId}>Command palette</h2>
           <p id={descriptionId}>
@@ -73,9 +87,11 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
             value={search}
             placeholder="Type a command…"
             autoComplete="off"
+            disabled={pendingCommandId !== null}
             onChange={(event) => {
               setSearch(event.currentTarget.value)
               setActiveIndex(0)
+              setErrorMessage('')
             }}
             onKeyDown={handleKeyDown}
           />
@@ -87,12 +103,13 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
               key={item.id}
               role="option"
               aria-selected={index === safeActiveIndex}
+              aria-disabled={pendingCommandId !== null}
               onMouseEnter={() => {
                 setActiveIndex(index)
               }}
               onMouseDown={(event) => {
                 event.preventDefault()
-                execute(item)
+                void execute(item)
               }}
             >
               <span>{item.label}</span>
@@ -103,6 +120,16 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         {filteredCommands.length === 0 ? (
           <p className="command-palette__empty" role="status">
             No commands match “{search.trim()}”.
+          </p>
+        ) : null}
+        {pendingCommandId ? (
+          <p className="command-palette__status" role="status">
+            Opening {commands.find(({ id }) => id === pendingCommandId)?.label ?? 'command'}…
+          </p>
+        ) : null}
+        {errorMessage ? (
+          <p className="command-palette__status" role="alert">
+            {errorMessage}
           </p>
         ) : null}
       </div>
