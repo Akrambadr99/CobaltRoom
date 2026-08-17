@@ -8,7 +8,7 @@ import {
 import { useAppServices } from '../../app/providers/app-services-context'
 import { atlasQueryKeys } from '../../app/query/keys'
 import { toIssueQuery, type IssueWorkspaceState } from './issue-workspace-state'
-import type { AtlasGateway, CreateIssueInput } from '../../data'
+import type { CreateIssueInput, IssueGateway } from '../../data'
 import type { Issue, IssuePriority } from '../../domain'
 import type { IssuePageSize } from '../../preferences/types'
 import { cancelIssueDerivedReads, reconcileIssueCaches } from '../../app/query/issue-cache'
@@ -122,7 +122,7 @@ export function useBulkUpdateIssuePriority() {
 }
 
 export async function updateIssuePriorities(
-  gateway: AtlasGateway,
+  gateway: Pick<IssueGateway, 'getIssue' | 'updateIssue'>,
   issues: readonly Issue[],
   priority: IssuePriority,
 ): Promise<BulkIssueUpdateResult> {

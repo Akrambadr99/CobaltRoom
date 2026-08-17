@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAppServices } from '../../app/providers/app-services-context'
 import type {
   AddProjectMemberInput,
-  AtlasGateway,
+  ProjectGateway,
   ProjectMembershipQuery,
   RemoveProjectMemberInput,
   UpdateProjectMemberInput,
@@ -47,7 +47,7 @@ export function useRemoveProjectMember(projectId: ProjectId) {
 
 function useProjectMembershipMutation<TInput>(
   projectId: ProjectId,
-  mutate: (gateway: AtlasGateway, input: TInput) => Promise<Project>,
+  mutate: (gateway: ProjectGateway, input: TInput) => Promise<Project>,
 ) {
   const { gateway, workspaceId } = useAppServices()
   const queryClient = useQueryClient()

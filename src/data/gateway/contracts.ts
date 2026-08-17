@@ -584,11 +584,14 @@ export interface DeleteIssueInput {
   readonly expectedRevision: number
 }
 
-export interface AtlasGateway {
+export interface WorkspaceActivityGateway {
   getWorkspaceActivity(
     query: WorkspaceActivityQuery,
     options?: RequestOptions,
   ): Promise<WorkspaceActivityData>
+}
+
+export interface WorkspaceAdministrationGateway {
   getWorkspaceInvitations(
     query: WorkspaceInvitationQuery,
     options?: RequestOptions,
@@ -617,10 +620,16 @@ export interface AtlasGateway {
     input: UpdateWorkspaceMembershipInput,
     options?: RequestOptions,
   ): Promise<Membership>
+}
+
+export interface AuthorizationGateway {
   getAuthorizationSession(
     workspaceId: WorkspaceId,
     options?: RequestOptions,
   ): Promise<AuthorizationSession>
+}
+
+export interface ProjectGateway {
   listProjects(
     workspaceId: WorkspaceId,
     options?: RequestOptions,
@@ -686,6 +695,9 @@ export interface AtlasGateway {
     input: ArchiveProjectInput,
     options?: RequestOptions,
   ): Promise<Project>
+}
+
+export interface IssueGateway {
   listIssues(query: IssueQuery, options?: RequestOptions): Promise<Page<Issue>>
   getIssue(id: IssueId, options?: RequestOptions): Promise<Issue>
   getIssueCreationMetadata(
@@ -696,6 +708,12 @@ export interface AtlasGateway {
     workspaceId: WorkspaceId,
     options?: RequestOptions,
   ): Promise<BoardMetadata>
+  createIssue(input: CreateIssueInput, options?: RequestOptions): Promise<Issue>
+  updateIssue(input: UpdateIssueInput, options?: RequestOptions): Promise<Issue>
+  deleteIssue(input: DeleteIssueInput, options?: RequestOptions): Promise<void>
+}
+
+export interface ReportingGateway {
   getWorkspaceAnalytics(
     query: WorkspaceAnalyticsQuery,
     options?: RequestOptions,
@@ -704,6 +722,9 @@ export interface AtlasGateway {
     query: GovernanceQuery,
     options?: RequestOptions,
   ): Promise<GovernanceReport>
+}
+
+export interface CollaborationGateway {
   getIssueActivity(
     issueId: IssueId,
     options?: RequestOptions,
@@ -728,6 +749,9 @@ export interface AtlasGateway {
     input: DeleteCommentInput,
     options?: RequestOptions,
   ): Promise<Comment>
+}
+
+export interface NotificationGateway {
   listNotifications(
     query: NotificationQuery,
     options?: RequestOptions,
@@ -748,7 +772,14 @@ export interface AtlasGateway {
     input: UpdateNotificationPreferencesInput,
     options?: RequestOptions,
   ): Promise<NotificationPreferences>
-  createIssue(input: CreateIssueInput, options?: RequestOptions): Promise<Issue>
-  updateIssue(input: UpdateIssueInput, options?: RequestOptions): Promise<Issue>
-  deleteIssue(input: DeleteIssueInput, options?: RequestOptions): Promise<void>
 }
+
+export interface AtlasGateway
+  extends AuthorizationGateway,
+    CollaborationGateway,
+    IssueGateway,
+    NotificationGateway,
+    ProjectGateway,
+    ReportingGateway,
+    WorkspaceActivityGateway,
+    WorkspaceAdministrationGateway {}
