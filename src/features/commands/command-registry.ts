@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useAuthorization } from '../../app/providers/authorization-context'
-import { serializeIssueWorkspaceState } from '../issues/issue-workspace-state'
+import { serializeIssueWorkspaceState } from '../issues'
 import { useUserPreferences } from '../../preferences'
 
 export type CommandCategory = 'Actions' | 'Navigation' | 'Saved views'

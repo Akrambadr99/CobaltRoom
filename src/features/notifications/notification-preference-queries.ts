@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { UpdateNotificationPreferencesInput } from '../../data'
 import type { NotificationPreferences } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 
 export function useNotificationPreferences() {
   const { gateway, workspaceId } = useAppServices()

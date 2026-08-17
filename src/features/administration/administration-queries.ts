@@ -5,7 +5,7 @@ import type {
   UpdateWorkspaceMembershipInput,
   WorkspaceAdministrationQuery,
 } from '../../data'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 
 export function useWorkspaceAdministration(query: WorkspaceAdministrationQuery) {
   const { gateway } = useAppServices()

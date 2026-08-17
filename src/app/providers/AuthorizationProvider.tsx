@@ -9,7 +9,7 @@ import {
 
 import { GatewayError } from '../../data'
 import { can as canPerform, type Permission, type ProjectId } from '../../domain'
-import { atlasQueryKeys } from '../../features/query-keys'
+import { atlasQueryKeys } from '../query/keys'
 import {
   AuthorizationContext,
   type AuthorizationState,

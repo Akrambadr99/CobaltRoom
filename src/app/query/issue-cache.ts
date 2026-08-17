@@ -2,7 +2,7 @@ import type { InfiniteData, QueryClient } from '@tanstack/react-query'
 
 import type { Page } from '../../data'
 import type { Issue, WorkspaceId } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from './keys'
 
 /**
  * Stops reads whose results are derived from issue state before a mutation begins.

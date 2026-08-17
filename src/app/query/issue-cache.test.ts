@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createAtlasFixtures, type Page } from '../../data'
 import type { Issue } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from './keys'
 import {
   cancelIssueDerivedReads,
   reconcileIssueCaches,

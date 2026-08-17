@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { IssueActivityData } from '../../data'
 import type { Comment, CommentId, IssueId, UserId } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 
 interface UpdateCommentVariables {
   readonly comment: Comment

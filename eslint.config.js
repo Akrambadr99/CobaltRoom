@@ -48,4 +48,48 @@ export default tseslint.config(
     ignores: ['src/**/*.test.{ts,tsx}', 'src/test/**'],
     extends: [reactRefresh.configs.vite],
   },
+  {
+    files: ['src/domain/**/*.{ts,tsx}', 'src/data/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react',
+              message: 'Domain and data layers must remain independent of React.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['**/app/**', '**/features/**'],
+              message: 'Domain and data layers cannot depend on application or feature modules.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/features/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '^\\.\\./[^./][^/]*/',
+              message: 'Feature modules must not import another feature private implementation.',
+            },
+            {
+              group: ['**/data/store', '**/data/snapshot'],
+              message: 'UI features must access authoritative data through gateway capabilities.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 )

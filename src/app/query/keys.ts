@@ -5,8 +5,8 @@ import type {
   ProjectSummaryQuery,
   WorkspaceInvitationQuery,
   WorkspaceActivityQuery,
-} from '../data'
-import type { IssueId, NotificationCategory, ProjectId, WorkspaceId } from '../domain'
+} from '../../data'
+import type { IssueId, NotificationCategory, ProjectId, WorkspaceId } from '../../domain'
 
 export const atlasQueryKeys = {
   workspaceActivityReports: (workspaceId: WorkspaceId) =>

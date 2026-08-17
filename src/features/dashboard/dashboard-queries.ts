@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { AnalyticsRange, Page } from '../../data'
 import type { Issue, IssuePriority } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
-import { cancelIssueDerivedReads, reconcileIssueCaches } from '../issues/issue-cache'
+import { atlasQueryKeys } from '../../app/query/keys'
+import { cancelIssueDerivedReads, reconcileIssueCaches } from '../../app/query/issue-cache'
 
 export function useDashboardData() {
   const { gateway, workspaceId } = useAppServices()

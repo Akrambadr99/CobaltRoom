@@ -9,7 +9,7 @@ import type {
   UpdateProjectMemberInput,
 } from '../../data'
 import type { Project, ProjectId } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 
 export function useProjectMembershipAdministration(
   query: ProjectMembershipQuery,

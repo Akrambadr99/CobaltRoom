@@ -8,7 +8,7 @@ import type {
   RevokeWorkspaceInvitationInput,
   WorkspaceInvitationQuery,
 } from '../../data'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 
 export function useWorkspaceInvitations(query: WorkspaceInvitationQuery) {
   const { gateway } = useAppServices()

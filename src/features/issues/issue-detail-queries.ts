@@ -3,12 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { MutableIssueFields } from '../../data'
 import type { Issue, IssueId, UserId } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 import {
   cancelIssueDerivedReads,
   reconcileIssueCaches,
   rollbackIssueCaches,
-} from './issue-cache'
+} from '../../app/query/issue-cache'
 
 export function useIssueDetailData(issueId: IssueId) {
   const { gateway, workspaceId } = useAppServices()

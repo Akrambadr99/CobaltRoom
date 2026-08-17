@@ -9,12 +9,12 @@ import {
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { Page } from '../../data'
 import type { Issue, ProjectId, WorkflowStatusId } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 import {
   cancelIssueDerivedReads,
   reconcileIssueCaches,
   rollbackIssueCaches,
-} from '../issues/issue-cache'
+} from '../../app/query/issue-cache'
 
 export function useBoardMetadata() {
   const { gateway, workspaceId } = useAppServices()

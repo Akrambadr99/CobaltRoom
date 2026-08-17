@@ -7,7 +7,7 @@ import type {
   ProjectEditMetadata,
 } from '../../data'
 import type { Project, ProjectId } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 import type { ProjectWorkspaceState } from './project-workspace-state'
 
 export function useProjectSummaries(state: ProjectWorkspaceState) {

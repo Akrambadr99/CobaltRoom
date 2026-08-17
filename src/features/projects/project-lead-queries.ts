@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { TransferProjectLeadInput } from '../../data'
 import type { ProjectId } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 
 export function useProjectLeadTransfer(projectId: ProjectId, enabled: boolean) {
   const { gateway, workspaceId } = useAppServices()

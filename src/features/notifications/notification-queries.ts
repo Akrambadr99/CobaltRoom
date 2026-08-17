@@ -12,7 +12,7 @@ import type {
   UpdateNotificationsReadStateInput,
 } from '../../data'
 import type { NotificationCategory } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 
 export function useNotificationInbox(
   category?: NotificationCategory,

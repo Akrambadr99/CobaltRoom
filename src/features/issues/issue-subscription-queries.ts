@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { IssueSubscriptionData, SetIssueSubscriptionInput } from '../../data'
 import type { IssueId } from '../../domain'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 
 interface SubscriptionMutationContext {
   readonly previous: IssueSubscriptionData | undefined

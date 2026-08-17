@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { useAppServices } from '../../app/providers/app-services-context'
 import type { WorkspaceActivityQuery } from '../../data'
-import { atlasQueryKeys } from '../query-keys'
+import { atlasQueryKeys } from '../../app/query/keys'
 
 export function useWorkspaceActivity(query: WorkspaceActivityQuery) {
   const { gateway } = useAppServices()
