@@ -1,7 +1,8 @@
-import { useMemo, type SyntheticEvent } from 'react'
+import { useMemo, useState, type SyntheticEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import type { ProjectStatus } from '../../domain'
+import { ProjectCreateDialog } from '../../features/projects/ProjectCreateDialog'
 import { useProjectSummaries } from '../../features/projects/project-queries'
 import {
   isProjectStatus,
@@ -9,6 +10,7 @@ import {
   serializeProjectWorkspaceState,
   type ProjectWorkspaceState,
 } from '../../features/projects/project-workspace-state'
+import { useAuthorization } from '../providers/authorization-context'
 import './pages.css'
 
 const projectStatuses: readonly ProjectStatus[] = [
@@ -20,7 +22,9 @@ const projectStatuses: readonly ProjectStatus[] = [
 ]
 
 export function ProjectsPage() {
+  const authorization = useAuthorization()
   const [parameters, setParameters] = useSearchParams()
+  const [createOpen, setCreateOpen] = useState(false)
   const state = useMemo(
     () => parseProjectWorkspaceState(parameters),
     [parameters],
@@ -47,7 +51,13 @@ export function ProjectsPage() {
 
   return (
     <section className="page" aria-labelledby="projects-title">
-      <ProjectsHeader count={projects.data?.totalItems} />
+      <ProjectsHeader
+        count={projects.data?.totalItems}
+        canCreate={authorization.can('project:create')}
+        onCreate={() => {
+          setCreateOpen(true)
+        }}
+      />
       <form className="project-filters" role="search" onSubmit={handleSearch}>
         <label>
           <span>Search projects</span>
@@ -191,11 +201,26 @@ export function ProjectsPage() {
           </nav>
         </>
       )}
+      {createOpen ? (
+        <ProjectCreateDialog
+          onClose={() => {
+            setCreateOpen(false)
+          }}
+        />
+      ) : null}
     </section>
   )
 }
 
-function ProjectsHeader({ count }: Readonly<{ count: number | undefined }>) {
+function ProjectsHeader({
+  count,
+  canCreate,
+  onCreate,
+}: Readonly<{
+  count: number | undefined
+  canCreate: boolean
+  onCreate: () => void
+}>) {
   return (
     <header className="page-header projects-header">
       <div>
@@ -203,11 +228,18 @@ function ProjectsHeader({ count }: Readonly<{ count: number | undefined }>) {
         <h1 id="projects-title">Projects</h1>
         <p>Review active initiatives, operating context, and tracked work.</p>
       </div>
-      {count !== undefined ? (
-        <p className="projects-header__count" aria-live="polite">
-          {count} matching {count === 1 ? 'project' : 'projects'}
-        </p>
-      ) : null}
+      <div className="projects-header__actions">
+        {count !== undefined ? (
+          <p className="projects-header__count" aria-live="polite">
+            {count} matching {count === 1 ? 'project' : 'projects'}
+          </p>
+        ) : null}
+        {canCreate ? (
+          <button className="primary-button" type="button" onClick={onCreate}>
+            Create project
+          </button>
+        ) : null}
+      </div>
     </header>
   )
 }

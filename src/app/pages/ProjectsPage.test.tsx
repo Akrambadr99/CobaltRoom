@@ -6,21 +6,38 @@ import { ProjectsPage } from './ProjectsPage'
 import { AppProviders } from '../providers/AppProviders'
 import { createAtlasQueryClient } from '../query-client'
 import { createAppServices } from '../services'
-import { SimulatedNetwork, type RequestSimulator } from '../../data'
-import { render, screen, within } from '../../test/render'
+import {
+  createAtlasFixtures,
+  InMemoryDataStore,
+  SimulatedNetwork,
+  type RequestSimulator,
+} from '../../data'
+import type { UserId } from '../../domain'
+import { render, screen, waitFor, within } from '../../test/render'
 
 function LocationProbe() {
   const location = useLocation()
-  return <output data-testid="location">{location.search}</output>
+  return (
+    <output data-testid="location">
+      {location.pathname}
+      {location.search}
+    </output>
+  )
 }
 
 function renderProjects(
   path = '/projects',
   simulator: RequestSimulator = new SimulatedNetwork(),
+  actorId?: UserId,
+  dataStore?: InMemoryDataStore,
 ) {
-  const services = createAppServices({ simulator })
+  const services = createAppServices({
+    simulator,
+    ...(actorId ? { actorId } : {}),
+    ...(dataStore ? { dataStore } : {}),
+  })
 
-  return render(
+  const view = render(
     <AppProviders queryClient={createAtlasQueryClient()} services={services}>
       <MemoryRouter initialEntries={[path]}>
         <ProjectsPage />
@@ -28,6 +45,7 @@ function renderProjects(
       </MemoryRouter>
     </AppProviders>,
   )
+  return { ...view, services }
 }
 
 describe('ProjectsPage', () => {
@@ -64,11 +82,57 @@ describe('ProjectsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Search' }))
     expect(await screen.findByText('1 matching project')).toBeVisible()
     expect(screen.getByText('Field reliability')).toBeVisible()
-    expect(screen.getByTestId('location')).toHaveTextContent('q=REL')
+    expect(screen.getByTestId('location')).toHaveTextContent('/projects?q=REL')
 
     await user.selectOptions(screen.getByLabelText('Status'), 'planned')
     expect(await screen.findByText('No matching projects')).toBeVisible()
     expect(screen.getByTestId('location')).toHaveTextContent('status=planned')
+  })
+
+  it('creates a project with an accessible, validated workflow and navigates to it', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const lead = fixtures.users.find(({ displayName }) => displayName === 'Maya Chen')
+    if (!lead) throw new Error('Expected a project lead fixture.')
+    const store = new InMemoryDataStore(fixtures)
+    renderProjects('/projects', new SimulatedNetwork(), undefined, store)
+    await screen.findByRole('list', { name: 'Workspace projects' })
+
+    await user.click(screen.getByRole('button', { name: 'Create project' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Create project' })
+    const name = within(dialog).getByLabelText('Name')
+    expect(name).toHaveFocus()
+    await user.click(within(dialog).getByRole('button', { name: 'Create project' }))
+    expect(within(dialog).getByText(/enter a project name/i)).toBeVisible()
+    expect(within(dialog).getByText(/use 2-10 uppercase/i)).toBeVisible()
+
+    await user.type(name, 'Security readiness')
+    await user.type(within(dialog).getByLabelText('Key'), 'sec')
+    await user.selectOptions(
+      within(dialog).getByLabelText('Project lead'),
+      lead.id,
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'Create project' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        /^\/projects\/prj_gateway_created_/,
+      )
+    })
+    const created = store.read().data.projects.find(({ key }) => key === 'SEC')
+    expect(created).toMatchObject({ name: 'Security readiness', status: 'planned' })
+  })
+
+  it('does not expose project creation to viewers', async () => {
+    const fixtures = createAtlasFixtures()
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    if (!viewerId) throw new Error('Expected a viewer fixture.')
+    renderProjects('/projects', new SimulatedNetwork(), viewerId)
+    await screen.findByRole('list', { name: 'Workspace projects' })
+
+    expect(
+      screen.queryByRole('button', { name: 'Create project' }),
+    ).not.toBeInTheDocument()
   })
 
   it('offers recovery for stale out-of-range deep links', async () => {
@@ -80,7 +144,7 @@ describe('ProjectsPage', () => {
     expect(
       await screen.findByRole('list', { name: 'Workspace projects' }),
     ).toBeVisible()
-    expect(screen.getByTestId('location')).toHaveTextContent(/^$/)
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/projects$/)
   })
 
   it('provides a retry action for failed project requests', async () => {

@@ -95,6 +95,32 @@ test('filters the authoritative project portfolio with durable URL state', async
   await expect(page.getByText('No matching projects')).toBeVisible()
 })
 
+test('creates a governed project foundation with an accessible workflow', async ({
+  page,
+}) => {
+  await page.goto('/projects')
+  await page.getByRole('button', { name: 'Create project' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Create project' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByLabel('Name', { exact: true })).toBeFocused()
+
+  await dialog.getByLabel('Name', { exact: true }).fill('Security readiness')
+  await dialog.getByLabel('Key').fill('SEC')
+  await dialog
+    .getByLabel('Description')
+    .fill('Coordinate security controls, evidence, and launch acceptance.')
+  await dialog.getByLabel('Project lead').selectOption({ label: 'Maya Chen' })
+  await dialog.getByLabel('Stage 2 name').fill('Verifying')
+  await dialog.getByRole('button', { name: 'Create project' }).click()
+
+  await expect(page).toHaveURL(/\/projects\/prj_gateway_created_/)
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Security readiness' }),
+  ).toBeVisible()
+  await expect(page.getByText('SEC · planned')).toBeVisible()
+  await expect(page.getByText(/Created SEC with 3 workflow stages\./)).toBeVisible()
+})
+
 test('governs project lifecycle changes and archival', async ({ page }) => {
   await page.goto('/projects')
   await page.getByRole('link', { name: 'Launch readiness' }).click()

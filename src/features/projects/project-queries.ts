@@ -1,7 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useAppServices } from '../../app/providers/app-services-context'
-import type { MutableProjectFields, ProjectEditMetadata } from '../../data'
+import type {
+  CreateProjectInput,
+  MutableProjectFields,
+  ProjectEditMetadata,
+} from '../../data'
 import type { Project, ProjectId } from '../../domain'
 import { atlasQueryKeys } from '../query-keys'
 import type { ProjectWorkspaceState } from './project-workspace-state'
@@ -18,6 +22,46 @@ export function useProjectSummaries(state: ProjectWorkspaceState) {
   return useQuery({
     queryKey: atlasQueryKeys.projectSummaries(query),
     queryFn: ({ signal }) => gateway.listProjectSummaries(query, { signal }),
+  })
+}
+
+export function useProjectCreationMetadata(enabled: boolean) {
+  const { gateway, workspaceId } = useAppServices()
+  return useQuery({
+    queryKey: [...atlasQueryKeys.projects(workspaceId), 'creation-metadata'],
+    queryFn: ({ signal }) =>
+      gateway.getProjectCreationMetadata(workspaceId, { signal }),
+    enabled,
+  })
+}
+
+export function useCreateProject() {
+  const { gateway, workspaceId } = useAppServices()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: CreateProjectInput) => gateway.createProject(input),
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.projects(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.analytics(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.boardMetadata(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.issueCreationMetadata(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.governanceReports(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: atlasQueryKeys.authorization(workspaceId),
+        }),
+      ])
+    },
   })
 }
 

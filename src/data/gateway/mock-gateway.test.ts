@@ -109,6 +109,112 @@ describe('MockAtlasGateway', () => {
     ])
   })
 
+  it('creates an atomic project foundation with ownership, workflow, and audit evidence', async () => {
+    const { fixtures, gateway, store, tracer } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    const lead = fixtures.users.find(({ displayName }) => displayName === 'Maya Chen')
+    if (!workspaceId || !lead) throw new Error('Expected project creation fixtures.')
+
+    const metadata = await gateway.getProjectCreationMetadata(workspaceId)
+    expect(metadata.eligibleLeads.map(({ displayName }) => displayName)).toEqual([
+      'Lena Ortiz',
+      'Maya Chen',
+      'Omar Haddad',
+      'Theo Martin',
+    ])
+
+    const project = await gateway.createProject({
+      workspaceId,
+      key: ' sec ',
+      name: ' Security readiness ',
+      description: ' Prepare controls and evidence. ',
+      leadId: lead.id,
+      workflow: [
+        { name: 'Queued', category: 'backlog' },
+        { name: 'Verifying', category: 'started' },
+        { name: 'Accepted', category: 'completed' },
+      ],
+    })
+
+    expect(project).toMatchObject({
+      key: 'SEC',
+      name: 'Security readiness',
+      description: 'Prepare controls and evidence.',
+      leadId: lead.id,
+      status: 'planned',
+      revision: 1,
+    })
+    const snapshot = store.read().data
+    expect(
+      snapshot.projectMembers.find(({ projectId }) => projectId === project.id),
+    ).toMatchObject({ userId: lead.id, role: 'lead' })
+    expect(
+      snapshot.workflowStatuses
+        .filter(({ projectId }) => projectId === project.id)
+        .map(({ name, category, order }) => ({ name, category, order })),
+    ).toEqual([
+      { name: 'Queued', category: 'backlog', order: 0 },
+      { name: 'Verifying', category: 'started', order: 1 },
+      { name: 'Accepted', category: 'completed', order: 2 },
+    ])
+    expect(snapshot.activityEvents.at(-1)).toMatchObject({
+      action: 'project.created',
+      entityId: project.id,
+    })
+    expect(snapshot.auditEvents.at(-1)).toMatchObject({
+      action: 'project.created',
+      metadata: { projectKey: 'SEC', leadId: lead.id, workflowStages: 3 },
+    })
+    expect(tracer.read().at(-1)).toMatchObject({
+      operation: 'project.create',
+      phase: 'succeeded',
+    })
+  })
+
+  it('rejects duplicate keys, invalid workflows, and unauthorized project creation', async () => {
+    const { fixtures, gateway } = createGateway()
+    const workspaceId = fixtures.workspaces[0]?.id
+    const lead = fixtures.users[0]
+    const viewerId = fixtures.memberships.find(({ role }) => role === 'viewer')?.userId
+    if (!workspaceId || !lead || !viewerId) {
+      throw new Error('Expected project validation fixtures.')
+    }
+    const validInput = {
+      workspaceId,
+      key: 'NEW',
+      name: 'New project',
+      description: '',
+      leadId: lead.id,
+      workflow: [
+        { name: 'Open', category: 'backlog' as const },
+        { name: 'Done', category: 'completed' as const },
+      ],
+    }
+
+    await gateway.createProject(validInput)
+    await expect(gateway.createProject(validInput)).rejects.toBeInstanceOf(
+      GatewayConflictError,
+    )
+    await expect(
+      gateway.createProject({
+        ...validInput,
+        key: 'BAD',
+        workflow: [
+          { name: 'Same', category: 'started' },
+          { name: 'same', category: 'completed' },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(InvalidGatewayRequestError)
+
+    const { gateway: viewerGateway } = createGateway(
+      new SimulatedNetwork(),
+      viewerId,
+    )
+    await expect(viewerGateway.createProject(validInput)).rejects.toBeInstanceOf(
+      ForbiddenGatewayError,
+    )
+  })
+
   it('updates project lifecycle fields and transfers leadership atomically', async () => {
     const { fixtures, gateway, store } = createGateway()
     const project = fixtures.projects[0]

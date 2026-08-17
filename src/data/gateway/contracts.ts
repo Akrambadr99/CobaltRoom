@@ -22,6 +22,7 @@ import type {
   UserId,
   User,
   WorkflowStatus,
+  WorkflowStatusCategory,
   WorkflowStatusId,
   WorkspaceId,
 } from '../../domain'
@@ -65,6 +66,24 @@ export interface ProjectSummary {
 export interface ProjectEditMetadata {
   readonly project: Project
   readonly eligibleLeads: readonly User[]
+}
+
+export interface ProjectCreationMetadata {
+  readonly eligibleLeads: readonly User[]
+}
+
+export interface CreateProjectWorkflowStatusInput {
+  readonly name: string
+  readonly category: WorkflowStatusCategory
+}
+
+export interface CreateProjectInput {
+  readonly workspaceId: WorkspaceId
+  readonly key: string
+  readonly name: string
+  readonly description: string
+  readonly leadId: UserId
+  readonly workflow: readonly CreateProjectWorkflowStatusInput[]
 }
 
 export interface ProjectActivityEntry {
@@ -295,6 +314,14 @@ export interface AtlasGateway {
     projectId: ProjectId,
     options?: RequestOptions,
   ): Promise<ProjectEditMetadata>
+  getProjectCreationMetadata(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<ProjectCreationMetadata>
+  createProject(
+    input: CreateProjectInput,
+    options?: RequestOptions,
+  ): Promise<Project>
   getProjectActivity(
     projectId: ProjectId,
     page?: PageRequest,

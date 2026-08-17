@@ -5,6 +5,7 @@ import type {
   BoardMetadata,
   CreateCommentInput,
   CreateIssueInput,
+  CreateProjectInput,
   DeleteCommentInput,
   DeleteIssueInput,
   GovernanceQuery,
@@ -17,6 +18,7 @@ import type {
   NotificationQuery,
   Page,
   ProjectSummaryQuery,
+  ProjectCreationMetadata,
   ProjectEditMetadata,
   ProjectActivityData,
   RequestOptions,
@@ -63,6 +65,7 @@ import {
   type Project,
   type ProjectId,
   type ProjectStatus,
+  type WorkflowStatusCategory,
   type UserId,
   type WorkspaceId,
   isoDate,
@@ -81,6 +84,14 @@ const projectStatusTransitions: Readonly<Record<ProjectStatus, ReadonlySet<Proje
   completed: new Set(['active']),
   archived: new Set(),
 }
+
+const workflowCategories: ReadonlySet<WorkflowStatusCategory> = new Set([
+  'backlog',
+  'unstarted',
+  'started',
+  'completed',
+  'canceled',
+])
 
 export interface MockAtlasGatewayOptions {
   readonly store: InMemoryDataStore
@@ -211,6 +222,179 @@ export class MockAtlasGateway implements AtlasGateway {
           .filter(({ id }) => activeUserIds.has(id) && projectUserIds.has(id))
           .sort((left, right) => left.displayName.localeCompare(right.displayName)),
       }
+    })
+  }
+
+  getProjectCreationMetadata(
+    workspaceId: WorkspaceId,
+    options?: RequestOptions,
+  ): Promise<ProjectCreationMetadata> {
+    return this.execute('project.creation-metadata', options, () => {
+      this.assertPermission('project:create', workspaceId)
+      const data = this.store.read().data
+      const activeUserIds = new Set(
+        data.memberships
+          .filter(
+            (membership) =>
+              membership.workspaceId === workspaceId &&
+              membership.status === 'active',
+          )
+          .map(({ userId }) => userId),
+      )
+      return {
+        eligibleLeads: data.users
+          .filter(({ id }) => activeUserIds.has(id))
+          .sort((left, right) => left.displayName.localeCompare(right.displayName)),
+      }
+    })
+  }
+
+  createProject(
+    input: CreateProjectInput,
+    options?: RequestOptions,
+  ): Promise<Project> {
+    return this.execute('project.create', options, (requestId) => {
+      this.assertPermission('project:create', input.workspaceId)
+      const current = this.store.read()
+      const key = input.key.trim().toLocaleUpperCase()
+      const name = input.name.trim()
+      const description = input.description.trim()
+
+      if (!/^[A-Z][A-Z0-9]{1,9}$/.test(key)) {
+        throw new InvalidGatewayRequestError(
+          'Project keys must contain 2-10 uppercase letters or digits and begin with a letter.',
+        )
+      }
+      if (name.length === 0 || name.length > 120) {
+        throw new InvalidGatewayRequestError(
+          'Project names must contain 1 to 120 characters.',
+        )
+      }
+      if (description.length > 5_000) {
+        throw new InvalidGatewayRequestError(
+          'Project descriptions may not exceed 5,000 characters.',
+        )
+      }
+      if (
+        current.data.projects.some(
+          (project) =>
+            project.workspaceId === input.workspaceId && project.key === key,
+        )
+      ) {
+        throw new GatewayConflictError(
+          `Project key ${key} is already in use. Choose another key.`,
+        )
+      }
+      const leadIsEligible = current.data.memberships.some(
+        (membership) =>
+          membership.workspaceId === input.workspaceId &&
+          membership.userId === input.leadId &&
+          membership.status === 'active',
+      )
+      if (!leadIsEligible) {
+        throw new InvalidGatewayRequestError(
+          'Project leads must be active workspace members.',
+        )
+      }
+      const normalizedWorkflow = input.workflow.map((status) => ({
+        name: status.name.trim(),
+        category: status.category,
+      }))
+      const workflowNames = new Set(
+        normalizedWorkflow.map(({ name: statusName }) =>
+          statusName.toLocaleLowerCase(),
+        ),
+      )
+      if (
+        normalizedWorkflow.length < 2 ||
+        normalizedWorkflow.length > 10 ||
+        normalizedWorkflow.some(
+          (status) =>
+            status.name.length === 0 ||
+            status.name.length > 60 ||
+            !workflowCategories.has(status.category),
+        ) ||
+        workflowNames.size !== normalizedWorkflow.length ||
+        !normalizedWorkflow.some(({ category }) => category === 'completed') ||
+        !normalizedWorkflow.some(
+          ({ category }) => category !== 'completed' && category !== 'canceled',
+        )
+      ) {
+        throw new InvalidGatewayRequestError(
+          'Project workflows require 2-10 uniquely named stages, including open and completed work.',
+        )
+      }
+
+      const occurredAt = this.clock.now()
+      const project: Project = {
+        id: this.ids.project('created'),
+        workspaceId: input.workspaceId,
+        key,
+        name,
+        description,
+        leadId: input.leadId,
+        status: 'planned',
+        revision: 1,
+        createdAt: occurredAt,
+        updatedAt: occurredAt,
+      }
+      const workflowStatuses = normalizedWorkflow.map((status, order) => ({
+        id: this.ids.workflowStatus('created'),
+        projectId: project.id,
+        name: status.name,
+        category: status.category,
+        order,
+      }))
+
+      this.commit(current.version, {
+        ...current.data,
+        projects: [...current.data.projects, project],
+        projectMembers: [
+          ...current.data.projectMembers,
+          {
+            id: this.ids.projectMember('created_lead'),
+            projectId: project.id,
+            userId: project.leadId,
+            role: 'lead',
+          },
+        ],
+        workflowStatuses: [
+          ...current.data.workflowStatuses,
+          ...workflowStatuses,
+        ],
+        activityEvents: [
+          ...current.data.activityEvents,
+          {
+            id: this.ids.activity('project_created'),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            entityKind: 'project',
+            entityId: project.id,
+            action: 'project.created',
+            occurredAt,
+            summary: `Created ${project.key} with ${workflowStatuses.length.toString()} workflow stages.`,
+          },
+        ],
+        auditEvents: [
+          ...current.data.auditEvents,
+          {
+            id: this.ids.audit('project_created'),
+            workspaceId: project.workspaceId,
+            actorId: this.actorId,
+            requestId,
+            action: 'project.created',
+            outcome: 'succeeded',
+            occurredAt,
+            metadata: {
+              projectId: project.id,
+              projectKey: project.key,
+              leadId: project.leadId,
+              workflowStages: workflowStatuses.length,
+            },
+          },
+        ],
+      })
+      return project
     })
   }
 

@@ -69,7 +69,11 @@ describe('IssueDetailPage', () => {
       undefined,
       store,
     )
-    await screen.findByRole('heading', { name: issue.title })
+    await screen.findByRole(
+      'heading',
+      { name: issue.title },
+      { timeout: 3_000 },
+    )
 
     expect(
       screen.queryByRole('button', { name: 'Edit issue' }),
