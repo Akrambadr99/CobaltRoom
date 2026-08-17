@@ -88,6 +88,7 @@ import {
   type Comment,
   type Issue,
   type IssueId,
+  type IsoDateTime,
   type Notification,
   type NotificationKind,
   type NotificationPreferences,
@@ -1054,6 +1055,13 @@ export class MockAtlasGateway implements AtlasGateway {
         return { ...issue, statusId, revision: issue.revision + 1, updatedAt: occurredAt }
       })
       const statusNames = new Map(normalized.map(({ id, name }) => [id, name]))
+      const projectNotifications = this.buildProjectUpdateNotifications(
+        current.data,
+        project,
+        occurredAt,
+        `${project.key} workflow updated`,
+        `The workflow now has ${normalized.length.toString()} stages; ${migratedIssues.length.toString()} issues were migrated.`,
+      )
       this.commit(current.version, {
         ...current.data,
         projects,
@@ -1062,6 +1070,7 @@ export class MockAtlasGateway implements AtlasGateway {
           ...normalized,
         ],
         issues,
+        notifications: [...current.data.notifications, ...projectNotifications],
         activityEvents: [
           ...current.data.activityEvents,
           {
@@ -1366,9 +1375,17 @@ export class MockAtlasGateway implements AtlasGateway {
       }
       const projects = [...current.data.projects]
       projects[projectIndex] = updated
+      const projectNotifications = this.buildProjectUpdateNotifications(
+        current.data,
+        project,
+        occurredAt,
+        `${project.key} project updated`,
+        `${updated.name} is now ${updated.status}.`,
+      )
       this.commit(current.version, {
         ...current.data,
         projects,
+        notifications: [...current.data.notifications, ...projectNotifications],
         activityEvents: [
           ...current.data.activityEvents,
           {
@@ -1431,9 +1448,17 @@ export class MockAtlasGateway implements AtlasGateway {
       }
       const projects = [...current.data.projects]
       projects[projectIndex] = archived
+      const projectNotifications = this.buildProjectUpdateNotifications(
+        current.data,
+        project,
+        occurredAt,
+        `${project.key} was archived`,
+        `${project.name} is now read-only.`,
+      )
       this.commit(current.version, {
         ...current.data,
         projects,
+        notifications: [...current.data.notifications, ...projectNotifications],
         activityEvents: [
           ...current.data.activityEvents,
           {
@@ -1968,6 +1993,7 @@ export class MockAtlasGateway implements AtlasGateway {
         assignments: input.assignments,
         comments: input.comments,
         issueUpdates: input.issueUpdates,
+        projectUpdates: input.projectUpdates,
         revision: preferences.revision + 1,
       }
       const notificationPreferences = [...current.data.notificationPreferences]
@@ -2813,7 +2839,46 @@ export class MockAtlasGateway implements AtlasGateway {
     if (!preferences) return false
     if (kind === 'assignment') return preferences.assignments
     if (kind === 'comment' || kind === 'mention') return preferences.comments
+    if (kind === 'project-update') return preferences.projectUpdates
     return preferences.issueUpdates
+  }
+
+  private buildProjectUpdateNotifications(
+    data: AtlasDataSnapshot,
+    project: Project,
+    occurredAt: IsoDateTime,
+    title: string,
+    body: string,
+  ): readonly Notification[] {
+    const recipientIds = new Set(
+      data.projectSubscriptions
+        .filter(
+          ({ projectId, userId }) =>
+            projectId === project.id &&
+            userId !== this.actorId &&
+            this.allowsNotification(
+              data,
+              project.workspaceId,
+              userId,
+              'project-update',
+            ),
+        )
+        .map(({ userId }) => userId),
+    )
+
+    return [...recipientIds]
+      .sort((left, right) => left.localeCompare(right))
+      .map((recipientId) => ({
+        id: this.ids.notification('project_updated'),
+        workspaceId: project.workspaceId,
+        recipientId,
+        kind: 'project-update' as const,
+        target: { kind: 'project' as const, id: project.id },
+        title,
+        body,
+        occurredAt,
+        readAt: null,
+      }))
   }
 
   private resolveCommentMentions(
@@ -3339,6 +3404,7 @@ export class MockAtlasGateway implements AtlasGateway {
                   assignments: true,
                   comments: true,
                   issueUpdates: true,
+                  projectUpdates: true,
                   revision: 1,
                 },
               ],

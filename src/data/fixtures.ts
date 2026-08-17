@@ -461,6 +461,7 @@ export function createAtlasFixtures(
       assignments: true,
       comments: true,
       issueUpdates: true,
+      projectUpdates: true,
       revision: 1,
     })),
   }

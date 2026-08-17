@@ -394,6 +394,7 @@ export interface UpdateNotificationPreferencesInput {
   readonly assignments: boolean
   readonly comments: boolean
   readonly issueUpdates: boolean
+  readonly projectUpdates: boolean
 }
 
 export interface AnalyticsBreakdown<TValue extends string> {

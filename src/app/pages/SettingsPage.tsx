@@ -23,7 +23,7 @@ export function SettingsPage() {
   const [localError, setLocalError] = useState('')
 
   const changeNotificationPreference = (
-    key: 'assignments' | 'comments' | 'issueUpdates',
+    key: 'assignments' | 'comments' | 'issueUpdates' | 'projectUpdates',
     enabled: boolean,
   ): void => {
     const current = notificationPreferences.data
@@ -36,6 +36,7 @@ export function SettingsPage() {
         assignments: key === 'assignments' ? enabled : current.assignments,
         comments: key === 'comments' ? enabled : current.comments,
         issueUpdates: key === 'issueUpdates' ? enabled : current.issueUpdates,
+        projectUpdates: key === 'projectUpdates' ? enabled : current.projectUpdates,
       },
       {
         onSuccess: () => {
@@ -122,6 +123,14 @@ export function SettingsPage() {
                 checked={notificationPreferences.data.issueUpdates}
                 onChange={(enabled) => {
                   changeNotificationPreference('issueUpdates', enabled)
+                }}
+              />
+              <PreferenceToggle
+                label="Project updates"
+                description="Notify me when a watched project's details, workflow, or lifecycle change."
+                checked={notificationPreferences.data.projectUpdates}
+                onChange={(enabled) => {
+                  changeNotificationPreference('projectUpdates', enabled)
                 }}
               />
             </fieldset>

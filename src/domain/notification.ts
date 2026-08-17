@@ -61,5 +61,6 @@ export interface NotificationPreferences {
   readonly assignments: boolean
   readonly comments: boolean
   readonly issueUpdates: boolean
+  readonly projectUpdates: boolean
   readonly revision: number
 }

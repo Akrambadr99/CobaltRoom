@@ -35,6 +35,7 @@ export function useUpdateNotificationPreferences() {
               assignments: input.assignments,
               comments: input.comments,
               issueUpdates: input.issueUpdates,
+              projectUpdates: input.projectUpdates,
               revision: current.revision + 1,
             }
           : current,

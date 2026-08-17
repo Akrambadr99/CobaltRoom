@@ -243,7 +243,10 @@ describe('MockAtlasGateway', () => {
   it('updates project lifecycle fields without changing leadership', async () => {
     const { fixtures, gateway, store } = createGateway()
     const project = fixtures.projects[0]
-    if (!project) throw new Error('Expected project lifecycle fixtures.')
+    const followerId = fixtures.projectSubscriptions.find(
+      ({ projectId }) => projectId === project?.id,
+    )?.userId
+    if (!project || !followerId) throw new Error('Expected project lifecycle fixtures.')
 
     const updated = await gateway.updateProject({
       id: project.id,
@@ -271,6 +274,13 @@ describe('MockAtlasGateway', () => {
     expect(snapshot.auditEvents.at(-1)).toMatchObject({
       action: 'project.updated',
       metadata: { projectId: project.id, fromRevision: 1, toRevision: 2 },
+    })
+    expect(snapshot.notifications.at(-1)).toMatchObject({
+      recipientId: followerId,
+      kind: 'project-update',
+      target: { kind: 'project', id: project.id },
+      title: 'OPS project updated',
+      readAt: null,
     })
   })
 
@@ -501,6 +511,11 @@ describe('MockAtlasGateway', () => {
     expect(store.read().data.auditEvents.at(-1)).toMatchObject({
       action: 'project.archived',
       metadata: { projectId: project.id, fromRevision: 1, toRevision: 2 },
+    })
+    expect(store.read().data.notifications.at(-1)).toMatchObject({
+      kind: 'project-update',
+      target: { kind: 'project', id: project.id },
+      title: 'OPS was archived',
     })
     await expect(
       gateway.updateIssue({
@@ -855,6 +870,7 @@ describe('MockAtlasGateway', () => {
         assignments: true,
         comments: true,
         issueUpdates: true,
+        projectUpdates: true,
       }),
     )
     expect(snapshot.activityEvents.at(-1)).toMatchObject({
@@ -1160,6 +1176,11 @@ describe('MockAtlasGateway', () => {
       action: 'project.workflow.updated',
       metadata: { retiredCount: 1, migratedIssueCount: 1, toRevision: 2 },
     })
+    expect(store.read().data.notifications.at(-1)).toMatchObject({
+      kind: 'project-update',
+      target: { kind: 'project', id: project.id },
+      title: 'OPS workflow updated',
+    })
     expect(tracer.read().at(-1)).toMatchObject({
       operation: 'analytics.get',
       phase: 'succeeded',
@@ -1423,6 +1444,7 @@ describe('MockAtlasGateway', () => {
       assignments: current.assignments,
       comments: false,
       issueUpdates: current.issueUpdates,
+      projectUpdates: current.projectUpdates,
     })
     expect(updated).toMatchObject({ comments: false, revision: 2 })
     expect(store.read().data.auditEvents.at(-1)).toMatchObject({
@@ -1437,6 +1459,7 @@ describe('MockAtlasGateway', () => {
         assignments: false,
         comments: false,
         issueUpdates: false,
+        projectUpdates: false,
       }),
     ).rejects.toBeInstanceOf(GatewayConflictError)
   })
@@ -1463,6 +1486,39 @@ describe('MockAtlasGateway', () => {
     const before = store.read().data.notifications.length
 
     await gateway.createComment({ issueId: issue.id, body: 'Delivery is disabled.' })
+    expect(store.read().data.notifications).toHaveLength(before)
+  })
+
+  it('honors project update preferences for watched project delivery', async () => {
+    const fixtures = createAtlasFixtures()
+    const adminId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    const project = fixtures.projects.find(({ id }) =>
+      fixtures.projectSubscriptions.some(({ projectId }) => projectId === id),
+    )
+    const followerId = fixtures.projectSubscriptions.find(
+      ({ projectId }) => projectId === project?.id,
+    )?.userId
+    if (!adminId || !project || !followerId) {
+      throw new Error('Expected an administrator and watched project fixture.')
+    }
+    const configured = {
+      ...fixtures,
+      notificationPreferences: fixtures.notificationPreferences.map((preferences) =>
+        preferences.userId === followerId
+          ? { ...preferences, projectUpdates: false }
+          : preferences,
+      ),
+    }
+    const store = new InMemoryDataStore(configured)
+    const gateway = new MockAtlasGateway({ actorId: adminId, store })
+    const before = store.read().data.notifications.length
+
+    await gateway.updateProject({
+      id: project.id,
+      expectedRevision: project.revision,
+      changes: { description: 'Delivery remains disabled.' },
+    })
+
     expect(store.read().data.notifications).toHaveLength(before)
   })
 

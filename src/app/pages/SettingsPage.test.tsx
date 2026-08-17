@@ -33,6 +33,17 @@ describe('SettingsPage', () => {
       (await services.gateway.getNotificationPreferences(services.workspaceId)).comments,
     ).toBe(false)
 
+    const projects = screen.getByRole('checkbox', { name: /Project updates/ })
+    expect(projects).toBeChecked()
+    await user.click(projects)
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Notification preferences saved.',
+    )
+    expect(
+      (await services.gateway.getNotificationPreferences(services.workspaceId))
+        .projectUpdates,
+    ).toBe(false)
+
     await user.selectOptions(
       screen.getByRole('combobox', { name: 'Issues per page' }),
       '10',
