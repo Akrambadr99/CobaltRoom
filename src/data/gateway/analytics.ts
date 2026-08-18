@@ -41,16 +41,40 @@ export function buildWorkspaceAnalytics(
     data.workflowStatuses.map((status) => [status.id, status.category]),
   )
   const currentDate = generatedAt.slice(0, 10)
-  const isCompleted = (issue: Issue): boolean =>
-    statuses.get(issue.statusId) === 'completed'
-  const isOpen = (issue: Issue): boolean => {
+  const priorityCounts = new Map(priorities.map((priority) => [priority, 0]))
+  const categoryCounts = new Map(statusCategories.map((category) => [category, 0]))
+  const projectCounts = new Map(
+    projects.map(({ id }) => [id, createProjectCounts()]),
+  )
+  let openIssueCount = 0
+  let completedIssueCount = 0
+  let urgentOpenIssueCount = 0
+  let overdueIssueCount = 0
+  let unassignedOpenIssueCount = 0
+
+  for (const issue of issues) {
     const category = statuses.get(issue.statusId)
-    return category !== 'completed' && category !== 'canceled'
+    const isCompleted = category === 'completed'
+    const isOpen = category !== 'completed' && category !== 'canceled'
+    const isOverdue = isOpen && issue.dueDate !== null && issue.dueDate < currentDate
+    priorityCounts.set(issue.priority, (priorityCounts.get(issue.priority) ?? 0) + 1)
+    if (category !== undefined) {
+      categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1)
+    }
+    if (isOpen) openIssueCount += 1
+    if (isCompleted) completedIssueCount += 1
+    if (isOpen && issue.priority === 'urgent') urgentOpenIssueCount += 1
+    if (isOverdue) overdueIssueCount += 1
+    if (isOpen && issue.assigneeId === null) unassignedOpenIssueCount += 1
+
+    const counts = projectCounts.get(issue.projectId)
+    if (!counts) continue
+    counts.totalIssues += 1
+    if (isOpen) counts.openIssues += 1
+    if (isCompleted) counts.completedIssues += 1
+    if (isOpen && issue.priority === 'urgent') counts.urgentOpenIssues += 1
+    if (isOverdue) counts.overdueIssues += 1
   }
-  const isOverdue = (issue: Issue): boolean =>
-    isOpen(issue) && issue.dueDate !== null && issue.dueDate < currentDate
-  const openIssues = issues.filter(isOpen)
-  const completedIssues = issues.filter(isCompleted)
   const rangeStart = getRangeStart(issues, generatedAt, range)
   const issueFlow = buildIssueFlow(issues, rangeStart, generatedAt, range)
 
@@ -63,42 +87,44 @@ export function buildWorkspaceAnalytics(
     issueFlow,
     activeProjects: projects.filter(({ status }) => status === 'active').length,
     totalIssues: issues.length,
-    openIssues: openIssues.length,
-    completedIssues: completedIssues.length,
-    urgentOpenIssues: openIssues.filter(({ priority }) => priority === 'urgent').length,
-    overdueIssues: issues.filter(isOverdue).length,
-    unassignedOpenIssues: openIssues.filter(({ assigneeId }) => assigneeId === null)
-      .length,
+    openIssues: openIssueCount,
+    completedIssues: completedIssueCount,
+    urgentOpenIssues: urgentOpenIssueCount,
+    overdueIssues: overdueIssueCount,
+    unassignedOpenIssues: unassignedOpenIssueCount,
     priorities: priorities.map((value) => ({
       value,
-      count: issues.filter(({ priority }) => priority === value).length,
+      count: priorityCounts.get(value) ?? 0,
     })),
     statusCategories: statusCategories.map((value) => ({
       value,
-      count: issues.filter((issue) => statuses.get(issue.statusId) === value).length,
+      count: categoryCounts.get(value) ?? 0,
     })),
     projects: projects
       .map((project) => {
-        const projectIssues = issues.filter(({ projectId }) => projectId === project.id)
-        const projectCompleted = projectIssues.filter(isCompleted).length
-        const projectOpen = projectIssues.filter(isOpen)
+        const counts = projectCounts.get(project.id) ?? createProjectCounts()
         return {
           projectId: project.id,
           projectKey: project.key,
           projectName: project.name,
-          totalIssues: projectIssues.length,
-          openIssues: projectOpen.length,
-          completedIssues: projectCompleted,
-          urgentOpenIssues: projectOpen.filter(({ priority }) => priority === 'urgent')
-            .length,
-          overdueIssues: projectIssues.filter(isOverdue).length,
+          ...counts,
           completionPercent:
-            projectIssues.length === 0
+            counts.totalIssues === 0
               ? 0
-              : Math.round((projectCompleted / projectIssues.length) * 100),
+              : Math.round((counts.completedIssues / counts.totalIssues) * 100),
         }
       })
       .sort((left, right) => left.projectName.localeCompare(right.projectName)),
+  }
+}
+
+function createProjectCounts() {
+  return {
+    totalIssues: 0,
+    openIssues: 0,
+    completedIssues: 0,
+    urgentOpenIssues: 0,
+    overdueIssues: 0,
   }
 }
 

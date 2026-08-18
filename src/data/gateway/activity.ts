@@ -38,14 +38,17 @@ export function buildWorkspaceActivity(
         (query.occurredTo === undefined || event.occurredAt <= query.occurredTo),
     )
     .sort(compareActivity)
-  const entries = filtered.map((event) => toEntry(data, usersById, event))
+  const eventPage = paginate(filtered, page)
 
   return {
     generatedAt,
     actors: actorFacets(workspaceEvents, usersById),
     actions: valueFacets(workspaceEvents.map(({ action: value }) => value)),
     entityKinds: valueFacets(workspaceEvents.map(({ entityKind }) => entityKind)),
-    events: paginate(entries, page),
+    events: {
+      ...eventPage,
+      items: eventPage.items.map((event) => toEntry(data, usersById, event)),
+    },
   }
 }
 

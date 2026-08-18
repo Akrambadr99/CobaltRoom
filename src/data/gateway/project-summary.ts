@@ -31,23 +31,27 @@ export function queryProjectSummaries(
     .sort((left, right) =>
       left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
     )
-    .map((project) => {
-      const issues = data.issues.filter(({ projectId }) => projectId === project.id)
-      const completedIssues = issues.filter(
-        ({ statusId }) => categoryByStatusId.get(statusId) === 'completed',
-      ).length
-      const openIssues = issues.filter(({ statusId }) => {
-        const category = categoryByStatusId.get(statusId)
-        return category !== 'completed' && category !== 'canceled'
-      }).length
+  const countsByProjectId = new Map(
+    projects.map(({ id }) => [id, { totalIssues: 0, openIssues: 0, completedIssues: 0 }]),
+  )
+  for (const issue of data.issues) {
+    const counts = countsByProjectId.get(issue.projectId)
+    if (!counts) continue
+    counts.totalIssues += 1
+    const category = categoryByStatusId.get(issue.statusId)
+    if (category === 'completed') counts.completedIssues += 1
+    if (category !== 'completed' && category !== 'canceled') counts.openIssues += 1
+  }
 
-      return {
-        project,
-        totalIssues: issues.length,
-        openIssues,
-        completedIssues,
-      }
-    })
+  const summaries = projects.map((project) => {
+    const counts = countsByProjectId.get(project.id)
+    return {
+      project,
+      totalIssues: counts?.totalIssues ?? 0,
+      openIssues: counts?.openIssues ?? 0,
+      completedIssues: counts?.completedIssues ?? 0,
+    }
+  })
 
-  return paginate(projects, validatePage(query.page ?? defaultPage))
+  return paginate(summaries, validatePage(query.page ?? defaultPage))
 }
