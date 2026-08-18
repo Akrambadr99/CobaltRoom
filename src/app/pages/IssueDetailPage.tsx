@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useRef,
   useState,
   type ReactElement,
@@ -58,8 +59,36 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
   const { issue, projects } = useIssueDetailData(requestedIssueId)
   const activity = useIssueActivityData(requestedIssueId)
   const subscription = useIssueSubscriptionData(requestedIssueId)
-  const [editing, setEditing] = useState(false)
+  const [editorPermissionFingerprint, setEditorPermissionFingerprint] = useState<
+    string | null
+  >(null)
   const [status, setStatus] = useState('')
+  const statusRef = useRef<HTMLParagraphElement>(null)
+  const loadedIssue = issue.data
+  const project = projects.data?.find(({ id }) => id === loadedIssue?.projectId)
+  const projectIsWritable =
+    project?.status === 'planned' ||
+    project?.status === 'active' ||
+    project?.status === 'paused'
+  const canEdit = Boolean(
+    loadedIssue &&
+    projectIsWritable &&
+    authorization.can('issue:update', loadedIssue.projectId),
+  )
+  const accessChangedWhileEditing =
+    editorPermissionFingerprint !== null &&
+    (!canEdit ||
+      editorPermissionFingerprint !== authorization.session.permissionFingerprint)
+  const editing =
+    editorPermissionFingerprint !== null && !accessChangedWhileEditing
+  const displayedStatus = accessChangedWhileEditing
+    ? 'Your issue editing permission changed. No changes were saved.'
+    : status
+
+  useEffect(() => {
+    if (!accessChangedWhileEditing) return
+    statusRef.current?.focus()
+  }, [accessChangedWhileEditing])
 
   if (issue.isPending || projects.isPending) {
     return <IssueState role="status" message="Loading issue…" />
@@ -86,14 +115,6 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
     )
   }
 
-  const project = projects.data.find(({ id }) => id === issue.data.projectId)
-  const projectIsWritable =
-    project?.status === 'planned' ||
-    project?.status === 'active' ||
-    project?.status === 'paused'
-  const canEdit =
-    projectIsWritable && authorization.can('issue:update', issue.data.projectId)
-
   return (
     <section className="page" aria-labelledby="issue-detail-title">
       <header className="issue-detail-header">
@@ -113,7 +134,9 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
             type="button"
             onClick={() => {
               setStatus('')
-              setEditing(true)
+              setEditorPermissionFingerprint(
+                authorization.session.permissionFingerprint,
+              )
             }}
           >
             Edit issue
@@ -123,9 +146,9 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
         )}
       </header>
 
-      {status ? (
-        <p className="bulk-status" role="status">
-          {status}
+      {displayedStatus ? (
+        <p ref={statusRef} className="bulk-status" role="status" tabIndex={-1}>
+          {displayedStatus}
         </p>
       ) : null}
 
@@ -168,10 +191,10 @@ function LoadedIssue({ requestedIssueId }: Readonly<{ requestedIssueId: IssueId 
         <IssueEditDialog
           issue={issue.data}
           onClose={() => {
-            setEditing(false)
+            setEditorPermissionFingerprint(null)
           }}
           onSaved={() => {
-            setEditing(false)
+            setEditorPermissionFingerprint(null)
             setStatus('Issue changes saved.')
           }}
         />

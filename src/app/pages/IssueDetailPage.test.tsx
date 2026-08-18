@@ -15,7 +15,7 @@ import {
   type RequestSimulator,
 } from '../../data'
 import { isoDateTime, type UserId } from '../../domain'
-import { fireEvent, render, screen, within } from '../../test/render'
+import { fireEvent, render, screen, waitFor, within } from '../../test/render'
 
 function getFixtureIssue() {
   const issue = createAtlasFixtures().issues[0]
@@ -30,6 +30,7 @@ function renderIssueDetail(
   clock?: Clock,
   dataStore?: InMemoryDataStore,
 ) {
+  const queryClient = createAtlasQueryClient()
   const services = createAppServices({
     simulator,
     ...(actorId ? { actorId } : {}),
@@ -37,7 +38,7 @@ function renderIssueDetail(
     ...(dataStore ? { dataStore } : {}),
   })
   render(
-    <AppProviders queryClient={createAtlasQueryClient()} services={services}>
+    <AppProviders queryClient={queryClient} services={services}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/issues/:issueId" element={<IssueDetailPage />} />
@@ -45,7 +46,7 @@ function renderIssueDetail(
       </MemoryRouter>
     </AppProviders>,
   )
-  return services
+  return { ...services, queryClient }
 }
 
 describe('IssueDetailPage', () => {
@@ -186,6 +187,58 @@ describe('IssueDetailPage', () => {
     expect(screen.queryByRole('form', { name: 'Add comment' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /edit comment/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /remove comment/i })).not.toBeInTheDocument()
+  })
+
+  it('closes the editor and restores accessible focus after live permission loss', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const reliabilityProject = fixtures.projects.find(({ key }) => key === 'REL')
+    const issue = fixtures.issues.find(
+      ({ projectId }) => projectId === reliabilityProject?.id,
+    )
+    const actorMembership = fixtures.memberships.find(({ role }) => role === 'admin')
+    if (!issue || !actorMembership) {
+      throw new Error('Expected an admin and a reliability issue.')
+    }
+    const store = new InMemoryDataStore(fixtures)
+    const services = renderIssueDetail(
+      `/issues/${issue.id}`,
+      undefined,
+      new SimulatedNetwork(),
+      undefined,
+      store,
+    )
+
+    await screen.findByRole('heading', { name: issue.title })
+    await user.click(screen.getByRole('button', { name: 'Edit issue' }))
+    await user.clear(screen.getByLabelText('Title'))
+    await user.type(screen.getByLabelText('Title'), 'Unsaved restricted draft')
+
+    const current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      memberships: current.data.memberships.map((membership) =>
+        membership.id === actorMembership.id
+          ? { ...membership, role: 'viewer' as const, revision: 2 }
+          : membership,
+      ),
+    })
+    await services.queryClient.invalidateQueries({
+      queryKey: ['authorization', services.workspaceId],
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Edit issue' }))
+        .not.toBeInTheDocument()
+    })
+    const status = await screen.findByText(
+      'Your issue editing permission changed. No changes were saved.',
+    )
+    expect(status).toHaveAttribute('role', 'status')
+    expect(status).toHaveFocus()
+    expect(screen.queryByRole('button', { name: 'Edit issue' }))
+      .not.toBeInTheDocument()
+    expect((await services.gateway.getIssue(issue.id)).title).toBe(issue.title)
   })
 
   it('lets a read-only member watch an issue through an accessible pressed control', async () => {

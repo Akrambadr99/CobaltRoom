@@ -62,6 +62,8 @@ export function IssuesPage() {
   const [bulkPriority, setBulkPriority] = useState<IssuePriority>('medium')
   const [bulkStatus, setBulkStatus] = useState('')
   const filterStatus = readFilterStatus(location.state)
+  const focusFilterStatus = shouldFocusFilterStatus(location.state)
+  const filterStatusRef = useRef<HTMLParagraphElement>(null)
   const creatingIssue = parameters.get('create') === '1'
   const canCreateIssue =
     authorization.can('issue:create') ||
@@ -91,6 +93,26 @@ export function IssuesPage() {
   useEffect(() => {
     pendingState.current = state
   }, [state])
+
+  useEffect(() => {
+    if (!creatingIssue || canCreateIssue) return
+    setParameters((current) => {
+      const next = new URLSearchParams(current)
+      next.delete('create')
+      return next
+    }, {
+      replace: true,
+      state: {
+        filterStatus: 'Your issue creation permission changed. No issue was created.',
+        focusFilterStatus: true,
+      },
+    })
+  }, [canCreateIssue, creatingIssue, setParameters])
+
+  useEffect(() => {
+    if (!filterStatus || !focusFilterStatus) return
+    filterStatusRef.current?.focus()
+  }, [filterStatus, focusFilterStatus])
 
   useEffect(() => {
     if (!filterMetadata.data) return
@@ -227,7 +249,14 @@ export function IssuesPage() {
       />
 
       {filterStatus ? (
-        <p className="bulk-status" role="status">{filterStatus}</p>
+        <p
+          ref={filterStatusRef}
+          className="bulk-status"
+          role="status"
+          tabIndex={focusFilterStatus ? -1 : undefined}
+        >
+          {filterStatus}
+        </p>
       ) : null}
 
       <IssueTableLayoutControls />
@@ -371,9 +400,7 @@ export function IssuesPage() {
       ) : null}
 
       {bulkStatus ? (
-        <p className="bulk-status" role="status">
-          {bulkStatus}
-        </p>
+        <p className="bulk-status" role="status">{bulkStatus}</p>
       ) : null}
 
       {isInitialLoading ? (
@@ -731,6 +758,15 @@ function readFilterStatus(state: unknown): string {
     return ''
   }
   return typeof state.filterStatus === 'string' ? state.filterStatus : ''
+}
+
+function shouldFocusFilterStatus(state: unknown): boolean {
+  return (
+    typeof state === 'object' &&
+    state !== null &&
+    'focusFilterStatus' in state &&
+    state.focusFilterStatus === true
+  )
 }
 
 function formatBulkResult(result: BulkIssueUpdateResult): string {

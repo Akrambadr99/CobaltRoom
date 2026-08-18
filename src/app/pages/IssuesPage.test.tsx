@@ -32,6 +32,7 @@ function renderIssues(
   preferenceStorage?: PreferenceStorage,
   dataStore?: InMemoryDataStore,
 ) {
+  const queryClient = createAtlasQueryClient()
   const services = createAppServices({
     simulator,
     ...(actorId ? { actorId } : {}),
@@ -41,9 +42,10 @@ function renderIssues(
 
   return {
     services,
+    queryClient,
     ...render(
       <AppProviders
-        queryClient={createAtlasQueryClient()}
+        queryClient={queryClient}
         services={services}
       >
         <MemoryRouter initialEntries={[path]}>
@@ -109,6 +111,73 @@ describe('IssuesPage', () => {
     expect(
       screen.queryByRole('button', { name: 'Create issue' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('closes issue creation and explains live access loss without committing a draft', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const actorMembership = fixtures.memberships.find(({ role }) => role === 'admin')
+    const launchProject = fixtures.projects.find(({ key }) => key === 'OPS')
+    const replacementLead = fixtures.memberships.find(({ role }) => role === 'owner')
+    if (!actorMembership || !launchProject || !replacementLead) {
+      throw new Error('Expected live authorization fixtures.')
+    }
+    const store = new InMemoryDataStore(fixtures)
+    const { services, queryClient } = renderIssues(
+      '/issues',
+      new SimulatedNetwork(),
+      undefined,
+      undefined,
+      store,
+    )
+    await screen.findByRole('table', { name: 'Workspace issues' })
+    const initialIssueCount = store.read().data.issues.length
+
+    await user.click(screen.getByRole('button', { name: 'Create issue' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Create issue' })
+    await user.type(within(dialog).getByLabelText('Title'), 'Unsaved issue draft')
+
+    const current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      projects: current.data.projects.map((project) =>
+        project.id === launchProject.id
+          ? { ...project, leadId: replacementLead.userId, revision: 2 }
+          : project,
+      ),
+      memberships: current.data.memberships.map((membership) =>
+        membership.id === actorMembership.id
+          ? { ...membership, role: 'viewer' as const, revision: 2 }
+          : membership,
+      ),
+      projectMembers: current.data.projectMembers.map((membership) => {
+        if (membership.projectId !== launchProject.id) return membership
+        if (membership.userId === actorMembership.userId) {
+          return { ...membership, role: 'viewer' as const }
+        }
+        if (membership.userId === replacementLead.userId) {
+          return { ...membership, role: 'lead' as const }
+        }
+        return membership
+      }),
+    })
+    await queryClient.invalidateQueries({
+      queryKey: ['authorization', services.workspaceId],
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Create issue' }))
+        .not.toBeInTheDocument()
+    })
+    const status = await screen.findByText(
+      'Your issue creation permission changed. No issue was created.',
+    )
+    expect(status).toHaveAttribute('role', 'status')
+    expect(status).toHaveFocus()
+    expect(screen.getByTestId('location')).not.toHaveTextContent('create=1')
+    expect(screen.queryByRole('button', { name: 'Create issue' }))
+      .not.toBeInTheDocument()
+    expect(store.read().data.issues).toHaveLength(initialIssueCount)
   })
 
   it(
