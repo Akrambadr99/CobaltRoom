@@ -1,18 +1,22 @@
 import {
   useInfiniteQuery,
+  useMutationState,
   useMutation,
   useQueryClient,
-  type InfiniteData,
 } from '@tanstack/react-query'
+import { useRef } from 'react'
 
 import { useAppServices } from '../../app/providers/app-services-context'
 import type {
   MarkNotificationReadInput,
-  NotificationInbox,
   UpdateNotificationsReadStateInput,
 } from '../../data'
-import type { NotificationCategory } from '../../domain'
+import type { NotificationCategory, NotificationId } from '../../domain'
 import { atlasQueryKeys } from '../../app/query/keys'
+import {
+  findCachedNotification,
+  transitionNotificationReadState,
+} from './notification-cache'
 
 export function useNotificationInbox(
   category?: NotificationCategory,
@@ -39,72 +43,116 @@ export function useNotificationInbox(
   })
 }
 
-type NotificationInboxData = InfiniteData<NotificationInbox, number>
+const notificationReadMutationKey = (workspaceId: string) =>
+  ['notification-read-state', workspaceId] as const
 
 export function useMarkNotificationRead(
-  category?: NotificationCategory,
-  read?: boolean,
+  options: Readonly<{ onError?(): void }> = {},
 ) {
   const { gateway, workspaceId } = useAppServices()
   const queryClient = useQueryClient()
-  const queryKey = atlasQueryKeys.notificationInbox(workspaceId, category, read)
   const inboxKey = atlasQueryKeys.notificationInbox(workspaceId)
+  const mutationKey = notificationReadMutationKey(workspaceId)
+  const sequence = useRef(0)
+  const latestMutation = useRef(new Map<NotificationId, number>())
 
-  return useMutation<unknown, Error, MarkNotificationReadInput, NotificationInboxData | undefined>(
+  return useMutation<
+    unknown,
+    Error,
+    MarkNotificationReadInput,
+    | {
+        readonly notification?: NonNullable<ReturnType<typeof findCachedNotification>>
+        readonly previousRead?: boolean
+        readonly sequence: number
+      }
+    | undefined
+  >(
     {
+      mutationKey,
       mutationFn: (input) => gateway.markNotificationRead(input),
       onMutate: async (input) => {
-        await queryClient.cancelQueries({ queryKey })
-        const previous = queryClient.getQueryData<NotificationInboxData>(queryKey)
-        queryClient.setQueryData<NotificationInboxData>(queryKey, (current) => {
-          if (!current) return current
-          const target = current.pages
-            .flatMap(({ items }) => items)
-            .find(({ id }) => id === input.id)
-          const unreadDelta = target
-            ? Number(!input.read) - Number(target.readAt === null)
-            : 0
+        const currentSequence = sequence.current + 1
+        sequence.current = currentSequence
+        latestMutation.current.set(input.id, currentSequence)
+        await queryClient.cancelQueries({ queryKey: inboxKey })
+        const notification = findCachedNotification(queryClient, inboxKey, input.id)
+        if (!notification) return { sequence: currentSequence }
+        const previousRead = notification.readAt !== null
 
-          return {
-            ...current,
-            pages: current.pages.map((page) => ({
-              ...page,
-              unreadCount: Math.max(0, page.unreadCount + unreadDelta),
-              items: page.items.map((notification) =>
-                notification.id === input.id
-                  ? {
-                      ...notification,
-                      readAt: input.read
-                        ? (notification.readAt ?? notification.occurredAt)
-                        : null,
-                    }
-                  : notification,
-              ),
-            })),
-          }
-        })
-        return previous
+        if (latestMutation.current.get(input.id) === currentSequence) {
+          transitionNotificationReadState(
+            queryClient,
+            inboxKey,
+            notification,
+            previousRead,
+            input.read,
+          )
+        }
+        return { notification, previousRead, sequence: currentSequence }
       },
-      onError: (_error, _input, previous) => {
-        if (previous) queryClient.setQueryData(queryKey, previous)
+      onError: (_error, input, context) => {
+        if (
+          context?.notification &&
+          context.previousRead !== undefined &&
+          latestMutation.current.get(input.id) === context.sequence
+        ) {
+          transitionNotificationReadState(
+            queryClient,
+            inboxKey,
+            context.notification,
+            input.read,
+            context.previousRead,
+          )
+        }
+        options.onError?.()
       },
-      onSettled: async () => {
-        await queryClient.invalidateQueries({ queryKey: inboxKey })
+      onSettled: async (_data, _error, input, context) => {
+        if (
+          context &&
+          latestMutation.current.get(input.id) === context.sequence
+        ) {
+          latestMutation.current.delete(input.id)
+        }
+        if (queryClient.isMutating({ mutationKey }) === 1) {
+          await queryClient.invalidateQueries({ queryKey: inboxKey })
+        }
       },
     },
   )
 }
 
-export function useUpdateNotificationsReadState() {
+export function usePendingNotificationReadIds(): readonly NotificationId[] {
+  const { workspaceId } = useAppServices()
+  const pendingIds = useMutationState<NotificationId | undefined>({
+    filters: {
+      mutationKey: notificationReadMutationKey(workspaceId),
+      status: 'pending',
+    },
+    select: (mutation) =>
+      (mutation.state.variables as MarkNotificationReadInput | undefined)?.id,
+  })
+  return pendingIds.filter((id): id is NotificationId => id !== undefined)
+}
+
+export function useUpdateNotificationsReadState(
+  options: Readonly<{ onError?(): void }> = {},
+) {
   const { gateway, workspaceId } = useAppServices()
   const queryClient = useQueryClient()
   const inboxKey = atlasQueryKeys.notificationInbox(workspaceId)
+  const mutationKey = notificationReadMutationKey(workspaceId)
 
   return useMutation<number, Error, Omit<UpdateNotificationsReadStateInput, 'workspaceId'>>({
+    mutationKey,
     mutationFn: (input) =>
       gateway.updateNotificationsReadState({ ...input, workspaceId }),
+    onError: () => {
+      options.onError?.()
+    },
     onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: inboxKey })
+      if (queryClient.isMutating({ mutationKey }) === 1) {
+        await queryClient.invalidateQueries({ queryKey: inboxKey })
+      }
     },
   })
 }

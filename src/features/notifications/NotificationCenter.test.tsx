@@ -10,12 +10,44 @@ import {
   createAtlasFixtures,
   InMemoryDataStore,
   SimulatedNetwork,
+  type GatewayOperation,
+  type RequestSimulator,
 } from '../../data'
 import { isoDateTime, notificationCategory, notificationId } from '../../domain'
-import { render, screen, within } from '../../test/render'
+import { act, render, screen, waitFor, within } from '../../test/render'
+
+class ControlledNotificationSimulator implements RequestSimulator {
+  private readonly pending: {
+    readonly resolve: () => void
+    readonly reject: (error: Error) => void
+  }[] = []
+
+  get pendingCount(): number {
+    return this.pending.length
+  }
+
+  wait(operation: GatewayOperation): Promise<void> {
+    if (operation !== 'notification.mark-read') return Promise.resolve()
+    return new Promise((resolve, reject) => {
+      this.pending.push({ resolve, reject })
+    })
+  }
+
+  succeed(index: number): void {
+    const request = this.pending[index]
+    if (!request) throw new Error(`Missing controlled request ${index.toString()}.`)
+    request.resolve()
+  }
+
+  fail(index: number): void {
+    const request = this.pending[index]
+    if (!request) throw new Error(`Missing controlled request ${index.toString()}.`)
+    request.reject(new Error('Controlled inbox update failure.'))
+  }
+}
 
 function renderNotificationCenter(
-  simulator = new SimulatedNetwork(),
+  simulator: RequestSimulator = new SimulatedNetwork(),
   dataStore?: InMemoryDataStore,
 ) {
   render(
@@ -84,6 +116,121 @@ describe('NotificationCenter', () => {
     expect(
       screen.getByRole('button', { name: 'Notifications, 1 unread' }),
     ).toBeVisible()
+  })
+
+  it('keeps summary and cached read filters consistent during optimistic rollback', async () => {
+    const user = userEvent.setup()
+    const simulator = new ControlledNotificationSimulator()
+    const fixtures = createAtlasFixtures()
+    const actorId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    const unread = fixtures.notifications.find(
+      ({ recipientId, readAt }) => recipientId === actorId && readAt === null,
+    )
+    const read = fixtures.notifications.find(
+      ({ recipientId, readAt }) => recipientId === actorId && readAt !== null,
+    )
+    if (!unread || !read) throw new Error('Expected read-state fixtures.')
+    renderNotificationCenter(simulator)
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Notifications, 1 unread' }),
+    )
+    const statusFilter = screen.getByRole('combobox', { name: 'Status' })
+    await user.selectOptions(statusFilter, 'read')
+    expect(await screen.findByText(read.title)).toBeVisible()
+    await user.selectOptions(statusFilter, 'unread')
+    const unreadTitle = await screen.findByText(unread.title)
+    const unreadItem = unreadTitle.closest('li')
+    if (!unreadItem) throw new Error('Expected an unread notification item.')
+
+    await user.click(within(unreadItem).getByRole('button', { name: 'Mark as read' }))
+    await waitFor(() => {
+      expect(simulator.pendingCount).toBe(1)
+    })
+    expect(screen.getByRole('button', { name: 'Notifications, 0 unread' }))
+      .toBeVisible()
+    expect(screen.getByText('No notifications match these filters.')).toBeVisible()
+
+    await user.selectOptions(statusFilter, 'read')
+    expect(await screen.findAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByText(unread.title)).toBeVisible()
+
+    act(() => {
+      simulator.fail(0)
+    })
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The notification update did not complete. Your inbox was restored.',
+    )
+    expect(screen.getByRole('button', { name: 'Notifications, 1 unread' }))
+      .toBeVisible()
+    await waitFor(() => {
+      expect(screen.getAllByRole('listitem')).toHaveLength(1)
+    })
+    expect(screen.getByText(read.title)).toBeVisible()
+    expect(screen.queryByText(unread.title)).not.toBeInTheDocument()
+
+    await user.selectOptions(statusFilter, 'unread')
+    expect(await screen.findByText(unread.title)).toBeVisible()
+  })
+
+  it('preserves a later optimistic update when an overlapping request fails', async () => {
+    const user = userEvent.setup()
+    const simulator = new ControlledNotificationSimulator()
+    const fixtures = createAtlasFixtures()
+    const actorId = fixtures.memberships.find(({ role }) => role === 'admin')?.userId
+    const unread = fixtures.notifications.find(
+      ({ recipientId, readAt }) => recipientId === actorId && readAt === null,
+    )
+    const read = fixtures.notifications.find(
+      ({ recipientId, readAt }) => recipientId === actorId && readAt !== null,
+    )
+    if (!unread || !read) throw new Error('Expected read-state fixtures.')
+    const dataStore = new InMemoryDataStore(fixtures)
+    renderNotificationCenter(simulator, dataStore)
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Notifications, 1 unread' }),
+    )
+    const unreadItem = screen.getByText(unread.title).closest('li')
+    const readItem = screen.getByText(read.title).closest('li')
+    if (!unreadItem || !readItem) {
+      throw new Error('Expected both notification items.')
+    }
+
+    await user.click(within(unreadItem).getByRole('button', { name: 'Mark as read' }))
+    await waitFor(() => {
+      expect(simulator.pendingCount).toBe(1)
+    })
+    expect(within(readItem).getByRole('button', { name: 'Mark as unread' }))
+      .toBeEnabled()
+    await user.click(within(readItem).getByRole('button', { name: 'Mark as unread' }))
+    await waitFor(() => {
+      expect(simulator.pendingCount).toBe(2)
+    })
+
+    act(() => {
+      simulator.fail(0)
+    })
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The notification update did not complete. Your inbox was restored.',
+    )
+    expect(screen.getByRole('button', { name: 'Notifications, 2 unread' }))
+      .toBeVisible()
+    expect(within(readItem).getByRole('button', { name: 'Mark as read' }))
+      .toBeDisabled()
+
+    act(() => {
+      simulator.succeed(1)
+    })
+    await waitFor(() => {
+      expect(within(readItem).getByRole('button', { name: 'Mark as read' }))
+        .toBeEnabled()
+    })
+    expect(
+      dataStore.read().data.notifications.filter(
+        ({ recipientId, readAt }) => recipientId === actorId && readAt === null,
+      ),
+    ).toHaveLength(2)
   })
 
   it('loads older notifications through bounded server pages', async () => {

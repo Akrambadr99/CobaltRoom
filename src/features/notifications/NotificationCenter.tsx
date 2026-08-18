@@ -10,6 +10,7 @@ import {
 import {
   useMarkNotificationRead,
   useNotificationInbox,
+  usePendingNotificationReadIds,
   useUpdateNotificationsReadState,
 } from './notification-queries'
 import './notification-center.css'
@@ -17,6 +18,7 @@ import './notification-center.css'
 export function NotificationCenter() {
   const [open, setOpen] = useState(false)
   const [status, setStatus] = useState('')
+  const [updateError, setUpdateError] = useState(false)
   const [category, setCategory] = useState<NotificationCategory | undefined>()
   const [readFilter, setReadFilter] = useState<NotificationReadFilter>('all')
   const [selectedIds, setSelectedIds] = useState<readonly NotificationId[]>([])
@@ -27,8 +29,17 @@ export function NotificationCenter() {
   const read = readFilter === 'all' ? undefined : readFilter === 'read'
   const filteredInbox = useNotificationInbox(category, read)
   const inbox = category || read !== undefined ? filteredInbox : summary
-  const markRead = useMarkNotificationRead(category, read)
-  const updateReadState = useUpdateNotificationsReadState()
+  const markRead = useMarkNotificationRead({
+    onError: () => {
+      setUpdateError(true)
+    },
+  })
+  const pendingReadIds = usePendingNotificationReadIds()
+  const updateReadState = useUpdateNotificationsReadState({
+    onError: () => {
+      setUpdateError(true)
+    },
+  })
   const items = useMemo(
     () => inbox.data?.pages.flatMap((page) => page.items) ?? [],
     [inbox.data],
@@ -72,6 +83,7 @@ export function NotificationCenter() {
         onClick={() => {
           setOpen((current) => !current)
           setStatus('')
+          setUpdateError(false)
         }}
       >
         <span aria-hidden="true">Notifications</span>
@@ -95,9 +107,14 @@ export function NotificationCenter() {
             </div>
             <button
               type="button"
-              disabled={matchingUnreadCount === 0 || updateReadState.isPending}
+              disabled={
+                matchingUnreadCount === 0 ||
+                updateReadState.isPending ||
+                pendingReadIds.length > 0
+              }
               onClick={() => {
                 setStatus('')
+                setUpdateError(false)
                 updateReadState.mutate({
                   read: true,
                   ...(category ? { category } : {}),
@@ -189,9 +206,14 @@ export function NotificationCenter() {
                 <span>{selectedItems.length.toString()} selected</span>
                 <button
                   type="button"
-                  disabled={selectedUnreadCount === 0 || updateReadState.isPending}
+                  disabled={
+                    selectedUnreadCount === 0 ||
+                    updateReadState.isPending ||
+                    pendingReadIds.length > 0
+                  }
                   onClick={() => {
                     setStatus('')
+                    setUpdateError(false)
                     updateReadState.mutate(
                       { ids: selectedIds, read: true },
                       {
@@ -207,9 +229,14 @@ export function NotificationCenter() {
                 </button>
                 <button
                   type="button"
-                  disabled={selectedReadCount === 0 || updateReadState.isPending}
+                  disabled={
+                    selectedReadCount === 0 ||
+                    updateReadState.isPending ||
+                    pendingReadIds.length > 0
+                  }
                   onClick={() => {
                     setStatus('')
+                    setUpdateError(false)
                     updateReadState.mutate(
                       { ids: selectedIds, read: false },
                       {
@@ -269,10 +296,14 @@ export function NotificationCenter() {
                     </Link>
                     <button
                       type="button"
-                      disabled={markRead.isPending}
+                      disabled={
+                        updateReadState.isPending ||
+                        pendingReadIds.includes(notification.id)
+                      }
                       onClick={() => {
                         const read = notification.readAt === null
                         setStatus('')
+                        setUpdateError(false)
                         markRead.mutate(
                           { id: notification.id, read },
                           {
@@ -306,7 +337,7 @@ export function NotificationCenter() {
               ) : null}
             </>
           ) : null}
-          {markRead.isError || updateReadState.isError ? (
+          {updateError ? (
             <p className="notification-center__state" role="alert">
               The notification update did not complete. Your inbox was restored.
             </p>
