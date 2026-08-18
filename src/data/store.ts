@@ -21,14 +21,14 @@ export class InMemoryDataStore {
 
   constructor(seed: AtlasDataSnapshot) {
     assertValidSnapshot(seed)
-    this.data = structuredClone(seed)
+    this.data = cloneAndFreeze(seed)
   }
 
   read(): VersionedSnapshot {
-    return {
+    return Object.freeze({
       version: this.version,
-      data: structuredClone(this.data),
-    }
+      data: this.data,
+    })
   }
 
   commit(
@@ -40,8 +40,22 @@ export class InMemoryDataStore {
     }
 
     assertValidSnapshot(nextData)
-    this.data = structuredClone(nextData)
+    this.data = cloneAndFreeze(nextData)
     this.version += 1
     return this.read()
   }
+}
+
+function cloneAndFreeze(snapshot: AtlasDataSnapshot): AtlasDataSnapshot {
+  return deepFreeze(structuredClone(snapshot))
+}
+
+function deepFreeze<TValue>(value: TValue): TValue {
+  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) {
+    return value
+  }
+
+  Object.freeze(value)
+  for (const nestedValue of Object.values(value)) deepFreeze(nestedValue)
+  return value
 }

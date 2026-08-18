@@ -37,6 +37,30 @@ describe('InMemoryDataStore', () => {
     expect(callerOwnedSnapshot.projects[0]?.name).toBe('Locally changed name')
   })
 
+  it('shares deeply immutable read views without exposing canonical state', () => {
+    const seed = createAtlasFixtures()
+    const store = new InMemoryDataStore(seed)
+    const firstRead = store.read()
+    const firstProject = firstRead.data.projects[0]
+    const firstAuditEvent = firstRead.data.auditEvents[0]
+
+    expect(firstProject).toBeDefined()
+    expect(firstAuditEvent).toBeDefined()
+    if (!firstProject || !firstAuditEvent) return
+
+    expect(Object.isFrozen(firstRead)).toBe(true)
+    expect(Object.isFrozen(firstRead.data)).toBe(true)
+    expect(Object.isFrozen(firstRead.data.projects)).toBe(true)
+    expect(Object.isFrozen(firstProject)).toBe(true)
+    expect(Object.isFrozen(firstAuditEvent.metadata)).toBe(true)
+    expect(store.read().data).toBe(firstRead.data)
+    expect(Reflect.set(firstProject, 'name', 'Mutated through a read view')).toBe(false)
+    expect(store.read().data.projects[0]?.name).toBe('Launch readiness')
+
+    expect(Reflect.set(seed.projects[0] ?? {}, 'name', 'Mutated seed')).toBe(true)
+    expect(store.read().data.projects[0]?.name).toBe('Launch readiness')
+  })
+
   it('commits valid snapshots atomically and increments the version', () => {
     const store = new InMemoryDataStore(createAtlasFixtures())
     const current = store.read()
