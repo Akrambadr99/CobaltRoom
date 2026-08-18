@@ -136,6 +136,7 @@ export function getPermissionFingerprint(
     .join('|')
   return [
     workspaceMembership.id,
+    workspaceMembership.revision,
     workspaceMembership.role,
     workspaceMembership.status,
     projects,

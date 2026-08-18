@@ -1,4 +1,4 @@
-import { useRef, useState, type SyntheticEvent } from 'react'
+import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { ModalDialog } from '../../components/dialog/ModalDialog'
@@ -34,6 +34,13 @@ const allowedStatuses: Readonly<Record<ProjectStatus, readonly ProjectStatus[]>>
   archived: ['archived'],
 }
 
+type ProjectAction = 'archive' | 'edit'
+
+interface ProjectActionSession {
+  readonly action: ProjectAction
+  readonly permissionFingerprint: string
+}
+
 export function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>()
   const requestedProjectId = parseProjectId(params.projectId)
@@ -49,14 +56,46 @@ function LoadedProject({
 }: Readonly<{ projectId: ProjectId }>) {
   const [page, setPage] = useState(1)
   const [activityPage, setActivityPage] = useState(1)
-  const [editing, setEditing] = useState(false)
   const [transferringLead, setTransferringLead] = useState(false)
-  const [confirmingArchive, setConfirmingArchive] = useState(false)
+  const [actionSession, setActionSession] = useState<ProjectActionSession | null>(
+    null,
+  )
   const [announcement, setAnnouncement] = useState('')
+  const accessStatusRef = useRef<HTMLParagraphElement>(null)
   const authorization = useAuthorization()
   const { issues, metadata } = useProjectDetail(requestedId, page)
   const activity = useProjectActivity(requestedId, activityPage)
   const subscription = useProjectSubscriptionData(requestedId)
+  const loadedProject = metadata.data?.project
+  const canEdit = Boolean(
+    loadedProject &&
+    loadedProject.status !== 'archived' &&
+    authorization.can('project:update', loadedProject.id),
+  )
+  const canArchive = Boolean(
+    loadedProject &&
+    loadedProject.status !== 'archived' &&
+    authorization.can('project:archive', loadedProject.id),
+  )
+  const canTransferLead = Boolean(
+    loadedProject &&
+    loadedProject.status !== 'completed' &&
+    loadedProject.status !== 'archived' &&
+    authorization.can('project:update', loadedProject.id),
+  )
+  const actionAllowed =
+    actionSession?.action === 'edit' ? canEdit : canArchive
+  const accessChangedDuringAction =
+    actionSession !== null &&
+    (!actionAllowed ||
+      actionSession.permissionFingerprint !==
+        authorization.session.permissionFingerprint)
+  const activeAction = accessChangedDuringAction ? null : actionSession?.action
+
+  useEffect(() => {
+    if (!accessChangedDuringAction || !metadata.isSuccess) return
+    accessStatusRef.current?.focus()
+  }, [accessChangedDuringAction, metadata.isSuccess])
 
   if (metadata.isPending || issues.isPending) return <ProjectLoading />
   if (hasAppErrorKind(metadata.error, 'not-found')) {
@@ -82,17 +121,6 @@ function LoadedProject({
   }
 
   const { project } = metadata.data
-  const canEdit =
-    project.status !== 'archived' &&
-    authorization.can('project:update', project.id)
-  const canArchive =
-    project.status !== 'archived' &&
-    authorization.can('project:archive', project.id)
-  const canTransferLead =
-    project.status !== 'completed' &&
-    project.status !== 'archived' &&
-    authorization.can('project:update', project.id)
-
   return (
     <section className="page" aria-labelledby="project-detail-title">
       <header className="project-detail-header">
@@ -112,7 +140,12 @@ function LoadedProject({
                   className="secondary-button"
                   type="button"
                   onClick={() => {
-                    setEditing(true)
+                    setAnnouncement('')
+                    setActionSession({
+                      action: 'edit',
+                      permissionFingerprint:
+                        authorization.session.permissionFingerprint,
+                    })
                   }}
                 >
                   Edit project
@@ -135,7 +168,12 @@ function LoadedProject({
                   className="danger-button"
                   type="button"
                   onClick={() => {
-                    setConfirmingArchive(true)
+                    setAnnouncement('')
+                    setActionSession({
+                      action: 'archive',
+                      permissionFingerprint:
+                        authorization.session.permissionFingerprint,
+                    })
                   }}
                 >
                   Archive project
@@ -151,9 +189,21 @@ function LoadedProject({
         ) : null}
       </header>
 
-      <p className="visually-hidden" role="status" aria-live="polite">
-        {announcement}
-      </p>
+      {accessChangedDuringAction ? (
+        <p
+          ref={accessStatusRef}
+          className="project-readonly-notice"
+          role="status"
+          tabIndex={-1}
+        >
+          Your permission to {actionSession.action === 'edit' ? 'edit' : 'archive'}
+          {' '}this project changed. No changes were saved.
+        </p>
+      ) : (
+        <p className="visually-hidden" role="status" aria-live="polite">
+          {announcement}
+        </p>
+      )}
 
       <ProjectWatchPanel
         project={project}
@@ -232,11 +282,11 @@ function LoadedProject({
         onPageChange={setActivityPage}
       />
 
-      {editing ? (
+      {activeAction === 'edit' ? (
         <ProjectEditDialog
           project={project}
           onClose={() => {
-            setEditing(false)
+            setActionSession(null)
           }}
         />
       ) : null}
@@ -253,11 +303,11 @@ function LoadedProject({
           }}
         />
       ) : null}
-      {confirmingArchive ? (
+      {activeAction === 'archive' ? (
         <ArchiveProjectDialog
           project={project}
           onClose={() => {
-            setConfirmingArchive(false)
+            setActionSession(null)
           }}
         />
       ) : null}

@@ -110,11 +110,14 @@ describe('permission policy', () => {
     expect(can(lead, 'comment:moderate', testIds.project)).toBe(true)
   })
 
-  it('changes the permission fingerprint for role and project-scope changes', () => {
+  it('changes the permission fingerprint for revision, role, and project-scope changes', () => {
     const membership = createTestMembership({ role: 'admin' })
     const projectMembership = createTestProjectMember({ role: 'lead' })
     const initial = getPermissionFingerprint(membership, [projectMembership])
 
+    expect(
+      getPermissionFingerprint({ ...membership, revision: 2 }, [projectMembership]),
+    ).not.toBe(initial)
     expect(
       getPermissionFingerprint({ ...membership, role: 'viewer' }, [projectMembership]),
     ).not.toBe(initial)

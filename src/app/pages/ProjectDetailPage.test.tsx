@@ -250,6 +250,70 @@ describe('ProjectDetailPage', () => {
     })
   })
 
+  it('discards an edit draft after permission drift without reopening it later', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const project = fixtures.projects.find(({ key }) => key === 'REL')
+    const actorMembership = fixtures.memberships.find(({ role }) => role === 'admin')
+    if (!project || !actorMembership) {
+      throw new Error('Expected project authorization fixtures.')
+    }
+    const store = new InMemoryDataStore(fixtures)
+    const { queryClient, services } = renderProjectDetail(
+      `/projects/${project.id}`,
+      { store },
+    )
+    await screen.findByRole('heading', { level: 1, name: project.name })
+    await user.click(screen.getByRole('button', { name: 'Edit project' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit project' })
+    await user.clear(within(dialog).getByLabelText('Name'))
+    await user.type(within(dialog).getByLabelText('Name'), 'Unsaved project name')
+
+    let current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      memberships: current.data.memberships.map((membership) =>
+        membership.id === actorMembership.id
+          ? { ...membership, role: 'viewer' as const, revision: 2 }
+          : membership,
+      ),
+    })
+    await queryClient.invalidateQueries({
+      queryKey: ['authorization', services.workspaceId],
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Edit project' }))
+        .not.toBeInTheDocument()
+    })
+    const status = await screen.findByText(
+      'Your permission to edit this project changed. No changes were saved.',
+    )
+    expect(status).toHaveAttribute('role', 'status')
+    expect(status).toHaveFocus()
+    expect(screen.queryByRole('button', { name: 'Edit project' }))
+      .not.toBeInTheDocument()
+    expect((await services.gateway.getProjectEditMetadata(project.id)).project.name)
+      .toBe(project.name)
+
+    current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      memberships: current.data.memberships.map((membership) =>
+        membership.id === actorMembership.id
+          ? { ...membership, role: 'admin' as const, revision: 3 }
+          : membership,
+      ),
+    })
+    await queryClient.invalidateQueries({
+      queryKey: ['authorization', services.workspaceId],
+    })
+
+    expect(await screen.findByRole('button', { name: 'Edit project' })).toBeVisible()
+    expect(screen.queryByRole('dialog', { name: 'Edit project' }))
+      .not.toBeInTheDocument()
+  })
+
   it('transfers leadership through an accessible governed confirmation', async () => {
     const user = userEvent.setup()
     const fixtures = createAtlasFixtures()

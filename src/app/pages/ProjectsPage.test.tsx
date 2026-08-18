@@ -36,16 +36,17 @@ function renderProjects(
     ...(actorId ? { actorId } : {}),
     ...(dataStore ? { dataStore } : {}),
   })
+  const queryClient = createAtlasQueryClient()
 
   const view = render(
-    <AppProviders queryClient={createAtlasQueryClient()} services={services}>
+    <AppProviders queryClient={queryClient} services={services}>
       <MemoryRouter initialEntries={[path]}>
         <ProjectsPage />
         <LocationProbe />
       </MemoryRouter>
     </AppProviders>,
   )
-  return { ...view, services }
+  return { ...view, queryClient, services }
 }
 
 describe('ProjectsPage', () => {
@@ -133,6 +134,52 @@ describe('ProjectsPage', () => {
     expect(
       screen.queryByRole('button', { name: 'Create project' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('closes project creation and focuses recovery after live access loss', async () => {
+    const user = userEvent.setup()
+    const fixtures = createAtlasFixtures()
+    const actorMembership = fixtures.memberships.find(({ role }) => role === 'admin')
+    if (!actorMembership) throw new Error('Expected an administrator fixture.')
+    const store = new InMemoryDataStore(fixtures)
+    const initialProjectCount = fixtures.projects.length
+    const { queryClient, services } = renderProjects(
+      '/projects',
+      new SimulatedNetwork(),
+      undefined,
+      store,
+    )
+    await screen.findByRole('list', { name: 'Workspace projects' })
+
+    await user.click(screen.getByRole('button', { name: 'Create project' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Create project' })
+    await user.type(within(dialog).getByLabelText('Name'), 'Unsaved project draft')
+
+    const current = store.read()
+    store.commit(current.version, {
+      ...current.data,
+      memberships: current.data.memberships.map((membership) =>
+        membership.id === actorMembership.id
+          ? { ...membership, role: 'viewer' as const, revision: 2 }
+          : membership,
+      ),
+    })
+    await queryClient.invalidateQueries({
+      queryKey: ['authorization', services.workspaceId],
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Create project' }))
+        .not.toBeInTheDocument()
+    })
+    const status = await screen.findByText(
+      'Your project creation permission changed. No project was created.',
+    )
+    expect(status).toHaveAttribute('role', 'status')
+    expect(status).toHaveFocus()
+    expect(screen.queryByRole('button', { name: 'Create project' }))
+      .not.toBeInTheDocument()
+    expect(store.read().data.projects).toHaveLength(initialProjectCount)
   })
 
   it('offers recovery for stale out-of-range deep links', async () => {

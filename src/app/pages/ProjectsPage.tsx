@@ -1,4 +1,4 @@
-import { useMemo, useState, type SyntheticEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import type { ProjectStatus } from '../../domain'
@@ -24,12 +24,27 @@ const projectStatuses: readonly ProjectStatus[] = [
 export function ProjectsPage() {
   const authorization = useAuthorization()
   const [parameters, setParameters] = useSearchParams()
-  const [createOpen, setCreateOpen] = useState(false)
+  const [createPermissionFingerprint, setCreatePermissionFingerprint] = useState<
+    string | null
+  >(null)
+  const accessStatusRef = useRef<HTMLParagraphElement>(null)
   const state = useMemo(
     () => parseProjectWorkspaceState(parameters),
     [parameters],
   )
   const projects = useProjectSummaries(state)
+  const canCreate = authorization.can('project:create')
+  const accessChangedWhileCreating =
+    createPermissionFingerprint !== null &&
+    (!canCreate ||
+      createPermissionFingerprint !== authorization.session.permissionFingerprint)
+  const createOpen =
+    createPermissionFingerprint !== null && !accessChangedWhileCreating
+
+  useEffect(() => {
+    if (!accessChangedWhileCreating) return
+    accessStatusRef.current?.focus()
+  }, [accessChangedWhileCreating])
 
   const updateState = (changes: Partial<ProjectWorkspaceState>): void => {
     setParameters(
@@ -53,11 +68,23 @@ export function ProjectsPage() {
     <section className="page" aria-labelledby="projects-title">
       <ProjectsHeader
         count={projects.data?.totalItems}
-        canCreate={authorization.can('project:create')}
+        canCreate={canCreate}
         onCreate={() => {
-          setCreateOpen(true)
+          setCreatePermissionFingerprint(
+            authorization.session.permissionFingerprint,
+          )
         }}
       />
+      {accessChangedWhileCreating ? (
+        <p
+          ref={accessStatusRef}
+          className="project-readonly-notice"
+          role="status"
+          tabIndex={-1}
+        >
+          Your project creation permission changed. No project was created.
+        </p>
+      ) : null}
       <form className="project-filters" role="search" onSubmit={handleSearch}>
         <label>
           <span>Search projects</span>
@@ -204,7 +231,7 @@ export function ProjectsPage() {
       {createOpen ? (
         <ProjectCreateDialog
           onClose={() => {
-            setCreateOpen(false)
+            setCreatePermissionFingerprint(null)
           }}
         />
       ) : null}
