@@ -6,7 +6,7 @@ import App from './App.tsx'
 const rootElement = document.getElementById('root')
 
 if (!rootElement) {
-  throw new Error('Atlas Ops could not find its root element.')
+  throw new Error('Taskora could not find its root element.')
 }
 
 createRoot(rootElement).render(
