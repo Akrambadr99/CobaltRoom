@@ -35,7 +35,7 @@ export function AppShell() {
         <p className="page-eyebrow">Session security</p>
         <h1>Workspace access changed</h1>
         <p>
-          Your membership is no longer active. Trackiva removed workspace data
+          Your membership is no longer active. CobaltRoom removed workspace data
           from the active view.
         </p>
         <button
@@ -57,7 +57,7 @@ export function AppShell() {
         <p className="page-eyebrow">Session security</p>
         <h1>Permissions could not be verified</h1>
         <p>
-          Trackiva removed workspace data from this view until your access can
+          CobaltRoom removed workspace data from this view until your access can
           be confirmed.
         </p>
         <button
@@ -80,11 +80,11 @@ export function AppShell() {
       </a>
 
       <aside className="app-sidebar">
-        <Link className="app-brand" to="/" aria-label="Trackiva dashboard">
+        <Link className="app-brand" to="/" aria-label="CobaltRoom dashboard">
           <span className="app-brand__mark" aria-hidden="true">
-            TV
+            CR
           </span>
-          <span>Trackiva</span>
+          <span>CobaltRoom</span>
         </Link>
 
         <PrimaryNavigation />
@@ -111,7 +111,7 @@ export function AppShell() {
         <header className="app-topbar">
           <div>
             <p className="app-topbar__label">Keep the details in sight</p>
-            <p className="app-topbar__name">Trackiva Workspace</p>
+            <p className="app-topbar__name">CobaltRoom Workspace</p>
           </div>
           <GlobalSearch />
           <NotificationCenter />

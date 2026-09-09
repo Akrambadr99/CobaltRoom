@@ -6,7 +6,7 @@ import App from './App.tsx'
 const rootElement = document.getElementById('root')
 
 if (!rootElement) {
-  throw new Error('Trackiva could not find its root element.')
+  throw new Error('CobaltRoom could not find its root element.')
 }
 
 createRoot(rootElement).render(

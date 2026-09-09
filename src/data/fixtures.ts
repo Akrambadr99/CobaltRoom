@@ -19,7 +19,7 @@ export function createAtlasFixtures(
 
   const workspace = {
     id: ids.workspace('operations'),
-    name: 'Trackiva Workspace',
+    name: 'CobaltRoom Workspace',
     slug: 'atlas-operations',
     createdAt,
   }
