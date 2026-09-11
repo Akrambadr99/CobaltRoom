@@ -1,15 +1,12 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import './styles/global.css'
-import App from './App.tsx'
+import App from './App'
+import './styles.css'
 
-const rootElement = document.getElementById('root')
+const root = document.getElementById('root')
+if (!root) throw new Error('GridLoom could not find its root element.')
 
-if (!rootElement) {
-  throw new Error('CobaltRoom could not find its root element.')
-}
-
-createRoot(rootElement).render(
+createRoot(root).render(
   <StrictMode>
     <App />
   </StrictMode>,

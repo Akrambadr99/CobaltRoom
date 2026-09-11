@@ -1,19 +1,14 @@
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-
 import App from './App'
-import { render, screen } from './test/render'
 
-describe('App', () => {
-  it('renders the dashboard inside the application shell', async () => {
+describe('GridLoom workspace', () => {
+  it('opens a domain-specific operational surface', async () => {
+    const user = userEvent.setup()
     render(<App />)
-
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Dashboard' }),
-    ).toBeVisible()
-    expect(
-      screen.getByRole('navigation', { name: 'Primary navigation' }),
-    ).toBeVisible()
-    expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content')
-    expect(await screen.findByText('Tracked issues')).toBeVisible()
+    expect(screen.getByRole('heading', { level: 1, name: 'Energy balance' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'history' }))
+    expect(screen.getByRole('heading', { level: 1, name: 'Interval provenance' })).toBeVisible()
   })
 })
