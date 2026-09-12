@@ -104,3 +104,22 @@ test('approved reserve policy persists and blocks conflicting dispatch', async (
     await dialog.getByRole('button', { name: 'Save command', exact: true }).click();
     await expect(dialog.getByRole('alert')).toContainText('site reserve');
 });
+
+test('fresh telemetry and cleared alarms govern restoration', async ({ page }) => {
+  await page.goto('/control-room');
+  const role = page.getByRole('combobox', { name: 'Control role' });
+  await expect(page.getByRole('heading', { name: 'Telemetry, alarm and restoration control' })).toBeVisible();
+  await page.getByRole('button', { name: 'Record fresh telemetry' }).click();
+  await page.getByRole('button', { name: 'Acknowledge critical alarm' }).click();
+  await page.getByRole('button', { name: 'Clear alarm with evidence' }).click();
+  await role.selectOption('Field Operator');
+  await page.getByRole('button', { name: 'Request restoration' }).click();
+  await role.selectOption('Grid Controller');
+  await page.getByRole('button', { name: 'Approve restoration' }).click();
+  await role.selectOption('Field Operator');
+  await page.getByRole('button', { name: 'Execute restoration' }).click();
+  await expect(page.getByRole('status')).toContainText('Asset restored');
+  await page.reload();
+  await expect(page.getByText('Asset online · permit executed')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Control-room history' })).toContainText('restoration-executed');
+});
