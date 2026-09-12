@@ -48,3 +48,9 @@ Expanded strong count: **26**.
 ## Strongest 15 candidates
 
 Directions **1, 2, 4, 5, 6, 7, 8, 10, 11, 14, 15, 31, 33, 35, and 37** are the final shortlist. Their React judgment is respectively: explicit loading/final transitions; stale async rejection; reversible empty-state filtering; reserve recalculation after refresh; optimistic dispatch rollback; asset-keyed drafts; partial outage planning; result ownership after navigation; immutable correction lineage; cross-tab draft reconciliation; live permission-derived actions; multi-input dispatch constraints; staged-envelope invalidation; fault-driven state revocation; and rollback that preserves operator inputs.
+
+## Outage recovery directions 41–50
+
+41. **Strong candidate · Medium-Hard:** recovery advances through acknowledge, isolate, telemetry verification, and restore in order. 42. **Strong candidate · Medium:** changing sites resets only the active recovery sequence. 43. **Strong candidate · Medium-Hard:** a stale meter blocks verification without discarding completed stages. 44. **Strong candidate · Medium:** healthy meter refresh enables the same pending step. 45. **Strong candidate · Medium-Hard:** offline-site state blocks final restoration after earlier evidence remains complete. 46. **Strong candidate · Medium:** repeated completion after the final stage is idempotent. 47. **Strong candidate · Medium-Hard:** meter ownership prevents another site's telemetry satisfying recovery. 48. **Strong candidate · Medium:** missing meters produce a stable verification reason. 49. **Too Easy:** change the recovery label. 50. **Too Hard:** execute restoration against live grid controls.
+
+Current strong count: **34**. Revised strongest 15: **1, 2, 5, 6, 7, 8, 10, 14, 31, 33, 35, 37, 41, 43, and 45**.
