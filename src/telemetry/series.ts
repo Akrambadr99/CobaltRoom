@@ -1,9 +1,56 @@
-export type ReadingSource='live'|'historical'|'forecast'|'corrected'
-export interface Reading{meterId:string;at:string;kwh:number;source:ReadingSource;receivedAt:string}
-export interface TariffPeriod{name:string;startHour:number;endHour:number;rate:number}
-export function normalizeSeries(readings:Reading[]):Reading[]{const byInterval=new Map<string,Reading>();const rank:Record<ReadingSource,number>={forecast:0,historical:1,live:2,corrected:3};for(const reading of readings){const key=reading.meterId+'|'+reading.at;const current=byInterval.get(key);if(!current||rank[reading.source]>rank[current.source])byInterval.set(key,reading)}return[...byInterval.values()].sort((a,b)=>a.at.localeCompare(b.at))}
-export function rollingConsumption(readings:Reading[],end:string,hours:number){const endMs=new Date(end).getTime(),start=endMs-hours*3600000;return normalizeSeries(readings).filter(r=>{const t=new Date(r.at).getTime();return t>start&&t<=endMs}).reduce((sum,r)=>sum+r.kwh,0)}
-export function missingIntervals(readings:Reading[],meterId:string,start:string,end:string,minutes=15):string[]{const have=new Set(normalizeSeries(readings).filter(r=>r.meterId===meterId).map(r=>r.at));const missing:string[]=[];for(let t=new Date(start).getTime();t<=new Date(end).getTime();t+=minutes*60000){const iso=new Date(t).toISOString();if(!have.has(iso))missing.push(iso)}return missing}
-export function tariffCost(readings:Reading[],tariffs:TariffPeriod[]){return normalizeSeries(readings).reduce((sum,r)=>{const hour=new Date(r.at).getUTCHours();const tariff=tariffs.find(t=>t.startHour<=hour&&hour<t.endHour);if(!tariff)throw new Error('No tariff covers telemetry interval '+r.at);return sum+r.kwh*tariff.rate},0)}
-export function anomalies(readings:Reading[],threshold:number){const series=normalizeSeries(readings);return series.filter((reading,index)=>{const history=series.slice(Math.max(0,index-4),index);if(history.length<3)return false;const mean=history.reduce((s,r)=>s+r.kwh,0)/history.length;return reading.kwh>mean*threshold})}
-export function isStale(reading:Reading,now:string,maxMinutes:number){return new Date(now).getTime()-new Date(reading.receivedAt).getTime()>maxMinutes*60000}
+export type ReadingSource = 'live' | 'historical' | 'forecast' | 'corrected';
+export interface Reading {
+    meterId: string;
+    at: string;
+    kwh: number;
+    source: ReadingSource;
+    receivedAt: string;
+}
+export interface TariffPeriod {
+    name: string;
+    startHour: number;
+    endHour: number;
+    rate: number;
+}
+export function normalizeSeries(readings: Reading[]): Reading[] {
+    const byInterval = new Map<string, Reading>();
+    const rank: Record<ReadingSource, number> = { forecast: 0, historical: 1, live: 2, corrected: 3 };
+    for (const reading of readings) {
+        const key = reading.meterId + '|' + reading.at;
+        const current = byInterval.get(key);
+        if (!current || rank[reading.source] > rank[current.source])
+            byInterval.set(key, reading);
+    }
+    return [...byInterval.values()].sort((a, b) => a.at.localeCompare(b.at));
+}
+export function rollingConsumption(readings: Reading[], end: string, hours: number) { const endMs = new Date(end).getTime(), start = endMs - hours * 3600000; return normalizeSeries(readings).filter(r => { const t = new Date(r.at).getTime(); return t > start && t <= endMs; }).reduce((sum, r) => sum + r.kwh, 0); }
+export function missingIntervals(readings: Reading[], meterId: string, start: string, end: string, minutes = 15): string[] {
+    const have = new Set(normalizeSeries(readings).filter(r => r.meterId === meterId).map(r => r.at));
+    const missing: string[] = [];
+    for (let t = new Date(start).getTime(); t <= new Date(end).getTime(); t += minutes * 60000) {
+        const iso = new Date(t).toISOString();
+        if (!have.has(iso))
+            missing.push(iso);
+    }
+    return missing;
+}
+export function tariffCost(readings: Reading[], tariffs: TariffPeriod[]) {
+    return normalizeSeries(readings).reduce((sum, r) => {
+        const hour = new Date(r.at).getUTCHours();
+        const tariff = tariffs.find(t => t.startHour <= hour && hour < t.endHour);
+        if (!tariff)
+            throw new Error('No tariff covers telemetry interval ' + r.at);
+        return sum + r.kwh * tariff.rate;
+    }, 0);
+}
+export function anomalies(readings: Reading[], threshold: number) {
+    const series = normalizeSeries(readings);
+    return series.filter((reading, index) => {
+        const history = series.slice(Math.max(0, index - 4), index);
+        if (history.length < 3)
+            return false;
+        const mean = history.reduce((s, r) => s + r.kwh, 0) / history.length;
+        return reading.kwh > mean * threshold;
+    });
+}
+export function isStale(reading: Reading, now: string, maxMinutes: number) { return new Date(now).getTime() - new Date(reading.receivedAt).getTime() > maxMinutes * 60000; }
