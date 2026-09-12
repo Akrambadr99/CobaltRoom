@@ -59,3 +59,24 @@ it('requires dispatch shutdown before isolation without reversing recorded energ
  expect(state.entities.find(item => item.id === 'battery-1')?.fields['soc']).toBe(soc);
  expect(state.entities.find(item => item.id === 'dispatch-1')?.status).toBe('cancelled');
 });
+
+describe('telemetry alarm lifecycle', () => {
+ it('preserves acknowledgement through bounded suppression and deterministic expiry', () => {
+  let state = run(fresh(product), 'ack-alarm', 'alarm-1', 'acknowledge-alarm');
+  state = run(state, 'suppress', 'alarm-1', 'suppress-alarm', 'actor-0', {until:'2026-09-14', reason:'Meter calibration is already scheduled.'});
+  expect(state.entities.find(item => item.id === 'alarm-1')).toMatchObject({status:'suppressed', fields:{acknowledgedBy:'Lina Farouk', suppressionUntil:'2026-09-14'}});
+  expect(() => run(state, 'early', 'alarm-1', 'expire-suppression', 'actor-2', {}, '2026-09-13T10:00:00Z')).toThrow('not expired');
+  state = run(state, 'expire', 'alarm-1', 'expire-suppression', 'actor-2', {}, '2026-09-14T00:00:00Z');
+  expect(state.entities.find(item => item.id === 'alarm-1')).toMatchObject({status:'acknowledged', fields:{acknowledgedBy:'Lina Farouk', suppressionReason:'Meter calibration is already scheduled.'}});
+ });
+ it('requires a fresh healthy sample before clearance and rejects excessive suppression', () => {
+  let state = run(fresh(product), 'ack-alarm', 'alarm-1', 'acknowledge-alarm');
+  const before = structuredClone(state);
+  expect(() => run(state, 'too-long', 'alarm-1', 'suppress-alarm', 'actor-0', {until:'2026-10-01', reason:'Calibration requires an extended window.'})).toThrow('seven days');
+  expect(state).toEqual(before);
+  expect(() => run(state, 'clear', 'alarm-1', 'clear-alarm')).toThrow('fresh healthy');
+  state = run(state, 'sample', 'meter-1', 'refresh-meter', 'actor-1', {health:'healthy', kwh:140});
+  state = run(state, 'clear', 'alarm-1', 'clear-alarm');
+  expect(state.entities.find(item => item.id === 'alarm-1')?.status).toBe('cleared');
+ });
+});

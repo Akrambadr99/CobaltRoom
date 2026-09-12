@@ -65,3 +65,18 @@ test('recovery panel executes persisted stages and resolves active dispatch conf
  await panel.getByRole('button',{name:'Run: Restore grid service',exact:true}).click();await save();
  await page.reload();await expect(panel.getByRole('heading')).toContainText('complete');
 });
+
+test('acknowledged telemetry alarm persists a bounded controller suppression',async({page})=>{
+ await page.goto('/operations');
+ const actor=page.getByRole('combobox',{name:'Current actor'});const dialog=page.getByRole('dialog');
+ const save=async()=>{await dialog.getByRole('button',{name:'Save command',exact:true}).click();await expect(dialog).toHaveCount(0);};
+ await page.getByRole('button',{name:/^Telemetry alarms/}).click();
+ await actor.selectOption('actor-2');await page.getByRole('button',{name:'Acknowledge telemetry alarm',exact:true}).click();await save();
+ await actor.selectOption('actor-0');await page.getByRole('button',{name:'Suppress acknowledged alarm',exact:true}).click();
+ await dialog.getByLabel('Suppression expiry',{exact:true}).fill('2026-09-14');
+ await dialog.getByLabel('Suppression reason',{exact:true}).fill('Meter calibration is already scheduled.');await save();
+ await page.reload();await page.getByRole('button',{name:/^Telemetry alarms/}).click();
+ await expect(page.locator('.detail-title')).toContainText('suppressed');
+ await expect(page.locator('.detail')).toContainText('Meter calibration is already scheduled.');
+ await expect(page.locator('.detail')).toContainText('Lina Farouk');
+});
