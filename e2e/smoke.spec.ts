@@ -58,6 +58,10 @@ test('recovery panel executes persisted stages and resolves active dispatch conf
  await expect(panel).toContainText('Verification failed');
  await actor.selectOption('actor-1');await panel.getByRole('button',{name:/^Refresh telemetry:/}).click();await save();
  await actor.selectOption('actor-2');await panel.getByRole('button',{name:'Run: Verify recovery telemetry',exact:true}).click();await save();
+ await actor.selectOption('actor-1');await panel.getByRole('button',{name:/^Refresh telemetry:/}).click();await save();
+ await actor.selectOption('actor-2');await panel.getByRole('button',{name:'Run: Restore grid service',exact:true}).click();
+ await dialog.getByRole('button',{name:'Save command',exact:true}).click();await expect(dialog.getByRole('alert')).toContainText('Telemetry changed');await page.keyboard.press('Escape');
+ await panel.getByRole('button',{name:'Run: Verify recovery telemetry',exact:true}).click();await save();
  await panel.getByRole('button',{name:'Run: Restore grid service',exact:true}).click();await save();
  await page.reload();await expect(panel.getByRole('heading')).toContainText('complete');
 });

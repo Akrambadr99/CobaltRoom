@@ -34,6 +34,7 @@ export function DomainLifecyclePanel({ snapshot, actorId, onExecute }: { snapsho
         <label>Recovery outage<select value={outage?.id ?? ''} onChange={event => { setSelectedOutage(event.target.value); }}>{outages.map(item => <option key={item.id} value={item.id}>{item.title} - {item.status}</option>)}</select></label>
         <p>{outage ? String(recovery?.fields['result'] ?? 'Acknowledge this outage to begin recovery.') : 'Create an outage record to begin recovery.'}</p>
         {outage && operation && operation.roles.includes(role) && <button onClick={() => onExecute?.(action, action === 'verify-recovery' ? recovery?.id ?? '' : outage.id)}>Run: {operation.label}</button>}
+        {recovery && stage === 'verified' && role === 'Reliability Engineer' && <button onClick={() => onExecute?.('verify-recovery', recovery.id)}>Run: Verify recovery telemetry</button>}
         {role === 'Energy Operator' && meters.map(meter => <button key={meter.id} onClick={() => onExecute?.('refresh-meter', meter.id)}>Refresh telemetry: {meter.title}</button>)}
         {role === 'Grid Controller' && activeDispatches.map(dispatch => <button key={dispatch.id} onClick={() => onExecute?.('stop-dispatch', dispatch.id)}>Stop dispatch: {dispatch.title}</button>)}
     </section>;
