@@ -1,9 +1,15 @@
 import { expect, test } from '@playwright/test'
-
-test('GridLoom exposes its primary domain workflow', async ({ page }) => {
+test('GridLoom opens its durable operations workspace', async ({ page }) => {
   await page.goto('/')
-  await expect(page).toHaveTitle('GridLoom')
-  await expect(page.getByRole('heading', { level: 1, name: 'Energy balance' })).toBeVisible()
-  await page.getByRole('button', { name: 'history' }).click()
-  await expect(page.getByRole('heading', { level: 1, name: 'Interval provenance' })).toBeVisible()
+  await expect(page.getByText('GridLoom', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  await page.getByRole('button', { name: /^Create / }).click()
+  await expect(page.getByRole('heading', { name: 'Create record' })).toBeVisible()
+  await page.getByRole('button', { name: 'Close dialog' }).click()
+  const sections = page.locator('aside > button')
+  if (await sections.count() > 1) await sections.nth(1).click()
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export backup' }).click()
+  await download
 })
