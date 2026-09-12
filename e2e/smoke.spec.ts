@@ -32,3 +32,32 @@ test('outage recovery persists failed verification and restores after telemetry 
     await page.getByRole('button', { name: /^Energy sites/ }).click();
     await expect(page.locator('.detail-title')).toContainText('online');
 });
+
+
+test('recovery panel executes persisted stages and resolves active dispatch conflict', async ({page}) => {
+ await page.goto('/operations');
+ const actor = page.getByRole('combobox',{name:'Current actor'});
+ const panel = page.getByRole('region',{name:'Outage recovery sequence'});
+ const dialog = page.getByRole('dialog');
+ const save = async () => {await dialog.getByRole('button',{name:'Save command',exact:true}).click();await expect(dialog).toHaveCount(0);};
+ await page.getByRole('button',{name:/^Dispatch instructions/}).click();
+ await page.getByRole('button',{name:'Activate battery dispatch',exact:true}).click();await save();
+ await actor.selectOption('actor-2');await page.getByRole('button',{name:/^Grid outages/}).click();
+ await page.getByRole('button',{name:'Create grid outages',exact:true}).click();
+ await dialog.getByLabel('Record title',{exact:true}).fill('Campus feeder loss');
+ await dialog.getByRole('combobox',{name:'Site',exact:true}).selectOption('site-1');
+ await dialog.getByLabel('Outage cause',{exact:true}).fill('Feeder protection trip');await save();
+ await panel.getByRole('button',{name:'Run: Acknowledge recovery',exact:true}).click();await save();
+ await panel.getByRole('button',{name:'Run: Declare site outage',exact:true}).click();
+ await dialog.getByRole('button',{name:'Save command',exact:true}).click();await expect(dialog.getByRole('alert')).toContainText('Stop active battery dispatch');await page.keyboard.press('Escape');
+ await actor.selectOption('actor-0');await panel.getByRole('button',{name:/^Stop dispatch:/}).click();
+ await dialog.getByLabel('Dispatch stop reason',{exact:true}).fill('Stop dispatch for safe feeder isolation.');await save();
+ await actor.selectOption('actor-2');await panel.getByRole('button',{name:'Run: Declare site outage',exact:true}).click();await save();
+ await panel.getByRole('button',{name:'Run: Verify recovery telemetry',exact:true}).click();await save();
+ await expect(panel).toContainText('Verification failed');await page.reload();
+ await expect(panel).toContainText('Verification failed');
+ await actor.selectOption('actor-1');await panel.getByRole('button',{name:/^Refresh telemetry:/}).click();await save();
+ await actor.selectOption('actor-2');await panel.getByRole('button',{name:'Run: Verify recovery telemetry',exact:true}).click();await save();
+ await panel.getByRole('button',{name:'Run: Restore grid service',exact:true}).click();await save();
+ await page.reload();await expect(panel.getByRole('heading')).toContainText('complete');
+});

@@ -46,3 +46,16 @@ describe('persisted outage recovery', () => {
         expect(run(state, 'restore', 'outage-1', 'restore').entities.find(item => item.id === 'site-1')?.status).toBe('islanded');
     });
 });
+
+it('requires dispatch shutdown before isolation without reversing recorded energy', () => {
+ let state = run(outageState(), 'activate', 'dispatch-1', 'activate', 'actor-0');
+ const soc = state.entities.find(item => item.id === 'battery-1')?.fields['soc'];
+ state = run(state, 'ack', 'outage-1', 'acknowledge-recovery');
+ expect(() => run(state, 'isolate', 'outage-1', 'island')).toThrow('Stop active battery dispatch');
+ expect(() => run(state, 'stop', 'dispatch-1', 'stop-dispatch', 'actor-1', {reason:'Isolate site after feeder fault.'})).toThrow('role');
+ state = run(state, 'stop', 'dispatch-1', 'stop-dispatch', 'actor-0', {reason:'Isolate site after feeder fault.'});
+ state = run(state, 'isolate', 'outage-1', 'island');
+ expect(state.entities.find(item => item.id === 'site-1')?.status).toBe('islanded');
+ expect(state.entities.find(item => item.id === 'battery-1')?.fields['soc']).toBe(soc);
+ expect(state.entities.find(item => item.id === 'dispatch-1')?.status).toBe('cancelled');
+});
