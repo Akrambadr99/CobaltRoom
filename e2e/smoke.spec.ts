@@ -80,3 +80,27 @@ test('acknowledged telemetry alarm persists a bounded controller suppression',as
  await expect(page.locator('.detail')).toContainText('Meter calibration is already scheduled.');
  await expect(page.locator('.detail')).toContainText('Lina Farouk');
 });
+
+
+test('approved reserve policy persists and blocks conflicting dispatch', async ({ page }) => {
+    await page.goto('/operations');
+    const actor = page.getByRole('combobox', { name: 'Current actor' });
+    const dialog = page.getByRole('dialog');
+    const save = async () => { await dialog.getByRole('button', { name: 'Save command', exact: true }).click();await expect(dialog).toHaveCount(0); };
+    await actor.selectOption('actor-1');
+    await page.getByRole('button', { name: 'Request reserve change', exact: true }).click();
+    await dialog.getByRole('spinbutton', { name: 'Proposed reserve kW', exact: true }).fill('5000');
+    await dialog.getByLabel('Reserve justification', { exact: true }).fill('Reserve the complete site envelope for emergency operations.');await save();
+    await page.getByRole('button', { name: /^Reserve changes/ }).click();
+    await actor.selectOption('actor-0');
+    await page.getByRole('button', { name: 'Approve reserve request', exact: true }).click();await save();
+    await page.getByRole('button', { name: 'Apply approved reserve', exact: true }).click();await save();
+    await page.reload();
+    await page.getByRole('button', { name: 'Edit draft', exact: true }).click();
+    await expect(dialog.getByRole('spinbutton', { name: 'Required reserve kW', exact: true })).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: /^Dispatch instructions/ }).click();
+    await page.getByRole('button', { name: 'Activate battery dispatch', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Save command', exact: true }).click();
+    await expect(dialog.getByRole('alert')).toContainText('site reserve');
+});

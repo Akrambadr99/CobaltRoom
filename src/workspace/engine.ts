@@ -39,6 +39,8 @@ export function execute(current: Snapshot, command: Command, product: Product, n
         if (command.type === 'edit') {
             requireThat(kind.editors.includes(actor.role), 'This role cannot edit this record.');
             requireThat(entity.status === kind.initial, 'Only records in their initial state can be edited. Use a workflow action for active records.');
+            for (const field of kind.fields.filter(item => item.editLocked))
+                requireThat(entity.fields[field.key] === command.input[field.key], field.label + ' must be changed through its governed workflow.');
             entity.title = command.title?.trim() ?? entity.title;
             entity.fields = { ...command.input };
             summary = 'Updated ' + entity.title;

@@ -18,6 +18,7 @@ export interface Field {
     options?: string[];
     reference?: string;
     initial?: Value;
+    editLocked?: boolean;
 }
 export interface Kind {
     key: string;
