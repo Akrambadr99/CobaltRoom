@@ -38,3 +38,9 @@ Telemetry investigation separates current input from deferred query state. Dispa
 30. **Too Hard:** orchestrate live grid-control services.
 
 Strong count: **18** Medium/Medium-Hard directions with deterministic data and distinct temporal-energy behavior.
+
+## Depth expansion directions 31–40
+
+31. **Strong candidate · Medium-Hard:** dispatch envelope combines site, battery, inverter, reserve, mode, and duration. 32. **Strong candidate · Medium:** charge/discharge switches recompute projected SOC. 33. **Strong candidate · Medium-Hard:** refreshed battery SOC invalidates a staged dispatch. 34. **Strong candidate · Medium:** switching batteries keeps numeric inputs while changing policy output. 35. **Strong candidate · Medium-Hard:** fault transition blocks an otherwise valid envelope. 36. **Strong candidate · Medium:** inverter limit and reserve failures remain separately visible. 37. **Strong candidate · Medium-Hard:** optimistic activation rolls back to the same envelope inputs. 38. **Strong candidate · Medium:** zero-capacity data avoids invalid numeric output. 39. **Too Easy:** change the projected-charge label. 40. **Too Hard:** connect the envelope directly to a live grid controller.
+
+Expanded strong count: **26**.
