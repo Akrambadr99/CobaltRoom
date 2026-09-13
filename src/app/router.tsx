@@ -16,4 +16,5 @@ children.splice(12,0,{path:'meter-exchange',lazy:async()=>({Component:(await imp
 children.splice(13,0,{path:'vegetation-control',lazy:async()=>({Component:(await import('../vegetation-control/VegetationControlPage')).VegetationControlPage})});
 children.splice(14,0,{path:'transformer-condition',lazy:async()=>({Component:(await import('../transformer-condition/TransformerConditionPage')).TransformerConditionPage})});
 children.splice(15,0,{path:'power-quality',lazy:async()=>({Component:(await import('../power-quality/PowerQualityPage')).PowerQualityPage})});
+children.splice(16,0,{path:'feeder-transfer',lazy:async()=>({Component:(await import('../feeder-transfer/FeederTransferPage')).FeederTransferPage})});
 export const browserRouter = createBrowserRouter([{ path: '/', Component: AppShell, HydrateFallback: RouteLoading, children }]);
