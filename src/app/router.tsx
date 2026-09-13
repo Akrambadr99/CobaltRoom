@@ -9,4 +9,5 @@ children.splice(5,0,{path:'incident-investigation',lazy:async()=>({Component:(aw
 children.splice(6,0,{path:'load-shed-control',lazy:async()=>({Component:(await import('../load-shed-control/LoadShedControlPage')).LoadShedControlPage})});
 children.splice(7,0,{path:'restoration-dossier',lazy:async()=>({Component:(await import('../restoration-dossier/RestorationDossierPage')).RestorationDossierPage})});
 children.splice(8,0,{path:'planned-outage',lazy:async()=>({Component:(await import('../planned-outage/PlannedOutagePage')).PlannedOutagePage})});
+children.splice(9,0,{path:'interconnection-control',lazy:async()=>({Component:(await import('../interconnection-control/InterconnectionControlPage')).InterconnectionControlPage})});
 export const browserRouter = createBrowserRouter([{ path: '/', Component: AppShell, HydrateFallback: RouteLoading, children }]);
