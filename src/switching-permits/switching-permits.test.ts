@@ -1,0 +1,9 @@
+import { describe, expect, it } from 'vitest';
+import { closeAndEnergize, completeWork, draftPermit, initialSwitchingPermitState, isolateAsset, issuePermit, reviewSequence, type PermitRole } from './switching-permits';
+const meta = (id: string, revision: number, actor: string, role: PermitRole) => ({ id, expectedRevision: revision, now: '2026-10-10T09:00:00.000Z', actor: { id: actor, role } });
+function isolated() { let state = draftPermit(initialSwitchingPermitState, meta('draft', 0, 'author', 'Switching Author')); state = reviewSequence(state, meta('review', 1, 'safety', 'Safety Reviewer')); return isolateAsset(state, meta('isolate', 2, 'operator', 'Control Operator')); }
+describe('switching permits', () => {
+  it('issues work and re-energizes after immutable completion', () => { let state = issuePermit(isolated(), meta('issue', 3, 'CREW-HV-3', 'Field Lead')); state = completeWork(state, meta('complete', 4, 'CREW-HV-3', 'Field Lead')); state = closeAndEnergize(state, meta('close', 5, 'operator', 'Control Operator')); expect(state.permit?.status).toBe('closed'); expect(state.asset).toMatchObject({ energized: true, status: 'service' }); expect(state.points.every((point) => point.position === 'closed' && !point.lockApplied)).toBe(true); });
+  it('blocks issue if any isolation lock is removed', () => { const state = isolated(); const point = state.points.at(0); if (!point) throw new Error('Seed point is missing.'); point.lockApplied = false; point.version += 1; state.permit!.pointVersions[point.id] = point.version; expect(() => issuePermit(state, meta('issue', 3, 'CREW-HV-3', 'Field Lead'))).toThrow('open and locked'); });
+  it('rejects stale crew authorization', () => { const state = draftPermit(initialSwitchingPermitState, meta('draft', 0, 'author', 'Switching Author')); state.crew.version += 1; expect(() => reviewSequence(state, meta('review', 1, 'safety', 'Safety Reviewer'))).toThrow('Crew authorization changed'); });
+});
