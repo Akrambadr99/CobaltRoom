@@ -14,4 +14,5 @@ children.splice(10,0,{path:'flexibility-market',lazy:async()=>({Component:(await
 children.splice(11,0,{path:'switching-permits',lazy:async()=>({Component:(await import('../switching-permits/SwitchingPermitsPage')).SwitchingPermitsPage})});
 children.splice(12,0,{path:'meter-exchange',lazy:async()=>({Component:(await import('../meter-exchange/MeterExchangePage')).MeterExchangePage})});
 children.splice(13,0,{path:'vegetation-control',lazy:async()=>({Component:(await import('../vegetation-control/VegetationControlPage')).VegetationControlPage})});
+children.splice(14,0,{path:'transformer-condition',lazy:async()=>({Component:(await import('../transformer-condition/TransformerConditionPage')).TransformerConditionPage})});
 export const browserRouter = createBrowserRouter([{ path: '/', Component: AppShell, HydrateFallback: RouteLoading, children }]);
