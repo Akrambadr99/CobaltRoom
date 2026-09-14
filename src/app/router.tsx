@@ -18,4 +18,5 @@ children.splice(14,0,{path:'transformer-condition',lazy:async()=>({Component:(aw
 children.splice(15,0,{path:'power-quality',lazy:async()=>({Component:(await import('../power-quality/PowerQualityPage')).PowerQualityPage})});
 children.splice(16,0,{path:'feeder-transfer',lazy:async()=>({Component:(await import('../feeder-transfer/FeederTransferPage')).FeederTransferPage})});
 children.splice(17,0,{path:'storm-mission',lazy:async()=>({Component:(await import('../storm-mission/StormMissionPage')).StormMissionPage})});
+children.splice(18,0,{path:'protection-settings',lazy:async()=>({Component:(await import('../protection-settings/ProtectionSettingsPage')).ProtectionSettingsPage})});
 export const browserRouter = createBrowserRouter([{ path: '/', Component: AppShell, HydrateFallback: RouteLoading, children }]);
