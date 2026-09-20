@@ -157,3 +157,6 @@ test('keeps feeders isolated through a failed protection test and authorized ret
 
 
 test('combines customer and field meter blockers',async({page})=>{await page.goto('/meter-exchange');const workload=page.getByRole('region',{name:'Meter operations workload'});await expect(workload).toContainText('MX-905 · urgent');await expect(workload).toContainText('field custody, customer commitment');});
+
+
+test('supervisor coordinates customer and field follow-up under one owner',async({page})=>{await page.goto('/meter-exchange');await page.getByLabel('Workload role').selectOption('Operations Supervisor');await page.getByRole('button',{name:'Coordinate urgent meter follow-up'}).click();await expect(page.getByRole('status')).toContainText('one owner');await expect(page.getByRole('region',{name:'Meter operations workload'})).toContainText('field Revenue recovery · customer Revenue recovery · contacts 4');await page.reload();await expect(page.getByRole('list',{name:'Meter follow-up history'})).toContainText('scheduled 2026-10-21');});
