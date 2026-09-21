@@ -17,6 +17,7 @@ export function MeterWorkloadControl() {
   const [state, setState] = useState(() => repository.read());
   const [role, setRole] = useState<MeterWorkloadRole>("Operations Viewer");
   const [message, setMessage] = useState("");
+  const [contractorId, setContractorId] = useState("CONTRACTOR-CMS");
   const feedback = useRef<HTMLParagraphElement>(null);
   const workload = meterCaseWorkload(state.cases, "2026-10-20");
   const coordinate = () => {
@@ -44,7 +45,7 @@ export function MeterWorkloadControl() {
     }
     queueMicrotask(() => feedback.current?.focus());
   };
-  const advanceDisposal = () => { const stages: MeterDisposalStage[] = ["requested", "authorized", "handed-off", "received", "evidence-rejected", "evidence-corrected", "confirmed"]; const stage = stages[state.disposalEvents.length]; if (!stage) return; try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: "MX-905", stage, contractor: "Circular Meter Services", custodyReference: "CUSTODY-905", evidenceReference: `DISPOSAL-${stage}`, reason: stage === "evidence-rejected" ? "Certificate omitted the serialized meter seal reference." : null, actor: "Operations assurance", occurredOn: "2026-10-22" })); setMessage(`Disposal custody advanced to ${stage}.`); } catch (error) { setMessage(error instanceof Error ? error.message : "Disposal custody update failed."); } queueMicrotask(() => feedback.current?.focus()); };
+  const advanceDisposal = () => { const stages: MeterDisposalStage[] = ["requested", "authorized", "handed-off", "received", "evidence-rejected", "evidence-corrected", "confirmed"]; const stage = stages[state.disposalEvents.length]; if (!stage) return; const contractor = state.contractors.find((item) => item.id === contractorId); try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: "MX-905", stage, contractor: contractor?.organizationName ?? "", contractorId, custodyReference: "CUSTODY-905", evidenceReference: `DISPOSAL-${stage}`, reason: stage === "evidence-rejected" ? "Certificate omitted the serialized meter seal reference." : null, actor: "Operations assurance", occurredOn: "2026-10-22" })); setMessage(`Disposal custody advanced to ${stage}.`); } catch (error) { setMessage(error instanceof Error ? error.message : "Disposal custody update failed."); } queueMicrotask(() => feedback.current?.focus()); };
   const close = () => {
     try {
       setState(
@@ -102,6 +103,7 @@ export function MeterWorkloadControl() {
       >
         Coordinate urgent meter follow-up
       </button>
+      <label>Eligible disposal contractor<select value={contractorId} onChange={(event) => { setContractorId(event.target.value); }}>{state.contractors.map((item) => <option key={item.id} value={item.id} disabled={!item.active || item.authorizationStatus !== "authorized"}>{item.organizationName} · {item.active ? item.authorizationStatus : "inactive"}</option>)}</select></label>
       <button disabled={role !== "Operations Supervisor" || state.followUps.length === 0 || state.disposalEvents.at(-1)?.stage === "confirmed"} onClick={advanceDisposal}>Advance disposal custody</button>
       <button
         disabled={
