@@ -4,6 +4,7 @@ import {
   BrowserMeterWorkloadPersistence,
   MeterWorkloadRepository,
   contractorEligibility,
+  plannedCustodyReadiness,
   type MeterDisposalStage,
   type MeterWorkloadRole,
 } from "./meter-control-domain";
@@ -20,9 +21,13 @@ export function MeterWorkloadControl() {
   const [message, setMessage] = useState("");
   const [contractorId, setContractorId] = useState("CONTRACTOR-CMS");
   const [certificationExpiresOn, setCertificationExpiresOn] = useState("2027-11-30");
+  const [handoffOn, setHandoffOn] = useState("2026-12-01");
   const feedback = useRef<HTMLParagraphElement>(null);
   const workload = meterCaseWorkload(state.cases, "2026-10-20");
   const selectedContractor = state.contractors.find((item) => item.id === contractorId);
+  const custodyReadiness = plannedCustodyReadiness(state, "MX-905");
+  const planCustody = () => { try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: "MX-905", contractorId, scheduledOn: handoffOn, plannedBy: "Operations supervisor", plannedOn: "2026-10-20" })); setMessage("Planned custody recorded; contractor eligibility assessed for the handoff date."); } catch (error) { setMessage(error instanceof Error ? error.message : "Custody planning failed."); } queueMicrotask(() => feedback.current?.focus()); };
+  const acknowledgeNotice = () => { if (!custodyReadiness?.notice) return; try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, noticeId: custodyReadiness.notice.id, actor: "Operations supervisor", acknowledgedOn: "2026-10-20" })); setMessage("Contractor eligibility notice acknowledged; ineligible custody remains blocked."); } catch (error) { setMessage(error instanceof Error ? error.message : "Notice acknowledgement failed."); } queueMicrotask(() => feedback.current?.focus()); };
   const updateCertification = (active: boolean) => { try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, contractorId, active, certificationExpiresOn, actor: "Operations supervisor", reason: active ? "Current disposal certification independently verified." : "Contractor authorization suspended pending evidence review.", changedOn: "2026-10-20" })); setMessage(active ? "Contractor certification renewed." : "Contractor authorization suspended."); } catch (error) { setMessage(error instanceof Error ? error.message : "Contractor authorization failed."); } queueMicrotask(() => feedback.current?.focus()); };
   const coordinate = () => {
     try {
@@ -49,7 +54,7 @@ export function MeterWorkloadControl() {
     }
     queueMicrotask(() => feedback.current?.focus());
   };
-  const advanceDisposal = () => { const stages: MeterDisposalStage[] = ["requested", "authorized", "handed-off", "received", "evidence-rejected", "evidence-corrected", "confirmed"]; const stage = stages[state.disposalEvents.length]; if (!stage) return; const contractor = state.contractors.find((item) => item.id === contractorId); try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: "MX-905", stage, contractor: contractor?.organizationName ?? "", contractorId, custodyReference: "CUSTODY-905", evidenceReference: `DISPOSAL-${stage}`, reason: stage === "evidence-rejected" ? "Certificate omitted the serialized meter seal reference." : null, actor: "Operations assurance", occurredOn: "2026-10-22" })); setMessage(`Disposal custody advanced to ${stage}.`); } catch (error) { setMessage(error instanceof Error ? error.message : "Disposal custody update failed."); } queueMicrotask(() => feedback.current?.focus()); };
+  const advanceDisposal = () => { const stages: MeterDisposalStage[] = ["requested", "authorized", "handed-off", "received", "evidence-rejected", "evidence-corrected", "confirmed"]; const stage = stages[state.disposalEvents.length]; if (!stage) return; const contractor = state.contractors.find((item) => item.id === contractorId); try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: "MX-905", stage, contractor: contractor?.organizationName ?? "", contractorId, custodyReference: "CUSTODY-905", evidenceReference: `DISPOSAL-${stage}`, reason: stage === "evidence-rejected" ? "Certificate omitted the serialized meter seal reference." : null, actor: "Operations assurance", occurredOn: custodyReadiness && stages.indexOf(stage) >= 2 ? custodyReadiness.plan.scheduledOn : "2026-10-22" })); setMessage(`Disposal custody advanced to ${stage}.`); } catch (error) { setMessage(error instanceof Error ? error.message : "Disposal custody update failed."); } queueMicrotask(() => feedback.current?.focus()); };
   const close = () => {
     try {
       setState(
@@ -113,6 +118,10 @@ export function MeterWorkloadControl() {
       <button disabled={role !== "Operations Supervisor"} onClick={() => { updateCertification(true); }}>Renew contractor authorization</button>
       <button disabled={role !== "Operations Supervisor" || !selectedContractor?.active} onClick={() => { updateCertification(false); }}>Suspend contractor authorization</button>
       <ol aria-label="Contractor authorization history">{state.contractorHistory.map((item) => <li key={item.id}>{item.contractorId} · {item.active ? "renewed" : "suspended"} · {item.actor} · {item.changedOn} · {item.reason}</li>)}</ol>
+      <label>Planned custody date<input type="date" value={handoffOn} onChange={(event) => { setHandoffOn(event.target.value); }} /></label>
+      <button disabled={role !== "Operations Supervisor" || state.followUps.length === 0 || state.disposalEvents.some((item) => item.stage === "handed-off")} onClick={planCustody}>Plan contractor custody handoff</button>
+      <p aria-label="Planned custody readiness">{custodyReadiness ? `${custodyReadiness.plan.contractorId} · ${custodyReadiness.plan.scheduledOn} · ${custodyReadiness.ready ? "ready for planned handoff" : "reassignment or certification renewal required"}` : "No contractor custody handoff planned"}</p>
+      {custodyReadiness?.notice && <><p aria-label="Contractor eligibility notice">Certification expires {custodyReadiness.notice.certificationExpiresOn} · {custodyReadiness.acknowledgement ? `acknowledged by ${custodyReadiness.acknowledgement.actor}` : "acknowledgement pending"}</p><button disabled={role !== "Operations Supervisor" || Boolean(custodyReadiness.acknowledgement)} onClick={acknowledgeNotice}>Acknowledge contractor risk</button></>}
       <button disabled={role !== "Operations Supervisor" || state.followUps.length === 0 || state.disposalEvents.at(-1)?.stage === "confirmed"} onClick={advanceDisposal}>Advance disposal custody</button>
       <button
         disabled={
