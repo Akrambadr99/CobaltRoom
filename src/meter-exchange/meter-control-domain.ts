@@ -8,11 +8,13 @@ export interface MeterCaseClosure { id: string; caseId: string; followUpId: stri
 export type MeterOperationalEventKind = 'customer-contact' | 'responsibility-transfer' | 'custody-confirmation' | 'closure-verification'
 export interface MeterOperationalEvent { id: string; caseId: string; kind: MeterOperationalEventKind; stream: 'customer' | 'field-custody'; actor: string; occurredOn: string; sourceRevision: number; evidenceReference: string; meaning: string; immutable: true }
 export type MeterDisposalStage = 'requested' | 'authorized' | 'handed-off' | 'received' | 'evidence-rejected' | 'evidence-corrected' | 'confirmed'
-export interface MeterDisposalContractor { id: string; organizationName: string; authorizationStatus: 'authorized' | 'suspended'; permittedOperations: ('meter-disposal' | 'custody-transport')[]; active: boolean; operationalReference: string; effectiveFrom: string }
-export const meterDisposalContractors: MeterDisposalContractor[] = [{ id: 'CONTRACTOR-CMS', organizationName: 'Circular Meter Services', authorizationStatus: 'authorized', permittedOperations: ['meter-disposal', 'custody-transport'], active: true, operationalReference: 'WASTE-LICENCE-881', effectiveFrom: '2026-01-01' }, { id: 'CONTRACTOR-OLD', organizationName: 'Legacy Meter Recycling', authorizationStatus: 'suspended', permittedOperations: ['meter-disposal'], active: false, operationalReference: 'WASTE-LICENCE-114', effectiveFrom: '2024-01-01' }]
+export interface MeterDisposalContractor { id: string; organizationName: string; authorizationStatus: 'authorized' | 'suspended'; permittedOperations: ('meter-disposal' | 'custody-transport')[]; active: boolean; operationalReference: string; effectiveFrom: string; certificationExpiresOn: string }
+export interface ContractorAuthorizationEvent { id: string; contractorId: string; active: boolean; certificationExpiresOn: string; actor: string; reason: string; changedOn: string; sourceRevision: number; immutable: true }
+export const meterDisposalContractors: MeterDisposalContractor[] = [{ id: 'CONTRACTOR-CMS', organizationName: 'Circular Meter Services', authorizationStatus: 'authorized', permittedOperations: ['meter-disposal', 'custody-transport'], active: true, operationalReference: 'WASTE-LICENCE-881', effectiveFrom: '2026-01-01', certificationExpiresOn: '2026-11-30' }, { id: 'CONTRACTOR-OLD', organizationName: 'Legacy Meter Recycling', authorizationStatus: 'suspended', permittedOperations: ['meter-disposal'], active: false, operationalReference: 'WASTE-LICENCE-114', effectiveFrom: '2024-01-01', certificationExpiresOn: '2025-12-31' }]
 export interface MeterDisposalEvent { id: string; caseId: string; stage: MeterDisposalStage; contractor: string; contractorId?: string; contractorOperationalReference?: string; custodyReference: string; evidenceReference: string; reason: string | null; actor: string; occurredOn: string; sourceRevision: number; immutable: true }
-export interface MeterWorkloadState { revision: number; cases: MeterOperationalCase[]; followUps: MeterFollowUp[]; operationalEvents: MeterOperationalEvent[]; disposalEvents: MeterDisposalEvent[]; contractors: MeterDisposalContractor[]; closures: MeterCaseClosure[] }
-export const initialMeterWorkloadState: MeterWorkloadState = { revision: 0, cases: structuredClone(seededMeterCases), followUps: [], operationalEvents: [], disposalEvents: [], contractors: structuredClone(meterDisposalContractors), closures: [] }
+export interface MeterWorkloadState { revision: number; cases: MeterOperationalCase[]; followUps: MeterFollowUp[]; operationalEvents: MeterOperationalEvent[]; disposalEvents: MeterDisposalEvent[]; contractors: MeterDisposalContractor[]; contractorHistory: ContractorAuthorizationEvent[]; closures: MeterCaseClosure[] }
+export const initialMeterWorkloadState: MeterWorkloadState = { revision: 0, cases: structuredClone(seededMeterCases), followUps: [], operationalEvents: [], disposalEvents: [], contractors: structuredClone(meterDisposalContractors), contractorHistory: [], closures: [] }
+export function contractorEligibility(contractor: MeterDisposalContractor, on: string) { return { eligible: contractor.active && contractor.authorizationStatus === 'authorized' && contractor.effectiveFrom <= on && contractor.certificationExpiresOn >= on && contractor.permittedOperations.includes('meter-disposal'), expiresOn: contractor.certificationExpiresOn, expiringSoon: contractor.certificationExpiresOn >= on && (Date.parse(contractor.certificationExpiresOn) - Date.parse(on)) / 86_400_000 <= 30 } }
 interface CoordinateFollowUp { id: string; expectedRevision: number; role: MeterWorkloadRole; caseId: string; owner: string; scheduledOn: string; asOf: string; contactEvidence: string; escalationReason: string }
 
 export function coordinateMeterFollowUp(state: MeterWorkloadState, command: CoordinateFollowUp) {
@@ -51,7 +53,7 @@ export function recordMeterDisposalStage(state: MeterWorkloadState, command: Rec
   if ((command.stage === 'requested' && history.length > 0) || (command.stage !== 'requested' && (!previous || !allowed[command.stage].includes(previous)))) throw new Error(`Disposal stage ${command.stage} cannot follow ${previous ?? 'no custody record'}.`)
   if (!command.contractor || !command.custodyReference || !command.evidenceReference || (command.stage === 'evidence-rejected' && !command.reason?.trim())) throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'Contractor, custody, stage evidence, and rejection reasons must be retained.', command.caseId)
   const contractor = state.contractors.find((item) => item.id === command.contractorId || item.organizationName === command.contractor)
-  if (command.stage === 'handed-off' && (!contractor?.active || contractor.authorizationStatus !== 'authorized' || !contractor.permittedOperations.includes('meter-disposal'))) throw new MeterCaseError('UNAUTHORIZED', 'Custody can only be handed to an active contractor authorized for meter disposal.', command.caseId)
+  if (command.stage === 'handed-off' && (!contractor || !contractorEligibility(contractor, command.occurredOn.slice(0, 10)).eligible)) throw new MeterCaseError('UNAUTHORIZED', 'Custody can only be handed to an active contractor authorized and certified for meter disposal.', command.caseId)
   if (history.length > 0 && history.at(-1)?.contractor !== (contractor?.organizationName ?? command.contractor)) throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'Disposal contractor cannot change within the custody chain.', command.caseId)
   const next = structuredClone(state)
   next.disposalEvents.push({ ...command, contractor: contractor?.organizationName ?? command.contractor, ...(contractor ? { contractorId: contractor.id, contractorOperationalReference: contractor.operationalReference } : {}), reason: command.reason?.trim() ?? null, sourceRevision: state.revision, immutable: true })
@@ -59,16 +61,20 @@ export function recordMeterDisposalStage(state: MeterWorkloadState, command: Rec
   return next
 }
 
-export function setDisposalContractorActive(state: MeterWorkloadState, command: { expectedRevision: number; role: MeterWorkloadRole; contractorId: string; active: boolean }) {
+export function setDisposalContractorActive(state: MeterWorkloadState, command: { id: string; expectedRevision: number; role: MeterWorkloadRole; contractorId: string; active: boolean; certificationExpiresOn: string; actor: string; reason: string; changedOn: string }) {
+  if (state.contractorHistory.some((item) => item.id === command.id)) return state
   if (state.revision !== command.expectedRevision) throw new MeterCaseError('STALE_REVISION', 'Contractor directory changed. Refresh before updating eligibility.', command.contractorId)
   if (command.role !== 'Operations Supervisor') throw new MeterCaseError('UNAUTHORIZED', 'Only an operations supervisor can change contractor eligibility.', command.contractorId)
   const contractor = state.contractors.find((item) => item.id === command.contractorId)
   if (!contractor) throw new Error('Disposal contractor was not found.')
-  if (contractor.active === command.active) return state
+  if (!command.actor.trim() || command.reason.trim().length < 15 || !Number.isFinite(Date.parse(command.changedOn)) || command.certificationExpiresOn < command.changedOn.slice(0, 10)) throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'Attribution, reason, business date, and current certification are required.', command.contractorId)
+  if (contractor.active === command.active && contractor.certificationExpiresOn === command.certificationExpiresOn) return state
   const next = structuredClone(state)
   const updated = next.contractors.find((item) => item.id === command.contractorId)
   if (!updated) throw new Error('Disposal contractor disappeared during eligibility update.')
   updated.active = command.active
+  updated.certificationExpiresOn = command.certificationExpiresOn
+  next.contractorHistory.push({ id: command.id, contractorId: command.contractorId, active: command.active, certificationExpiresOn: command.certificationExpiresOn, actor: command.actor.trim(), reason: command.reason.trim(), changedOn: command.changedOn, sourceRevision: state.revision, immutable: true })
   next.revision += 1
   return next
 }
@@ -112,7 +118,7 @@ export class BrowserMeterWorkloadPersistence implements MeterWorkloadPersistence
   static key = 'gridloom:meter-workload:v2'
   private readonly storage: Pick<Storage, 'getItem' | 'setItem'>
   constructor(storage: Pick<Storage, 'getItem' | 'setItem'>) { this.storage = storage }
-  load() { const raw = this.storage.getItem(BrowserMeterWorkloadPersistence.key); if (!raw) return null; const saved = JSON.parse(raw) as Partial<MeterWorkloadState>; return { ...(saved as MeterWorkloadState), operationalEvents: saved.operationalEvents ?? [], disposalEvents: saved.disposalEvents ?? [], contractors: saved.contractors ?? structuredClone(meterDisposalContractors) } }
+  load() { const raw = this.storage.getItem(BrowserMeterWorkloadPersistence.key); if (!raw) return null; const saved = JSON.parse(raw) as Omit<Partial<MeterWorkloadState>, 'contractors'> & { contractors?: (Omit<MeterDisposalContractor, 'certificationExpiresOn'> & { certificationExpiresOn?: string })[] }; return { ...(saved as MeterWorkloadState), operationalEvents: saved.operationalEvents ?? [], disposalEvents: saved.disposalEvents ?? [], contractors: (saved.contractors ?? structuredClone(meterDisposalContractors)).map((item) => ({ ...item, certificationExpiresOn: item.certificationExpiresOn ?? '2026-11-30' })), contractorHistory: saved.contractorHistory ?? [] } }
   save(state: MeterWorkloadState) { this.storage.setItem(BrowserMeterWorkloadPersistence.key, JSON.stringify(state)) }
 }
 export class MeterWorkloadRepository {

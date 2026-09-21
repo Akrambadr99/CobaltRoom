@@ -3,6 +3,7 @@ import { meterCaseWorkload } from "./meter-case-workload";
 import {
   BrowserMeterWorkloadPersistence,
   MeterWorkloadRepository,
+  contractorEligibility,
   type MeterDisposalStage,
   type MeterWorkloadRole,
 } from "./meter-control-domain";
@@ -18,8 +19,11 @@ export function MeterWorkloadControl() {
   const [role, setRole] = useState<MeterWorkloadRole>("Operations Viewer");
   const [message, setMessage] = useState("");
   const [contractorId, setContractorId] = useState("CONTRACTOR-CMS");
+  const [certificationExpiresOn, setCertificationExpiresOn] = useState("2027-11-30");
   const feedback = useRef<HTMLParagraphElement>(null);
   const workload = meterCaseWorkload(state.cases, "2026-10-20");
+  const selectedContractor = state.contractors.find((item) => item.id === contractorId);
+  const updateCertification = (active: boolean) => { try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, contractorId, active, certificationExpiresOn, actor: "Operations supervisor", reason: active ? "Current disposal certification independently verified." : "Contractor authorization suspended pending evidence review.", changedOn: "2026-10-20" })); setMessage(active ? "Contractor certification renewed." : "Contractor authorization suspended."); } catch (error) { setMessage(error instanceof Error ? error.message : "Contractor authorization failed."); } queueMicrotask(() => feedback.current?.focus()); };
   const coordinate = () => {
     try {
       setState(
@@ -104,6 +108,11 @@ export function MeterWorkloadControl() {
         Coordinate urgent meter follow-up
       </button>
       <label>Eligible disposal contractor<select value={contractorId} onChange={(event) => { setContractorId(event.target.value); }}>{state.contractors.map((item) => <option key={item.id} value={item.id} disabled={!item.active || item.authorizationStatus !== "authorized"}>{item.organizationName} · {item.active ? item.authorizationStatus : "inactive"}</option>)}</select></label>
+      {selectedContractor && <p aria-label="Contractor certification readiness">{selectedContractor.organizationName} · certification expires {selectedContractor.certificationExpiresOn} · {contractorEligibility(selectedContractor, "2026-10-22").eligible ? "eligible" : "not eligible"} · {contractorEligibility(selectedContractor, "2026-11-15").expiringSoon ? "renewal due soon" : "renewal not due"}</p>}
+      <label>New certification expiry<input type="date" value={certificationExpiresOn} onChange={(event) => { setCertificationExpiresOn(event.target.value); }} /></label>
+      <button disabled={role !== "Operations Supervisor"} onClick={() => { updateCertification(true); }}>Renew contractor authorization</button>
+      <button disabled={role !== "Operations Supervisor" || !selectedContractor?.active} onClick={() => { updateCertification(false); }}>Suspend contractor authorization</button>
+      <ol aria-label="Contractor authorization history">{state.contractorHistory.map((item) => <li key={item.id}>{item.contractorId} · {item.active ? "renewed" : "suspended"} · {item.actor} · {item.changedOn} · {item.reason}</li>)}</ol>
       <button disabled={role !== "Operations Supervisor" || state.followUps.length === 0 || state.disposalEvents.at(-1)?.stage === "confirmed"} onClick={advanceDisposal}>Advance disposal custody</button>
       <button
         disabled={
