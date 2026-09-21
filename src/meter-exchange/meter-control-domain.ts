@@ -7,8 +7,10 @@ export interface MeterFollowUp { id: string; caseId: string; previousFieldOwner:
 export interface MeterCaseClosure { id: string; caseId: string; followUpId: string; customerAcknowledgement: string; disposalCertificate: string; billingAdjustmentReference: string; paymentPlanReference: string; fieldActionsOpen: 0; reviewedBy: string; closedOn: string; immutable: true }
 export type MeterOperationalEventKind = 'customer-contact' | 'responsibility-transfer' | 'custody-confirmation' | 'closure-verification'
 export interface MeterOperationalEvent { id: string; caseId: string; kind: MeterOperationalEventKind; stream: 'customer' | 'field-custody'; actor: string; occurredOn: string; sourceRevision: number; evidenceReference: string; meaning: string; immutable: true }
-export interface MeterWorkloadState { revision: number; cases: MeterOperationalCase[]; followUps: MeterFollowUp[]; operationalEvents: MeterOperationalEvent[]; closures: MeterCaseClosure[] }
-export const initialMeterWorkloadState: MeterWorkloadState = { revision: 0, cases: structuredClone(seededMeterCases), followUps: [], operationalEvents: [], closures: [] }
+export type MeterDisposalStage = 'requested' | 'authorized' | 'handed-off' | 'received' | 'evidence-rejected' | 'evidence-corrected' | 'confirmed'
+export interface MeterDisposalEvent { id: string; caseId: string; stage: MeterDisposalStage; contractor: string; custodyReference: string; evidenceReference: string; reason: string | null; actor: string; occurredOn: string; sourceRevision: number; immutable: true }
+export interface MeterWorkloadState { revision: number; cases: MeterOperationalCase[]; followUps: MeterFollowUp[]; operationalEvents: MeterOperationalEvent[]; disposalEvents: MeterDisposalEvent[]; closures: MeterCaseClosure[] }
+export const initialMeterWorkloadState: MeterWorkloadState = { revision: 0, cases: structuredClone(seededMeterCases), followUps: [], operationalEvents: [], disposalEvents: [], closures: [] }
 interface CoordinateFollowUp { id: string; expectedRevision: number; role: MeterWorkloadRole; caseId: string; owner: string; scheduledOn: string; asOf: string; contactEvidence: string; escalationReason: string }
 
 export function coordinateMeterFollowUp(state: MeterWorkloadState, command: CoordinateFollowUp) {
@@ -35,6 +37,23 @@ export function coordinateMeterFollowUp(state: MeterWorkloadState, command: Coor
   return next
 }
 
+interface RecordMeterDisposalStage { id: string; expectedRevision: number; role: MeterWorkloadRole; caseId: string; stage: MeterDisposalStage; contractor: string; custodyReference: string; evidenceReference: string; reason: string | null; actor: string; occurredOn: string }
+export function recordMeterDisposalStage(state: MeterWorkloadState, command: RecordMeterDisposalStage) {
+  if (state.disposalEvents.some((item) => item.id === command.id)) return state
+  if (state.revision !== command.expectedRevision) throw new MeterCaseError('STALE_REVISION', 'Meter workload changed. Refresh before recording disposal custody.', command.caseId)
+  if (command.role !== 'Operations Supervisor') throw new MeterCaseError('UNAUTHORIZED', 'Only an operations supervisor can authorize disposal custody changes.', command.caseId)
+  if (!state.followUps.some((item) => item.caseId === command.caseId)) throw new MeterCaseError('FOLLOW_UP_REQUIRED', 'Coordinated follow-up is required before disposal handoff.', command.caseId)
+  const history = state.disposalEvents.filter((item) => item.caseId === command.caseId)
+  const previous = history.at(-1)?.stage
+  const allowed: Record<MeterDisposalStage, MeterDisposalStage[]> = { requested: [], authorized: ['requested'], 'handed-off': ['authorized'], received: ['handed-off'], 'evidence-rejected': ['received'], 'evidence-corrected': ['evidence-rejected'], confirmed: ['received', 'evidence-corrected'] }
+  if ((command.stage === 'requested' && history.length > 0) || (command.stage !== 'requested' && (!previous || !allowed[command.stage].includes(previous)))) throw new Error(`Disposal stage ${command.stage} cannot follow ${previous ?? 'no custody record'}.`)
+  if (!command.contractor || !command.custodyReference || !command.evidenceReference || (command.stage === 'evidence-rejected' && !command.reason?.trim())) throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'Contractor, custody, stage evidence, and rejection reasons must be retained.', command.caseId)
+  const next = structuredClone(state)
+  next.disposalEvents.push({ ...command, reason: command.reason?.trim() ?? null, sourceRevision: state.revision, immutable: true })
+  next.revision += 1
+  return next
+}
+
 interface CloseMeterCase { id: string; expectedRevision: number; role: MeterWorkloadRole; caseId: string; customerAcknowledgement: string; disposalCertificate: string; billingAdjustmentReference: string; paymentPlanReference: string; fieldActionsOpen: number; reviewedBy: string; closedOn: string }
 export function closeMeterCase(state: MeterWorkloadState, command: CloseMeterCase) {
   if (state.closures.some((item) => item.id === command.id)) return state
@@ -43,6 +62,8 @@ export function closeMeterCase(state: MeterWorkloadState, command: CloseMeterCas
   const source = state.cases.find((item) => item.caseId === command.caseId)
   const followUp = [...state.followUps].reverse().find((item) => item.caseId === command.caseId)
   if (!source || !followUp) throw new MeterCaseError('FOLLOW_UP_REQUIRED', 'Coordinated customer and field follow-up is required before closure.', command.caseId)
+  const disposalHistory = state.disposalEvents.filter((item) => item.caseId === command.caseId)
+  if (disposalHistory.length > 0 && disposalHistory.at(-1)?.stage !== 'confirmed') throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'Confirmed contractor disposal evidence is required before custody closure.', command.caseId)
   if (!command.customerAcknowledgement || !command.disposalCertificate || !command.billingAdjustmentReference || !command.paymentPlanReference || command.fieldActionsOpen !== 0) throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'Customer, custody, billing, payment, and field evidence must all be complete.', command.caseId)
   const next = structuredClone(state)
   const target = next.cases.find((item) => item.caseId === source.caseId)
@@ -72,12 +93,12 @@ export class BrowserMeterWorkloadPersistence implements MeterWorkloadPersistence
   static key = 'gridloom:meter-workload:v2'
   private readonly storage: Pick<Storage, 'getItem' | 'setItem'>
   constructor(storage: Pick<Storage, 'getItem' | 'setItem'>) { this.storage = storage }
-  load() { const raw = this.storage.getItem(BrowserMeterWorkloadPersistence.key); if (!raw) return null; const saved = JSON.parse(raw) as Partial<MeterWorkloadState>; return { ...(saved as MeterWorkloadState), operationalEvents: saved.operationalEvents ?? [] } }
+  load() { const raw = this.storage.getItem(BrowserMeterWorkloadPersistence.key); if (!raw) return null; const saved = JSON.parse(raw) as Partial<MeterWorkloadState>; return { ...(saved as MeterWorkloadState), operationalEvents: saved.operationalEvents ?? [], disposalEvents: saved.disposalEvents ?? [] } }
   save(state: MeterWorkloadState) { this.storage.setItem(BrowserMeterWorkloadPersistence.key, JSON.stringify(state)) }
 }
 export class MeterWorkloadRepository {
   private readonly persistence: MeterWorkloadPersistence
   constructor(persistence: MeterWorkloadPersistence) { this.persistence = persistence }
   read(): MeterWorkloadState { return this.persistence.load() ?? structuredClone(initialMeterWorkloadState) }
-  dispatch(command: CoordinateFollowUp | CloseMeterCase) { const current = this.read(); const next = 'disposalCertificate' in command ? closeMeterCase(current, command) : coordinateMeterFollowUp(current, command); if (next !== current) this.persistence.save(next); return next }
+  dispatch(command: CoordinateFollowUp | RecordMeterDisposalStage | CloseMeterCase) { const current = this.read(); const next = 'disposalCertificate' in command ? closeMeterCase(current, command) : 'stage' in command ? recordMeterDisposalStage(current, command) : coordinateMeterFollowUp(current, command); if (next !== current) this.persistence.save(next); return next }
 }
