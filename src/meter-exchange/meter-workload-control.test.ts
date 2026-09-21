@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { acknowledgeCustodyEligibilityNotice, closeMeterCase, contractorEligibility, coordinateMeterFollowUp, initialMeterWorkloadState, MeterCaseError, MeterWorkloadRepository, planMeterCustodyHandoff, plannedCustodyReadiness, queryMeterOperationalHistory, recordMeterDisposalStage, setDisposalContractorActive, type MeterDisposalStage, type MeterWorkloadPersistence, type MeterWorkloadState } from './meter-control-domain'
+import { acknowledgeCustodyEligibilityNotice, closeMeterCase, contractorEligibility, coordinateMeterFollowUp, initialMeterWorkloadState, MeterCaseError, MeterWorkloadRepository, planMeterCustodyHandoff, plannedCustodyReadiness, queryMeterOperationalHistory, reassignPlannedCustodyHandoff, recordMeterDisposalStage, setDisposalContractorActive, type MeterDisposalStage, type MeterWorkloadPersistence, type MeterWorkloadState } from './meter-control-domain'
+
+it('reassigns an expired future handoff while retaining the original custody plan', () => {
+  const coordinated = coordinateMeterFollowUp(initialMeterWorkloadState, { id: 'follow-reassign', expectedRevision: 0, role: 'Operations Supervisor', caseId: 'MX-905', owner: 'Operations supervisor', scheduledOn: '2026-10-22', asOf: '2026-10-20', contactEvidence: 'Customer contact confirmed for meter exchange.', escalationReason: 'Aging disposal custody requires coordinated ownership.' })
+  const planned = planMeterCustodyHandoff(coordinated, { id: 'plan-expired', expectedRevision: coordinated.revision, role: 'Operations Supervisor', caseId: 'MX-905', contractorId: 'CONTRACTOR-CMS', scheduledOn: '2026-12-01', plannedBy: 'supervisor', plannedOn: '2026-10-20' })
+  const replacement = { id: 'plan-arc', expectedRevision: planned.revision, role: 'Operations Supervisor' as const, caseId: 'MX-905', contractorId: 'CONTRACTOR-ARC', scheduledOn: '2026-12-01', reassignedBy: 'supervisor', reassignedOn: '2026-10-20', reason: 'Original contractor certificate expires before scheduled custody.' }
+  expect(plannedCustodyReadiness(planned, 'MX-905')?.reassignmentRequired).toBe(true)
+  expect(() => reassignPlannedCustodyHandoff(planned, { ...replacement, role: 'Operations Viewer' })).toThrow('supervisor')
+  expect(() => reassignPlannedCustodyHandoff(planned, { ...replacement, contractorId: 'CONTRACTOR-OLD' })).toThrow('eligible contractor')
+  const reassigned = reassignPlannedCustodyHandoff(planned, replacement)
+  expect(reassigned.plannedHandoffs[0]).toEqual(planned.plannedHandoffs[0])
+  expect(reassigned.plannedHandoffs[1]).toMatchObject({ contractorId: 'CONTRACTOR-ARC', previousHandoffId: 'plan-expired', immutable: true })
+  expect(plannedCustodyReadiness(reassigned, 'MX-905')).toMatchObject({ ready: true, reassignmentRequired: false })
+  expect(reassignPlannedCustodyHandoff(reassigned, replacement)).toBe(reassigned)
+})
 
 it('preserves contractor certification changes and blocks custody after expiry', () => { const contractor = initialMeterWorkloadState.contractors[0]!; expect(contractorEligibility(contractor, '2026-12-01').eligible).toBe(false); const renewed = setDisposalContractorActive(initialMeterWorkloadState, { id: 'renew-1', expectedRevision: 0, role: 'Operations Supervisor', contractorId: contractor.id, active: true, certificationExpiresOn: '2027-11-30', actor: 'assurance supervisor', reason: 'Annual waste authorization checked against the register.', changedOn: '2026-10-20' }); expect(contractorEligibility(renewed.contractors[0]!, '2026-12-01').eligible).toBe(true); expect(renewed.contractorHistory[0]).toMatchObject({ sourceRevision: 0, actor: 'assurance supervisor', immutable: true }); expect(contractor.certificationExpiresOn).toBe('2026-11-30'); expect(() => setDisposalContractorActive(renewed, { id: 'renew-stale', expectedRevision: 0, role: 'Operations Supervisor', contractorId: contractor.id, active: true, certificationExpiresOn: '2027-11-30', actor: 'assurance supervisor', reason: 'Annual waste authorization checked against the register.', changedOn: '2026-10-20' })).toThrow('Refresh') })
 
