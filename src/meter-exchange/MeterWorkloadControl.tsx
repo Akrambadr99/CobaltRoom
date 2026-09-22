@@ -4,6 +4,7 @@ import {
   BrowserMeterWorkloadPersistence,
   MeterWorkloadRepository,
   contractorEligibility,
+  contractorCertificationImpact,
   plannedCustodyReadiness,
   type MeterDisposalStage,
   type MeterWorkloadRole,
@@ -25,6 +26,7 @@ export function MeterWorkloadControl() {
   const feedback = useRef<HTMLParagraphElement>(null);
   const workload = meterCaseWorkload(state.cases, "2026-10-20");
   const selectedContractor = state.contractors.find((item) => item.id === contractorId);
+  const certificationImpact = contractorCertificationImpact(state, contractorId, '2026-10-20');
   const custodyReadiness = plannedCustodyReadiness(state, "MX-905");
   const planCustody = () => { try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: "MX-905", contractorId, scheduledOn: handoffOn, plannedBy: "Operations supervisor", plannedOn: "2026-10-20" })); setMessage("Planned custody recorded; contractor eligibility assessed for the handoff date."); } catch (error) { setMessage(error instanceof Error ? error.message : "Custody planning failed."); } queueMicrotask(() => feedback.current?.focus()); };
   const reassignCustody = () => { try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: "MX-905", contractorId, scheduledOn: handoffOn, reassignedBy: "Operations supervisor", reassignedOn: "2026-10-20", reason: "Original contractor certification does not cover the planned handoff date." })); setMessage("Planned custody reassigned to an eligible contractor; original plan preserved."); } catch (error) { setMessage(error instanceof Error ? error.message : "Custody reassignment failed."); } queueMicrotask(() => feedback.current?.focus()); };
@@ -119,6 +121,7 @@ export function MeterWorkloadControl() {
       <button disabled={role !== "Operations Supervisor"} onClick={() => { updateCertification(true); }}>Renew contractor authorization</button>
       <button disabled={role !== "Operations Supervisor" || !selectedContractor?.active} onClick={() => { updateCertification(false); }}>Suspend contractor authorization</button>
       <ol aria-label="Contractor authorization history">{state.contractorHistory.map((item) => <li key={item.id}>{item.contractorId} · {item.active ? "renewed" : "suspended"} · {item.actor} · {item.changedOn} · {item.reason}</li>)}</ol>
+      <section aria-label="Certification impact across future custody plans"><h3>Future custody impact</h3><p>{certificationImpact.filter((item) => item.status === 'blocked').length} blocked future plans · {certificationImpact.filter((item) => item.status === 'reassigned').length} reassigned · completed custody excluded</p><ol>{certificationImpact.map((item) => <li key={item.caseId}>{item.caseId} · owner {item.owner} · plan {item.originalPlanId} · {item.status} · {item.reason} · certification revision {item.certificationRevision ?? 'original'}{item.replacementContractorId ? ` · replacement ${item.replacementContractorId}` : ''}</li>)}</ol></section>
       <label>Planned custody date<input type="date" value={handoffOn} onChange={(event) => { setHandoffOn(event.target.value); }} /></label>
       <button disabled={role !== "Operations Supervisor" || state.followUps.length === 0 || Boolean(custodyReadiness) || state.disposalEvents.some((item) => item.stage === "handed-off")} onClick={planCustody}>Plan contractor custody handoff</button>
       <p aria-label="Planned custody readiness">{custodyReadiness ? `${custodyReadiness.plan.contractorId} · ${custodyReadiness.plan.scheduledOn} · ${custodyReadiness.ready ? "ready for planned handoff" : "reassignment or certification renewal required"}` : "No contractor custody handoff planned"}</p>
