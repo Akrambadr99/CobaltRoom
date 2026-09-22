@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acknowledgeCustodyEligibilityNotice, closeMeterCase, contractorCertificationImpact, contractorEligibility, coordinateMeterFollowUp, initialMeterWorkloadState, MeterCaseError, MeterWorkloadRepository, planMeterCustodyHandoff, plannedCustodyReadiness, queryMeterOperationalHistory, reassignPlannedCustodyHandoff, recordMeterDisposalStage, setDisposalContractorActive, type MeterDisposalStage, type MeterWorkloadPersistence, type MeterWorkloadState } from './meter-control-domain'
+import { acknowledgeCustodyEligibilityNotice, closeMeterCase, contractorCertificationImpact, contractorEligibility, coordinateMeterFollowUp, custodyRemediationProgress, deferCustodyRemediation, initialMeterWorkloadState, MeterCaseError, MeterWorkloadRepository, planMeterCustodyHandoff, plannedCustodyReadiness, queryMeterOperationalHistory, reassignPlannedCustodyHandoff, recordMeterDisposalStage, setDisposalContractorActive, type MeterDisposalStage, type MeterWorkloadPersistence, type MeterWorkloadState } from './meter-control-domain'
 
 it('shows certification impact across separate future cases without changing completed custody or mass-reassigning plans', () => {
   const coordinated = coordinateMeterFollowUp(initialMeterWorkloadState, { id: 'follow-impact', expectedRevision: 0, role: 'Operations Supervisor', caseId: 'MX-905', owner: 'Operations supervisor', scheduledOn: '2026-10-22', asOf: '2026-10-20', contactEvidence: 'Customer contact confirmed for meter exchange.', escalationReason: 'Aging disposal custody requires coordinated ownership.' })
@@ -17,6 +17,25 @@ it('shows certification impact across separate future cases without changing com
   const renewed = setDisposalContractorActive(reassigned, { id: 'renew-impact', expectedRevision: reassigned.revision, role: 'Operations Supervisor', contractorId: 'CONTRACTOR-CMS', active: true, certificationExpiresOn: '2027-11-30', actor: 'assurance supervisor', reason: 'Current certification verified against the updated contractor register.', changedOn: '2026-10-22' })
   expect(contractorCertificationImpact(renewed, 'CONTRACTOR-CMS', '2026-10-21')[1]?.status).toBe('blocked')
   expect(contractorCertificationImpact(renewed, 'CONTRACTOR-CMS', '2026-10-22')[1]?.status).toBe('eligible')
+})
+
+it('remediates a shared certification impact independently for each future meter case', () => {
+  const coordinated = coordinateMeterFollowUp(initialMeterWorkloadState, { id: 'follow-cases', expectedRevision: 0, role: 'Operations Supervisor', caseId: 'MX-905', owner: 'Operations supervisor', scheduledOn: '2026-10-22', asOf: '2026-10-20', contactEvidence: 'Customer contact confirmed for meter exchange.', escalationReason: 'Aging disposal custody requires coordinated ownership.' })
+  const first = planMeterCustodyHandoff(coordinated, { id: 'plan-cases-905', expectedRevision: coordinated.revision, role: 'Operations Supervisor', caseId: 'MX-905', contractorId: 'CONTRACTOR-CMS', scheduledOn: '2026-10-25', plannedBy: 'supervisor', plannedOn: '2026-10-20' })
+  const both = planMeterCustodyHandoff(first, { id: 'plan-cases-881', expectedRevision: first.revision, role: 'Operations Supervisor', caseId: 'MX-881', contractorId: 'CONTRACTOR-CMS', scheduledOn: '2026-10-26', plannedBy: 'supervisor', plannedOn: '2026-10-20' })
+  const suspended = setDisposalContractorActive(both, { id: 'suspend-cases', expectedRevision: both.revision, role: 'Operations Supervisor', contractorId: 'CONTRACTOR-CMS', active: false, certificationExpiresOn: '2026-11-30', actor: 'Operations supervisor', reason: 'Contractor authorization suspended after failed register review.', changedOn: '2026-10-20' })
+  expect(custodyRemediationProgress(suspended, 'CONTRACTOR-CMS', '2026-10-20')).toMatchObject({ total: 2, unresolved: 2, reassigned: 0, deferred: 0 })
+  const deferral = { id: 'defer-881', expectedRevision: suspended.revision, role: 'Operations Supervisor' as const, caseId: 'MX-881', affectedHandoffId: 'plan-cases-881', certificationEventId: 'suspend-cases', owner: 'Operations supervisor', reason: 'Replacement contractor requires separate case evidence.', reviewOn: '2026-10-25', deferredOn: '2026-10-20' }
+  expect(() => deferCustodyRemediation(suspended, { ...deferral, role: 'Operations Viewer' })).toThrow('supervisor')
+  expect(() => deferCustodyRemediation(suspended, { ...deferral, certificationEventId: 'older-event' })).toThrow('current blocked')
+  const deferred = deferCustodyRemediation(suspended, deferral)
+  expect(deferred.plannedHandoffs).toEqual(suspended.plannedHandoffs)
+  expect(custodyRemediationProgress(deferred, 'CONTRACTOR-CMS', '2026-10-20')).toMatchObject({ deferred: 1, unresolved: 1 })
+  expect(() => reassignPlannedCustodyHandoff(deferred, { id: 'invalid-905', expectedRevision: deferred.revision, role: 'Operations Supervisor', caseId: 'MX-905', contractorId: 'CONTRACTOR-OLD', scheduledOn: '2026-10-25', reassignedBy: 'supervisor', reassignedOn: '2026-10-20', reason: 'Original certification was suspended for this date.' })).toThrow('eligible contractor')
+  const reassigned = reassignPlannedCustodyHandoff(deferred, { id: 'reassign-905', expectedRevision: deferred.revision, role: 'Operations Supervisor', caseId: 'MX-905', contractorId: 'CONTRACTOR-ARC', scheduledOn: '2026-10-25', reassignedBy: 'supervisor', reassignedOn: '2026-10-20', reason: 'Original certification was suspended for this date.' })
+  expect(custodyRemediationProgress(reassigned, 'CONTRACTOR-CMS', '2026-10-20')).toMatchObject({ reassigned: 1, deferred: 1, unresolved: 0 })
+  expect(reassigned.remediationDeferrals).toEqual(deferred.remediationDeferrals)
+  expect(reassigned.plannedHandoffs.filter((item) => item.caseId === 'MX-881')).toEqual(deferred.plannedHandoffs.filter((item) => item.caseId === 'MX-881'))
 })
 
 it('reassigns an expired future handoff while retaining the original custody plan', () => {
