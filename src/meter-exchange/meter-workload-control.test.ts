@@ -1,5 +1,39 @@
 import { describe, expect, it } from 'vitest'
-import { acknowledgeCustodyEligibilityNotice, BrowserMeterWorkloadPersistence, closeMeterCase, contractorCertificationImpact, contractorEligibility, coordinateMeterFollowUp, custodyRemediationProgress, deferCustodyRemediation, initialMeterWorkloadState, MeterCaseError, MeterWorkloadRepository, planMeterCustodyHandoff, plannedCustodyReadiness, queryMeterOperationalHistory, reassignPlannedCustodyHandoff, reviewDeferredCustodyPlan, recordMeterDisposalStage, setDisposalContractorActive, type MeterDisposalStage, type MeterWorkloadPersistence, type MeterWorkloadState } from './meter-control-domain'
+import { acknowledgeCustodyEligibilityNotice, BrowserMeterWorkloadPersistence, captureMeterCaseSnapshot, closeMeterCase, contractorCertificationImpact, contractorEligibility, coordinateMeterFollowUp, custodyRemediationProgress, deferCustodyRemediation, initialMeterWorkloadState, MeterCaseError, MeterWorkloadRepository, parseMeterCaseSnapshot, planMeterCustodyHandoff, plannedCustodyReadiness, previewMeterCaseRestore, queryMeterOperationalHistory, reassignPlannedCustodyHandoff, restoreMeterCaseSnapshot, reviewDeferredCustodyPlan, recordMeterDisposalStage, setDisposalContractorActive, type MeterDisposalStage, type MeterWorkloadPersistence, type MeterWorkloadState } from './meter-control-domain'
+
+it('previews a versioned meter case archive and restores only under matching source revision', () => {
+  const state = structuredClone(initialMeterWorkloadState)
+  const snapshot = captureMeterCaseSnapshot(state, { id: 'archive-905', caseId: 'MX-905', role: 'Operations Supervisor', createdOn: '2026-10-20' })
+  expect(snapshot).toMatchObject({ schemaVersion: 1, caseId: 'MX-905', sourceRevision: 0, contractorIds: [] })
+  expect(parseMeterCaseSnapshot(JSON.stringify(snapshot))).toEqual(snapshot)
+  expect(() => parseMeterCaseSnapshot(JSON.stringify({ ...snapshot, schemaVersion: 2 }))).toThrow('Unsupported')
+  expect(() => parseMeterCaseSnapshot(JSON.stringify({ ...snapshot, followUps: null }))).toThrow('missing followUps')
+  expect(previewMeterCaseRestore(state, snapshot, 'MX-905').ready).toBe(true)
+  const before = structuredClone(state)
+  const command = { id: 'restore-905', expectedRevision: 0, role: 'Operations Supervisor' as const, caseId: 'MX-905', restoredBy: 'Supervisor A', restoredOn: '2026-10-20' }
+  expect(() => restoreMeterCaseSnapshot(state, snapshot, { ...command, role: 'Operations Viewer' })).toThrow('supervisor')
+  const wrongCase = { ...snapshot, caseId: 'MX-881' }
+  expect(previewMeterCaseRestore(state, wrongCase, 'MX-905').ready).toBe(false)
+  const restored = restoreMeterCaseSnapshot(state, snapshot, command)
+  expect(restored.revision).toBe(1)
+  expect(restored.operationalEvents.at(-1)).toMatchObject({ kind: 'recovery-restoration', evidenceReference: 'archive-905', immutable: true })
+  expect(restored.cases.find((item) => item.caseId === 'MX-881')).toEqual(state.cases.find((item) => item.caseId === 'MX-881'))
+  expect(state).toEqual(before)
+  expect(() => restoreMeterCaseSnapshot(restored, snapshot, { ...command, expectedRevision: 1 })).toThrow('older evidence')
+})
+
+it('rejects missing contractor references and conflicting immutable meter evidence without partial writes', () => {
+  const state = structuredClone(initialMeterWorkloadState)
+  const snapshot = captureMeterCaseSnapshot(state, { id: 'archive-905', caseId: 'MX-905', role: 'Operations Supervisor', createdOn: '2026-10-20' })
+  snapshot.plannedHandoffs.push({ id: 'plan-905', caseId: 'MX-905', contractorId: 'MISSING-CONTRACTOR', scheduledOn: '2026-10-25', plannedBy: 'supervisor', sourceRevision: 0, immutable: true })
+  snapshot.contractorIds.push('MISSING-CONTRACTOR')
+  expect(previewMeterCaseRestore(state, snapshot, 'MX-905').reasons).toContain('Contractor MISSING-CONTRACTOR is missing from the authoritative register.')
+  snapshot.plannedHandoffs[0]!.caseId = 'MX-881'
+  expect(previewMeterCaseRestore(state, snapshot, 'MX-905').reasons).toContain('Historical evidence belongs to another case.')
+  const saved = structuredClone(state)
+  expect(() => restoreMeterCaseSnapshot(state, snapshot, { id: 'restore-905', expectedRevision: 0, role: 'Operations Supervisor', caseId: 'MX-905', restoredBy: 'Supervisor A', restoredOn: '2026-10-20' })).toThrow('Contractor')
+  expect(state).toEqual(saved)
+})
 
 it('shows certification impact across separate future cases without changing completed custody or mass-reassigning plans', () => {
   const coordinated = coordinateMeterFollowUp(initialMeterWorkloadState, { id: 'follow-impact', expectedRevision: 0, role: 'Operations Supervisor', caseId: 'MX-905', owner: 'Operations supervisor', scheduledOn: '2026-10-22', asOf: '2026-10-20', contactEvidence: 'Customer contact confirmed for meter exchange.', escalationReason: 'Aging disposal custody requires coordinated ownership.' })

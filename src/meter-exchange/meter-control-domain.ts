@@ -5,7 +5,7 @@ export type MeterCaseErrorCode = 'STALE_REVISION' | 'UNAUTHORIZED' | 'FOLLOW_UP_
 export class MeterCaseError extends Error { readonly code: MeterCaseErrorCode; readonly caseId: string; constructor(code: MeterCaseErrorCode, message: string, caseId: string) { super(message); this.code = code; this.caseId = caseId; this.name = 'MeterCaseError' } }
 export interface MeterFollowUp { id: string; caseId: string; previousFieldOwner: string; previousCustomerOwner: string; owner: string; scheduledOn: string; contactEvidence: string; escalationReason: string; status: 'scheduled'; immutable: true }
 export interface MeterCaseClosure { id: string; caseId: string; followUpId: string; customerAcknowledgement: string; disposalCertificate: string; billingAdjustmentReference: string; paymentPlanReference: string; fieldActionsOpen: 0; reviewedBy: string; closedOn: string; immutable: true }
-export type MeterOperationalEventKind = 'customer-contact' | 'responsibility-transfer' | 'custody-confirmation' | 'closure-verification'
+export type MeterOperationalEventKind = 'customer-contact' | 'responsibility-transfer' | 'custody-confirmation' | 'closure-verification' | 'recovery-restoration'
 export interface MeterOperationalEvent { id: string; caseId: string; kind: MeterOperationalEventKind; stream: 'customer' | 'field-custody'; actor: string; occurredOn: string; sourceRevision: number; evidenceReference: string; meaning: string; immutable: true }
 export type MeterDisposalStage = 'requested' | 'authorized' | 'handed-off' | 'received' | 'evidence-rejected' | 'evidence-corrected' | 'confirmed'
 export interface MeterDisposalContractor { id: string; organizationName: string; authorizationStatus: 'authorized' | 'suspended'; permittedOperations: ('meter-disposal' | 'custody-transport')[]; active: boolean; operationalReference: string; effectiveFrom: string; certificationExpiresOn: string }
@@ -220,6 +220,108 @@ export function queryMeterOperationalHistory(state: MeterWorkloadState, caseId: 
   return { customer: events.filter((item) => item.stream === 'customer'), fieldCustody: events.filter((item) => item.stream === 'field-custody'), combined: events.sort((a, b) => a.occurredOn.localeCompare(b.occurredOn)) }
 }
 
+export interface MeterCaseRecoverySnapshot {
+  schemaVersion: 1
+  id: string
+  caseId: string
+  sourceRevision: number
+  createdOn: string
+  caseRecord: MeterOperationalCase
+  followUps: MeterFollowUp[]
+  operationalEvents: MeterOperationalEvent[]
+  disposalEvents: MeterDisposalEvent[]
+  plannedHandoffs: PlannedCustodyHandoff[]
+  remediationDeferrals: CustodyRemediationDeferral[]
+  deferralReviews: CustodyDeferralReview[]
+  eligibilityNotices: CustodyEligibilityNotice[]
+  noticeAcknowledgements: CustodyNoticeAcknowledgement[]
+  closures: MeterCaseClosure[]
+  contractorIds: string[]
+}
+
+export function captureMeterCaseSnapshot(state: MeterWorkloadState, command: { id: string; caseId: string; role: MeterWorkloadRole; createdOn: string }): MeterCaseRecoverySnapshot {
+  if (command.role !== 'Operations Supervisor') throw new MeterCaseError('UNAUTHORIZED', 'Only an operations supervisor can capture meter recovery evidence.', command.caseId)
+  const record = state.cases.find((item) => item.caseId === command.caseId)
+  if (!record || !command.id.trim() || !/^20\d{2}-\d{2}-\d{2}$/.test(command.createdOn)) throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'A named meter case and business date are required.', command.caseId)
+  const followUps = state.followUps.filter((item) => item.caseId === command.caseId)
+  const operationalEvents = state.operationalEvents.filter((item) => item.caseId === command.caseId)
+  const disposalEvents = state.disposalEvents.filter((item) => item.caseId === command.caseId)
+  const plannedHandoffs = state.plannedHandoffs.filter((item) => item.caseId === command.caseId)
+  const remediationDeferrals = state.remediationDeferrals.filter((item) => item.caseId === command.caseId)
+  const deferralIds = new Set(remediationDeferrals.map((item) => item.id))
+  const deferralReviews = state.deferralReviews.filter((item) => deferralIds.has(item.deferralId))
+  const planIds = new Set(plannedHandoffs.map((item) => item.id))
+  const eligibilityNotices = state.eligibilityNotices.filter((item) => planIds.has(item.handoffId))
+  const noticeIds = new Set(eligibilityNotices.map((item) => item.id))
+  const noticeAcknowledgements = state.noticeAcknowledgements.filter((item) => noticeIds.has(item.noticeId))
+  const contractorIds = [...new Set([...plannedHandoffs.map((item) => item.contractorId), ...disposalEvents.map((item) => item.contractorId).filter((id): id is string => Boolean(id))])]
+  return structuredClone({ schemaVersion: 1, id: command.id.trim(), caseId: command.caseId, sourceRevision: state.revision, createdOn: command.createdOn, caseRecord: record, followUps, operationalEvents, disposalEvents, plannedHandoffs, remediationDeferrals, deferralReviews, eligibilityNotices, noticeAcknowledgements, closures: state.closures.filter((item) => item.caseId === command.caseId), contractorIds })
+}
+
+export function parseMeterCaseSnapshot(raw: string): MeterCaseRecoverySnapshot {
+  const parsed: unknown = JSON.parse(raw)
+  if (!parsed || typeof parsed !== 'object') throw new Error('Meter recovery archive is invalid.')
+  const value = parsed as Record<string, unknown>
+  if (value['schemaVersion'] !== 1) throw new Error('Unsupported meter recovery archive schema.')
+  if (typeof value['id'] !== 'string' || typeof value['caseId'] !== 'string' || !Number.isSafeInteger(value['sourceRevision']) || typeof value['createdOn'] !== 'string' || !value['caseRecord'] || typeof value['caseRecord'] !== 'object') throw new Error('Meter recovery archive identity or revision is invalid.')
+  const record = value['caseRecord'] as Record<string, unknown>
+  if (record['caseId'] !== value['caseId'] || typeof record['accountId'] !== 'string' || typeof record['meterSerial'] !== 'string') throw new Error('Meter recovery archive case identity is invalid.')
+  for (const key of ['followUps', 'operationalEvents', 'disposalEvents', 'plannedHandoffs', 'remediationDeferrals', 'deferralReviews', 'eligibilityNotices', 'noticeAcknowledgements', 'closures', 'contractorIds']) if (!Array.isArray(value[key])) throw new Error(`Meter recovery archive is missing ${key}.`)
+  for (const key of ['followUps', 'operationalEvents', 'disposalEvents', 'plannedHandoffs', 'remediationDeferrals', 'deferralReviews', 'eligibilityNotices', 'noticeAcknowledgements', 'closures']) if (!(value[key] as unknown[]).every((item) => item && typeof item === 'object' && typeof (item as Record<string, unknown>)['id'] === 'string')) throw new Error(`Meter recovery archive has invalid ${key} evidence.`)
+  if (!(value['contractorIds'] as unknown[]).every((id) => typeof id === 'string')) throw new Error('Meter recovery archive contractor references are invalid.')
+  return value as unknown as MeterCaseRecoverySnapshot
+}
+
+export function previewMeterCaseRestore(state: MeterWorkloadState, snapshot: MeterCaseRecoverySnapshot, caseId: string) {
+  const reasons: string[] = []
+  const current = state.cases.find((item) => item.caseId === caseId)
+  if (snapshot.caseId !== caseId || snapshot.caseRecord.accountId !== current?.accountId || snapshot.caseRecord.meterSerial !== current.meterSerial) reasons.push('Meter case, account, or serial does not match the current source.')
+  if (snapshot.sourceRevision !== state.revision) reasons.push('Current meter work changed after this snapshot; older evidence cannot replace newer work.')
+  for (const id of snapshot.contractorIds) if (!state.contractors.some((item) => item.id === id)) reasons.push(`Contractor ${id} is missing from the authoritative register.`)
+  const referencedContractors = [...new Set([...snapshot.plannedHandoffs.map((item) => item.contractorId), ...snapshot.disposalEvents.map((item) => item.contractorId).filter((id): id is string => Boolean(id))])]
+  if (referencedContractors.some((id) => !snapshot.contractorIds.includes(id))) reasons.push('Snapshot contractor references do not cover its custody evidence.')
+  const plans = new Map(snapshot.plannedHandoffs.map((item) => [item.id, item]))
+  for (const plan of snapshot.plannedHandoffs) {
+    if (plan.caseId !== caseId || (plan.previousHandoffId && !plans.has(plan.previousHandoffId))) reasons.push(`Custody plan ${plan.id} has broken case or predecessor lineage.`)
+  }
+  if (snapshot.closures.some((item) => item.caseId !== caseId || !snapshot.followUps.some((followUp) => followUp.id === item.followUpId))) reasons.push('Closure has no matching case follow-up evidence.')
+  if (snapshot.eligibilityNotices.some((item) => !plans.has(item.handoffId)) || snapshot.noticeAcknowledgements.some((item) => !snapshot.eligibilityNotices.some((notice) => notice.id === item.noticeId))) reasons.push('Contractor eligibility notice lineage is incomplete.')
+  if ([...snapshot.followUps, ...snapshot.operationalEvents, ...snapshot.disposalEvents, ...snapshot.plannedHandoffs, ...snapshot.remediationDeferrals, ...snapshot.deferralReviews, ...snapshot.closures].some((item) => item.caseId !== caseId)) reasons.push('Historical evidence belongs to another case.')
+  const collections = [
+    [snapshot.followUps, state.followUps], [snapshot.operationalEvents, state.operationalEvents], [snapshot.disposalEvents, state.disposalEvents],
+    [snapshot.plannedHandoffs, state.plannedHandoffs], [snapshot.remediationDeferrals, state.remediationDeferrals], [snapshot.deferralReviews, state.deferralReviews],
+    [snapshot.eligibilityNotices, state.eligibilityNotices], [snapshot.noticeAcknowledgements, state.noticeAcknowledgements], [snapshot.closures, state.closures],
+  ] as const
+  for (const [archived, currentEvents] of collections) for (const item of archived) {
+    const existing = currentEvents.find((event) => event.id === item.id)
+    if (existing && JSON.stringify(existing) !== JSON.stringify(item)) reasons.push(`Historical record ${item.id} conflicts with current evidence.`)
+  }
+  return { ready: reasons.length === 0, reasons, snapshotId: snapshot.id, sourceRevision: snapshot.sourceRevision, currentRevision: state.revision, caseId }
+}
+
+export function restoreMeterCaseSnapshot(state: MeterWorkloadState, snapshot: MeterCaseRecoverySnapshot, command: { id: string; expectedRevision: number; role: MeterWorkloadRole; caseId: string; restoredBy: string; restoredOn: string }) {
+  if (command.role !== 'Operations Supervisor') throw new MeterCaseError('UNAUTHORIZED', 'Only an operations supervisor can restore a meter case.', command.caseId)
+  if (state.revision !== command.expectedRevision) throw new MeterCaseError('STALE_REVISION', 'Meter case changed before recovery could be applied.', command.caseId)
+  const preview = previewMeterCaseRestore(state, snapshot, command.caseId)
+  if (!preview.ready || !command.id.trim() || !command.restoredBy.trim()) throw new MeterCaseError('EVIDENCE_INCOMPLETE', preview.reasons.join(' ') || 'Recovery identity and actor are required.', command.caseId)
+  const next = structuredClone(state)
+  const index = next.cases.findIndex((item) => item.caseId === command.caseId)
+  next.cases[index] = structuredClone(snapshot.caseRecord)
+  const mergeHistory = <T extends { id: string }>(current: T[], archived: T[]) => [...current, ...structuredClone(archived).filter((item) => !current.some((existing) => existing.id === item.id))]
+  next.followUps = mergeHistory(next.followUps, snapshot.followUps)
+  next.operationalEvents = mergeHistory(next.operationalEvents, snapshot.operationalEvents)
+  next.disposalEvents = mergeHistory(next.disposalEvents, snapshot.disposalEvents)
+  next.plannedHandoffs = mergeHistory(next.plannedHandoffs, snapshot.plannedHandoffs)
+  next.remediationDeferrals = mergeHistory(next.remediationDeferrals, snapshot.remediationDeferrals)
+  next.deferralReviews = mergeHistory(next.deferralReviews, snapshot.deferralReviews)
+  next.eligibilityNotices = mergeHistory(next.eligibilityNotices, snapshot.eligibilityNotices)
+  next.noticeAcknowledgements = mergeHistory(next.noticeAcknowledgements, snapshot.noticeAcknowledgements)
+  next.closures = mergeHistory(next.closures, snapshot.closures)
+  next.operationalEvents.push({ id: command.id, caseId: command.caseId, kind: 'recovery-restoration', stream: 'field-custody', actor: command.restoredBy.trim(), occurredOn: command.restoredOn, sourceRevision: state.revision, evidenceReference: snapshot.id, meaning: 'Verified meter case recovery snapshot restored.', immutable: true })
+  next.revision += 1
+  return next
+}
+
 export interface MeterWorkloadPersistence {
   load(): MeterWorkloadState | null
   save(state: MeterWorkloadState): void
@@ -236,4 +338,5 @@ export class MeterWorkloadRepository {
   constructor(persistence: MeterWorkloadPersistence) { this.persistence = persistence }
   read(): MeterWorkloadState { return this.persistence.load() ?? structuredClone(initialMeterWorkloadState) }
   dispatch(command: CoordinateFollowUp | RecordMeterDisposalStage | CloseMeterCase | Parameters<typeof setDisposalContractorActive>[1] | Parameters<typeof planMeterCustodyHandoff>[1] | Parameters<typeof reassignPlannedCustodyHandoff>[1] | Parameters<typeof deferCustodyRemediation>[1] | Parameters<typeof reviewDeferredCustodyPlan>[1] | Parameters<typeof acknowledgeCustodyEligibilityNotice>[1]) { const current = this.read(); const next = 'deferralId' in command ? reviewDeferredCustodyPlan(current, command) : 'noticeId' in command ? acknowledgeCustodyEligibilityNotice(current, command) : 'affectedHandoffId' in command ? deferCustodyRemediation(current, command) : 'reassignedBy' in command ? reassignPlannedCustodyHandoff(current, command) : 'scheduledOn' in command && 'contractorId' in command ? planMeterCustodyHandoff(current, command) : 'contractorId' in command && 'active' in command ? setDisposalContractorActive(current, command) : 'disposalCertificate' in command ? closeMeterCase(current, command) : 'stage' in command ? recordMeterDisposalStage(current, command) : coordinateMeterFollowUp(current, command); if (next !== current) this.persistence.save(next); return next }
+  restore(snapshot: MeterCaseRecoverySnapshot, command: Parameters<typeof restoreMeterCaseSnapshot>[2]) { const next = restoreMeterCaseSnapshot(this.read(), snapshot, command); this.persistence.save(next); return next }
 }

@@ -7,7 +7,11 @@ import {
   contractorCertificationImpact,
   custodyRemediationProgress,
   plannedCustodyReadiness,
+  captureMeterCaseSnapshot,
+  parseMeterCaseSnapshot,
+  previewMeterCaseRestore,
   type MeterDisposalStage,
+  type MeterCaseRecoverySnapshot,
   type MeterWorkloadRole,
 } from "./meter-control-domain";
 
@@ -21,6 +25,9 @@ export function MeterWorkloadControl() {
   const [state, setState] = useState(() => repository.read());
   const [role, setRole] = useState<MeterWorkloadRole>("Operations Viewer");
   const [message, setMessage] = useState("");
+  const [recoverySnapshot, setRecoverySnapshot] = useState<MeterCaseRecoverySnapshot | null>(() => {
+    try { const saved = localStorage.getItem('gridloom:meter-case-recovery:v1'); return saved ? parseMeterCaseSnapshot(saved) : null; } catch { return null; }
+  });
   const [contractorId, setContractorId] = useState("CONTRACTOR-CMS");
   const [impactContractorId, setImpactContractorId] = useState('CONTRACTOR-CMS');
   const [custodyCaseId, setCustodyCaseId] = useState('MX-905');
@@ -39,6 +46,10 @@ export function MeterWorkloadControl() {
   const selectedDeferral = state.remediationDeferrals.filter((item) => item.caseId === custodyCaseId).at(-1);
   const pendingDeferral = selectedDeferral && !state.deferralReviews.some((item) => item.deferralId === selectedDeferral.id) ? selectedDeferral : null;
   const custodyReadiness = plannedCustodyReadiness(state, custodyCaseId);
+  const recoveryPreview = recoverySnapshot ? previewMeterCaseRestore(state, recoverySnapshot, custodyCaseId) : null;
+  const captureRecovery = () => { try { const snapshot = captureMeterCaseSnapshot(state, { id: crypto.randomUUID(), caseId: custodyCaseId, role, createdOn: '2026-10-20' }); localStorage.setItem('gridloom:meter-case-recovery:v1', JSON.stringify(snapshot)); setRecoverySnapshot(snapshot); setMessage('Case recovery snapshot captured with pinned revision and custody references.'); } catch (error) { setMessage(error instanceof Error ? error.message : 'Recovery capture failed.'); } queueMicrotask(() => feedback.current?.focus()); };
+  const restoreRecovery = () => { if (!recoverySnapshot) return; try { setState(repository.restore(recoverySnapshot, { id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: custodyCaseId, restoredBy: 'Operations supervisor', restoredOn: '2026-10-20' })); setMessage('Verified meter case snapshot restored; restoration recorded in immutable activity.'); } catch (error) { setMessage(error instanceof Error ? error.message : 'Recovery restore failed.'); } queueMicrotask(() => feedback.current?.focus()); };
+  const importRecovery = async (file: File | undefined) => { if (!file) return; try { const snapshot = parseMeterCaseSnapshot(await file.text()); setRecoverySnapshot(snapshot); setMessage('Meter recovery archive loaded for preview; current case has not changed.'); } catch (error) { setMessage(error instanceof Error ? error.message : 'Recovery archive import failed.'); } queueMicrotask(() => feedback.current?.focus()); };
   const planCustody = () => { try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: custodyCaseId, contractorId, scheduledOn: handoffOn, plannedBy: "Operations supervisor", plannedOn: "2026-10-20" })); setMessage("Planned custody recorded; contractor eligibility assessed for the handoff date."); } catch (error) { setMessage(error instanceof Error ? error.message : "Custody planning failed."); } queueMicrotask(() => feedback.current?.focus()); };
   const reassignCustody = () => { try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: custodyCaseId, contractorId, scheduledOn: handoffOn, reassignedBy: "Operations supervisor", reassignedOn: "2026-10-20", reason: "Original contractor certification does not cover the planned handoff date." })); setMessage("Planned custody reassigned to an eligible contractor; original plan preserved."); } catch (error) { setMessage(error instanceof Error ? error.message : "Custody reassignment failed."); } queueMicrotask(() => feedback.current?.focus()); };
   const deferRemediation = () => { if (!selectedImpact?.certificationEventId) return; try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: custodyCaseId, affectedHandoffId: selectedImpact.originalPlanId, certificationEventId: selectedImpact.certificationEventId, owner: 'Operations supervisor', reason: deferralReason, reviewOn: deferralReviewOn, deferredOn: '2026-10-20' })); setMessage(`${custodyCaseId} deferred for case-specific contractor review; other plans were unchanged.`); } catch (error) { setMessage(error instanceof Error ? error.message : 'Custody remediation deferral failed.'); } queueMicrotask(() => feedback.current?.focus()); };
@@ -120,6 +131,7 @@ export function MeterWorkloadControl() {
           {item.customerOwner} · contacts {item.contactAttempts}
         </p>
       ))}
+      <section aria-label="Meter case recovery"><h3>Case recovery</h3><p>Capture one meter case with its customer, custody, contractor, billing, and closure evidence.</p><button disabled={role !== 'Operations Supervisor'} onClick={captureRecovery}>Capture selected case recovery snapshot</button><label>Import meter case archive<input type="file" accept="application/json,.json" onChange={(event) => { void importRecovery(event.target.files?.[0]); }} /></label>{recoverySnapshot && <><p aria-label="Meter recovery preview">Snapshot {recoverySnapshot.id} · case {recoverySnapshot.caseId} · created {recoverySnapshot.createdOn} · source revision {String(recoverySnapshot.sourceRevision)} · current revision {String(state.revision)} · {recoveryPreview?.ready ? 'verified for restore' : 'restore blocked'}</p>{recoveryPreview?.reasons.map((reason) => <p role="alert" key={reason}>{reason}</p>)}<a download={`meter-case-${recoverySnapshot.caseId}-${recoverySnapshot.id}.json`} href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(recoverySnapshot, null, 2))}`}>Download case archive</a><button disabled={role !== 'Operations Supervisor' || !recoveryPreview?.ready} onClick={restoreRecovery}>Restore verified meter case</button></>}</section>
       <button
         disabled={
           role !== "Operations Supervisor" || state.followUps.length > 0
