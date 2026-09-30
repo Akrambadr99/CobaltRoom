@@ -17,8 +17,9 @@ export interface CustodyDeferralReview { id: string; deferralId: string; caseId:
 export interface CustodyRemediationDeferral { id: string; caseId: string; affectedHandoffId: string; certificationEventId: string; owner: string; reason: string; reviewOn: string; deferredOn: string; immutable: true }
 export const meterDisposalContractors: MeterDisposalContractor[] = [{ id: 'CONTRACTOR-CMS', organizationName: 'Circular Meter Services', authorizationStatus: 'authorized', permittedOperations: ['meter-disposal', 'custody-transport'], active: true, operationalReference: 'WASTE-LICENCE-881', effectiveFrom: '2026-01-01', certificationExpiresOn: '2026-11-30' }, { id: 'CONTRACTOR-OLD', organizationName: 'Legacy Meter Recycling', authorizationStatus: 'suspended', permittedOperations: ['meter-disposal'], active: false, operationalReference: 'WASTE-LICENCE-114', effectiveFrom: '2024-01-01', certificationExpiresOn: '2025-12-31' }, { id: 'CONTRACTOR-ARC', organizationName: 'Arc Reclamation', authorizationStatus: 'authorized', permittedOperations: ['meter-disposal', 'custody-transport'], active: true, operationalReference: 'WASTE-LICENCE-925', effectiveFrom: '2026-04-01', certificationExpiresOn: '2027-12-31' }]
 export interface MeterDisposalEvent { id: string; caseId: string; stage: MeterDisposalStage; contractor: string; contractorId?: string; contractorOperationalReference?: string; custodyReference: string; evidenceReference: string; reason: string | null; actor: string; occurredOn: string; sourceRevision: number; immutable: true }
-export interface MeterWorkloadState { revision: number; cases: MeterOperationalCase[]; followUps: MeterFollowUp[]; operationalEvents: MeterOperationalEvent[]; disposalEvents: MeterDisposalEvent[]; contractors: MeterDisposalContractor[]; contractorHistory: ContractorAuthorizationEvent[]; plannedHandoffs: PlannedCustodyHandoff[]; remediationDeferrals: CustodyRemediationDeferral[]; deferralReviews: CustodyDeferralReview[]; eligibilityNotices: CustodyEligibilityNotice[]; noticeAcknowledgements: CustodyNoticeAcknowledgement[]; closures: MeterCaseClosure[] }
-export const initialMeterWorkloadState: MeterWorkloadState = { revision: 0, cases: structuredClone(seededMeterCases), followUps: [], operationalEvents: [], disposalEvents: [], contractors: structuredClone(meterDisposalContractors), contractorHistory: [], plannedHandoffs: [], remediationDeferrals: [], deferralReviews: [], eligibilityNotices: [], noticeAcknowledgements: [], closures: [] }
+export interface CustodyAuthorizationAmendment { id: string; caseId: string; planId: string; authorizationEventId: string; previousContractorId: string; replacementContractorId: string; custodyReference: string; reason: string; approvalEvidence: string; approvedBy: string; approvedOn: string; immutable: true }
+export interface MeterWorkloadState { revision: number; cases: MeterOperationalCase[]; followUps: MeterFollowUp[]; operationalEvents: MeterOperationalEvent[]; disposalEvents: MeterDisposalEvent[]; custodyAmendments: CustodyAuthorizationAmendment[]; contractors: MeterDisposalContractor[]; contractorHistory: ContractorAuthorizationEvent[]; plannedHandoffs: PlannedCustodyHandoff[]; remediationDeferrals: CustodyRemediationDeferral[]; deferralReviews: CustodyDeferralReview[]; eligibilityNotices: CustodyEligibilityNotice[]; noticeAcknowledgements: CustodyNoticeAcknowledgement[]; closures: MeterCaseClosure[] }
+export const initialMeterWorkloadState: MeterWorkloadState = { revision: 0, cases: structuredClone(seededMeterCases), followUps: [], operationalEvents: [], disposalEvents: [], custodyAmendments: [], contractors: structuredClone(meterDisposalContractors), contractorHistory: [], plannedHandoffs: [], remediationDeferrals: [], deferralReviews: [], eligibilityNotices: [], noticeAcknowledgements: [], closures: [] }
 export function contractorEligibility(contractor: MeterDisposalContractor, on: string) { return { eligible: contractor.active && contractor.authorizationStatus === 'authorized' && contractor.effectiveFrom <= on && contractor.certificationExpiresOn >= on && contractor.permittedOperations.includes('meter-disposal'), expiresOn: contractor.certificationExpiresOn, expiringSoon: contractor.certificationExpiresOn >= on && (Date.parse(contractor.certificationExpiresOn) - Date.parse(on)) / 86_400_000 <= 30 } }
 export function plannedCustodyReadiness(state: MeterWorkloadState, caseId: string) { const plan = [...state.plannedHandoffs].reverse().find((item) => item.caseId === caseId); if (!plan) return null; const contractor = state.contractors.find((item) => item.id === plan.contractorId); const notice = state.eligibilityNotices.find((item) => item.handoffId === plan.id); const acknowledgement = state.noticeAcknowledgements.find((item) => item.noticeId === notice?.id); return { plan, contractor, notice, acknowledgement, ready: Boolean(contractor && contractorEligibility(contractor, plan.scheduledOn).eligible), reassignmentRequired: !contractor || !contractorEligibility(contractor, plan.scheduledOn).eligible } }
 export function contractorCertificationImpact(state: MeterWorkloadState, contractorId: string, asOf: string) {
@@ -149,6 +150,31 @@ export function coordinateMeterFollowUp(state: MeterWorkloadState, command: Coor
   return next
 }
 
+export function custodyAuthorizationReadiness(state: MeterWorkloadState, caseId: string) {
+  const planned = plannedCustodyReadiness(state, caseId)
+  const history = state.disposalEvents.filter((item) => item.caseId === caseId)
+  const authorization = history.filter((item) => item.stage === 'authorized').at(-1) ?? null
+  const amendment = authorization && planned ? state.custodyAmendments.find((item) => item.authorizationEventId === authorization.id && item.planId === planned.plan.id && item.replacementContractorId === planned.plan.contractorId) ?? null : null
+  const transferred = history.some((item) => item.stage === 'handed-off')
+  const amendmentRequired = Boolean(!transferred && authorization && planned && authorization.contractorId !== planned.plan.contractorId && !amendment)
+  return { authorization, amendment, amendmentRequired, transferred, plan: planned?.plan ?? null, ready: !amendmentRequired && Boolean(planned?.ready) }
+}
+
+export function amendMeterCustodyAuthorization(state: MeterWorkloadState, command: { id: string; expectedRevision: number; role: MeterWorkloadRole; caseId: string; planId: string; authorizationEventId: string; reason: string; approvalEvidence: string; approvedBy: string; approvedOn: string }) {
+  if (state.custodyAmendments.some((item) => item.id === command.id)) return state
+  if (state.revision !== command.expectedRevision) throw new MeterCaseError('STALE_REVISION', 'Custody changed. Refresh before authorization amendment.', command.caseId)
+  if (command.role !== 'Operations Supervisor') throw new MeterCaseError('UNAUTHORIZED', 'Only an operations supervisor can amend pre-transfer custody authorization.', command.caseId)
+  const readiness = custodyAuthorizationReadiness(state, command.caseId)
+  const planned = plannedCustodyReadiness(state, command.caseId)
+  const authorization = readiness.authorization
+  if (!readiness.amendmentRequired || !planned?.ready || planned.plan.id !== command.planId || authorization?.id !== command.authorizationEventId || !authorization.contractorId || !planned.plan.previousHandoffId || state.disposalEvents.filter((item) => item.caseId === command.caseId).at(-1)?.stage !== 'authorized') throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'Current reassigned plan and unexecuted custody authorization are required.', command.caseId)
+  const approvedDate = new Date(command.approvedOn + 'T00:00:00Z')
+  if (!command.id.trim() || command.reason.trim().length < 15 || !command.approvalEvidence.trim() || !command.approvedBy.trim() || command.approvedBy.trim() === authorization.actor.trim() || !/^20\d{2}-\d{2}-\d{2}$/.test(command.approvedOn) || !Number.isFinite(approvedDate.getTime()) || approvedDate.toISOString().slice(0, 10) !== command.approvedOn || command.approvedOn < authorization.occurredOn.slice(0, 10) || command.approvedOn > planned.plan.scheduledOn) throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'Independent supervisor, reason, approval evidence, and valid date between authorization and transfer are required.', command.caseId)
+  const next = structuredClone(state)
+  next.custodyAmendments.push({ id: command.id, caseId: command.caseId, planId: planned.plan.id, authorizationEventId: authorization.id, previousContractorId: authorization.contractorId, replacementContractorId: planned.plan.contractorId, custodyReference: authorization.custodyReference, reason: command.reason.trim(), approvalEvidence: command.approvalEvidence.trim(), approvedBy: command.approvedBy.trim(), approvedOn: command.approvedOn, immutable: true })
+  next.revision += 1
+  return next
+}
 interface RecordMeterDisposalStage { id: string; expectedRevision: number; role: MeterWorkloadRole; caseId: string; stage: MeterDisposalStage; contractor: string; contractorId?: string; custodyReference: string; evidenceReference: string; reason: string | null; actor: string; occurredOn: string }
 export function recordMeterDisposalStage(state: MeterWorkloadState, command: RecordMeterDisposalStage) {
   if (state.disposalEvents.some((item) => item.id === command.id)) return state
@@ -164,7 +190,9 @@ export function recordMeterDisposalStage(state: MeterWorkloadState, command: Rec
   const planned = plannedCustodyReadiness(state, command.caseId)
   if (command.stage === 'handed-off' && planned && (planned.plan.contractorId !== contractor?.id || planned.plan.scheduledOn !== command.occurredOn.slice(0, 10))) throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'Custody handoff must match the current planned contractor and date.', command.caseId)
   if (command.stage === 'handed-off' && (!contractor || !contractorEligibility(contractor, command.occurredOn.slice(0, 10)).eligible)) throw new MeterCaseError('UNAUTHORIZED', 'Custody can only be handed to an active contractor authorized and certified for meter disposal.', command.caseId)
-  if (history.length > 0 && history.at(-1)?.contractor !== (contractor?.organizationName ?? command.contractor)) throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'Disposal contractor cannot change within the custody chain.', command.caseId)
+  const amendment = custodyAuthorizationReadiness(state, command.caseId).amendment
+  const amendedTransfer = command.stage === 'handed-off' && amendment?.replacementContractorId === contractor?.id && amendment?.custodyReference === command.custodyReference && amendment.approvedOn <= command.occurredOn.slice(0, 10)
+  if (history.length > 0 && history.at(-1)?.contractor !== (contractor?.organizationName ?? command.contractor) && !amendedTransfer) throw new MeterCaseError('EVIDENCE_INCOMPLETE', 'Disposal contractor cannot change within the custody chain without a governed pre-transfer authorization amendment.', command.caseId)
   const next = structuredClone(state)
   next.disposalEvents.push({ ...command, contractor: contractor?.organizationName ?? command.contractor, ...(contractor ? { contractorId: contractor.id, contractorOperationalReference: contractor.operationalReference } : {}), reason: command.reason?.trim() ?? null, sourceRevision: state.revision, immutable: true })
   next.revision += 1
@@ -236,6 +264,7 @@ export interface MeterCaseRecoverySnapshot {
   eligibilityNotices: CustodyEligibilityNotice[]
   noticeAcknowledgements: CustodyNoticeAcknowledgement[]
   closures: MeterCaseClosure[]
+  custodyAmendments?: CustodyAuthorizationAmendment[]
   contractorIds: string[]
 }
 
@@ -255,7 +284,7 @@ export function captureMeterCaseSnapshot(state: MeterWorkloadState, command: { i
   const noticeIds = new Set(eligibilityNotices.map((item) => item.id))
   const noticeAcknowledgements = state.noticeAcknowledgements.filter((item) => noticeIds.has(item.noticeId))
   const contractorIds = [...new Set([...plannedHandoffs.map((item) => item.contractorId), ...disposalEvents.map((item) => item.contractorId).filter((id): id is string => Boolean(id))])]
-  return structuredClone({ schemaVersion: 1, id: command.id.trim(), caseId: command.caseId, sourceRevision: state.revision, createdOn: command.createdOn, caseRecord: record, followUps, operationalEvents, disposalEvents, plannedHandoffs, remediationDeferrals, deferralReviews, eligibilityNotices, noticeAcknowledgements, closures: state.closures.filter((item) => item.caseId === command.caseId), contractorIds })
+  return structuredClone({ schemaVersion: 1, id: command.id.trim(), caseId: command.caseId, sourceRevision: state.revision, createdOn: command.createdOn, caseRecord: record, followUps, operationalEvents, disposalEvents, custodyAmendments: state.custodyAmendments.filter((item) => item.caseId === command.caseId), plannedHandoffs, remediationDeferrals, deferralReviews, eligibilityNotices, noticeAcknowledgements, closures: state.closures.filter((item) => item.caseId === command.caseId), contractorIds })
 }
 
 export function parseMeterCaseSnapshot(raw: string): MeterCaseRecoverySnapshot {
@@ -269,6 +298,7 @@ export function parseMeterCaseSnapshot(raw: string): MeterCaseRecoverySnapshot {
   for (const key of ['followUps', 'operationalEvents', 'disposalEvents', 'plannedHandoffs', 'remediationDeferrals', 'deferralReviews', 'eligibilityNotices', 'noticeAcknowledgements', 'closures', 'contractorIds']) if (!Array.isArray(value[key])) throw new Error(`Meter recovery archive is missing ${key}.`)
   for (const key of ['followUps', 'operationalEvents', 'disposalEvents', 'plannedHandoffs', 'remediationDeferrals', 'deferralReviews', 'eligibilityNotices', 'noticeAcknowledgements', 'closures']) if (!(value[key] as unknown[]).every((item) => item && typeof item === 'object' && typeof (item as Record<string, unknown>)['id'] === 'string')) throw new Error(`Meter recovery archive has invalid ${key} evidence.`)
   if (!(value['contractorIds'] as unknown[]).every((id) => typeof id === 'string')) throw new Error('Meter recovery archive contractor references are invalid.')
+  if (value['custodyAmendments'] !== undefined && (!Array.isArray(value['custodyAmendments']) || !(value['custodyAmendments'] as unknown[]).every((item) => item && typeof item === 'object' && ['id', 'caseId', 'planId', 'authorizationEventId', 'previousContractorId', 'replacementContractorId', 'custodyReference', 'approvalEvidence', 'reason', 'approvedBy', 'approvedOn'].every((key) => typeof (item as Record<string, unknown>)[key] === 'string') && (item as Record<string, unknown>)['immutable'] === true))) throw new Error('Meter recovery custody amendments are invalid.')
   return value as unknown as MeterCaseRecoverySnapshot
 }
 
@@ -294,13 +324,20 @@ export function previewMeterCaseRestore(state: MeterWorkloadState, snapshot: Met
     const replacement = review.replacementPlanId ? plans.get(review.replacementPlanId) : undefined
     if (!deferral || (review.decision === 'reassign' && replacement?.previousHandoffId !== deferral.affectedHandoffId) || (review.decision === 'continue' && review.replacementPlanId !== null)) reasons.push(`Deferral review ${review.id} has incomplete custody reassignment lineage.`)
   }
+  if ((snapshot.custodyAmendments ?? []).some((item) => item.caseId !== caseId || plans.get(item.planId)?.contractorId !== item.replacementContractorId || !snapshot.disposalEvents.some((event) => event.id === item.authorizationEventId && event.stage === 'authorized' && event.contractorId === item.previousContractorId && event.custodyReference === item.custodyReference))) reasons.push('Custody authorization amendment lineage is incomplete.')
+  if ((snapshot.custodyAmendments ?? []).some((item) => {
+    const authorization = snapshot.disposalEvents.find((event) => event.id === item.authorizationEventId && event.stage === 'authorized')
+    const plan = plans.get(item.planId)
+    const approvedDate = new Date(item.approvedOn + 'T00:00:00Z')
+    return !authorization || !plan || !item.id.trim() || item.reason.trim().length < 15 || !item.approvalEvidence.trim() || !item.approvedBy.trim() || item.approvedBy.trim() === authorization.actor.trim() || !/^20\d{2}-\d{2}-\d{2}$/.test(item.approvedOn) || !Number.isFinite(approvedDate.getTime()) || approvedDate.toISOString().slice(0, 10) !== item.approvedOn || item.approvedOn < authorization.occurredOn.slice(0, 10) || item.approvedOn > plan.scheduledOn
+  })) reasons.push('Custody authorization amendment requires independent approval and a valid business date between authorization and transfer.')
   if (snapshot.closures.some((item) => item.caseId !== caseId || !snapshot.followUps.some((followUp) => followUp.id === item.followUpId))) reasons.push('Closure has no matching case follow-up evidence.')
   if (snapshot.eligibilityNotices.some((item) => !plans.has(item.handoffId)) || snapshot.noticeAcknowledgements.some((item) => !snapshot.eligibilityNotices.some((notice) => notice.id === item.noticeId))) reasons.push('Contractor eligibility notice lineage is incomplete.')
   if ([...snapshot.followUps, ...snapshot.operationalEvents, ...snapshot.disposalEvents, ...snapshot.plannedHandoffs, ...snapshot.remediationDeferrals, ...snapshot.deferralReviews, ...snapshot.closures].some((item) => item.caseId !== caseId)) reasons.push('Historical evidence belongs to another case.')
   const collections = [
     [snapshot.followUps, state.followUps], [snapshot.operationalEvents, state.operationalEvents], [snapshot.disposalEvents, state.disposalEvents],
     [snapshot.plannedHandoffs, state.plannedHandoffs], [snapshot.remediationDeferrals, state.remediationDeferrals], [snapshot.deferralReviews, state.deferralReviews],
-    [snapshot.eligibilityNotices, state.eligibilityNotices], [snapshot.noticeAcknowledgements, state.noticeAcknowledgements], [snapshot.closures, state.closures],
+    [snapshot.custodyAmendments ?? [], state.custodyAmendments], [snapshot.eligibilityNotices, state.eligibilityNotices], [snapshot.noticeAcknowledgements, state.noticeAcknowledgements], [snapshot.closures, state.closures],
   ] as const
   for (const [archived, currentEvents] of collections) for (const item of archived) {
     const existing = currentEvents.find((event) => event.id === item.id)
@@ -321,6 +358,7 @@ export function restoreMeterCaseSnapshot(state: MeterWorkloadState, snapshot: Me
   next.followUps = mergeHistory(next.followUps, snapshot.followUps)
   next.operationalEvents = mergeHistory(next.operationalEvents, snapshot.operationalEvents)
   next.disposalEvents = mergeHistory(next.disposalEvents, snapshot.disposalEvents)
+  next.custodyAmendments = mergeHistory(next.custodyAmendments, snapshot.custodyAmendments ?? [])
   next.plannedHandoffs = mergeHistory(next.plannedHandoffs, snapshot.plannedHandoffs)
   next.remediationDeferrals = mergeHistory(next.remediationDeferrals, snapshot.remediationDeferrals)
   next.deferralReviews = mergeHistory(next.deferralReviews, snapshot.deferralReviews)
@@ -340,13 +378,13 @@ export class BrowserMeterWorkloadPersistence implements MeterWorkloadPersistence
   static key = 'gridloom:meter-workload:v2'
   private readonly storage: Pick<Storage, 'getItem' | 'setItem'>
   constructor(storage: Pick<Storage, 'getItem' | 'setItem'>) { this.storage = storage }
-  load() { const raw = this.storage.getItem(BrowserMeterWorkloadPersistence.key); if (!raw) return null; const saved = JSON.parse(raw) as Omit<Partial<MeterWorkloadState>, 'contractors'> & { contractors?: (Omit<MeterDisposalContractor, 'certificationExpiresOn'> & { certificationExpiresOn?: string })[] }; return { ...(saved as MeterWorkloadState), operationalEvents: saved.operationalEvents ?? [], disposalEvents: saved.disposalEvents ?? [], contractors: (saved.contractors ?? structuredClone(meterDisposalContractors)).map((item) => ({ ...item, certificationExpiresOn: item.certificationExpiresOn ?? '2026-11-30' })), contractorHistory: saved.contractorHistory ?? [], plannedHandoffs: saved.plannedHandoffs ?? [], remediationDeferrals: saved.remediationDeferrals ?? [], deferralReviews: saved.deferralReviews ?? [], eligibilityNotices: saved.eligibilityNotices ?? [], noticeAcknowledgements: saved.noticeAcknowledgements ?? [] } }
+  load() { const raw = this.storage.getItem(BrowserMeterWorkloadPersistence.key); if (!raw) return null; const saved = JSON.parse(raw) as Omit<Partial<MeterWorkloadState>, 'contractors'> & { contractors?: (Omit<MeterDisposalContractor, 'certificationExpiresOn'> & { certificationExpiresOn?: string })[] }; return { ...(saved as MeterWorkloadState), operationalEvents: saved.operationalEvents ?? [], disposalEvents: saved.disposalEvents ?? [], custodyAmendments: saved.custodyAmendments ?? [], contractors: (saved.contractors ?? structuredClone(meterDisposalContractors)).map((item) => ({ ...item, certificationExpiresOn: item.certificationExpiresOn ?? '2026-11-30' })), contractorHistory: saved.contractorHistory ?? [], plannedHandoffs: saved.plannedHandoffs ?? [], remediationDeferrals: saved.remediationDeferrals ?? [], deferralReviews: saved.deferralReviews ?? [], eligibilityNotices: saved.eligibilityNotices ?? [], noticeAcknowledgements: saved.noticeAcknowledgements ?? [] } }
   save(state: MeterWorkloadState) { this.storage.setItem(BrowserMeterWorkloadPersistence.key, JSON.stringify(state)) }
 }
 export class MeterWorkloadRepository {
   private readonly persistence: MeterWorkloadPersistence
   constructor(persistence: MeterWorkloadPersistence) { this.persistence = persistence }
   read(): MeterWorkloadState { return this.persistence.load() ?? structuredClone(initialMeterWorkloadState) }
-  dispatch(command: CoordinateFollowUp | RecordMeterDisposalStage | CloseMeterCase | Parameters<typeof setDisposalContractorActive>[1] | Parameters<typeof planMeterCustodyHandoff>[1] | Parameters<typeof reassignPlannedCustodyHandoff>[1] | Parameters<typeof deferCustodyRemediation>[1] | Parameters<typeof reviewDeferredCustodyPlan>[1] | Parameters<typeof acknowledgeCustodyEligibilityNotice>[1]) { const current = this.read(); const next = 'deferralId' in command ? reviewDeferredCustodyPlan(current, command) : 'noticeId' in command ? acknowledgeCustodyEligibilityNotice(current, command) : 'affectedHandoffId' in command ? deferCustodyRemediation(current, command) : 'reassignedBy' in command ? reassignPlannedCustodyHandoff(current, command) : 'scheduledOn' in command && 'contractorId' in command ? planMeterCustodyHandoff(current, command) : 'contractorId' in command && 'active' in command ? setDisposalContractorActive(current, command) : 'disposalCertificate' in command ? closeMeterCase(current, command) : 'stage' in command ? recordMeterDisposalStage(current, command) : coordinateMeterFollowUp(current, command); if (next !== current) this.persistence.save(next); return next }
+  dispatch(command: CoordinateFollowUp | RecordMeterDisposalStage | CloseMeterCase | Parameters<typeof setDisposalContractorActive>[1] | Parameters<typeof planMeterCustodyHandoff>[1] | Parameters<typeof reassignPlannedCustodyHandoff>[1] | Parameters<typeof deferCustodyRemediation>[1] | Parameters<typeof reviewDeferredCustodyPlan>[1] | Parameters<typeof acknowledgeCustodyEligibilityNotice>[1] | Parameters<typeof amendMeterCustodyAuthorization>[1]) { const current = this.read(); const next = 'authorizationEventId' in command ? amendMeterCustodyAuthorization(current, command) : 'deferralId' in command ? reviewDeferredCustodyPlan(current, command) : 'noticeId' in command ? acknowledgeCustodyEligibilityNotice(current, command) : 'affectedHandoffId' in command ? deferCustodyRemediation(current, command) : 'reassignedBy' in command ? reassignPlannedCustodyHandoff(current, command) : 'scheduledOn' in command && 'contractorId' in command ? planMeterCustodyHandoff(current, command) : 'contractorId' in command && 'active' in command ? setDisposalContractorActive(current, command) : 'disposalCertificate' in command ? closeMeterCase(current, command) : 'stage' in command ? recordMeterDisposalStage(current, command) : coordinateMeterFollowUp(current, command); if (next !== current) this.persistence.save(next); return next }
   restore(snapshot: MeterCaseRecoverySnapshot, command: Parameters<typeof restoreMeterCaseSnapshot>[2]) { const next = restoreMeterCaseSnapshot(this.read(), snapshot, command); this.persistence.save(next); return next }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acknowledgeCustodyEligibilityNotice, BrowserMeterWorkloadPersistence, captureMeterCaseSnapshot, closeMeterCase, contractorCertificationImpact, contractorEligibility, coordinateMeterFollowUp, custodyRemediationProgress, deferCustodyRemediation, initialMeterWorkloadState, MeterCaseError, MeterWorkloadRepository, parseMeterCaseSnapshot, planMeterCustodyHandoff, plannedCustodyReadiness, previewMeterCaseRestore, queryMeterOperationalHistory, reassignPlannedCustodyHandoff, restoreMeterCaseSnapshot, reviewDeferredCustodyPlan, recordMeterDisposalStage, setDisposalContractorActive, type MeterDisposalStage, type MeterWorkloadPersistence, type MeterWorkloadState } from './meter-control-domain'
+import { amendMeterCustodyAuthorization, custodyAuthorizationReadiness, acknowledgeCustodyEligibilityNotice, BrowserMeterWorkloadPersistence, captureMeterCaseSnapshot, closeMeterCase, contractorCertificationImpact, contractorEligibility, coordinateMeterFollowUp, custodyRemediationProgress, deferCustodyRemediation, initialMeterWorkloadState, MeterCaseError, MeterWorkloadRepository, parseMeterCaseSnapshot, planMeterCustodyHandoff, plannedCustodyReadiness, previewMeterCaseRestore, queryMeterOperationalHistory, reassignPlannedCustodyHandoff, restoreMeterCaseSnapshot, reviewDeferredCustodyPlan, recordMeterDisposalStage, setDisposalContractorActive, type MeterDisposalStage, type MeterWorkloadPersistence, type MeterWorkloadState } from './meter-control-domain'
 
 it('previews a versioned meter case archive and restores only under matching source revision', () => {
   const state = structuredClone(initialMeterWorkloadState)
@@ -153,4 +153,73 @@ it('requires authoritative certification and predecessor evidence when recoverin
   expect(restored.remediationDeferrals).toEqual(snapshot.remediationDeferrals)
   expect(restored.deferralReviews).toEqual(snapshot.deferralReviews)
   expect(restored.contractorHistory).toEqual(state.contractorHistory)
+})
+
+function reassignedAuthorizedCustody() {
+  let state = coordinateMeterFollowUp(initialMeterWorkloadState, { id: 'amend-follow-up', expectedRevision: 0, role: 'Operations Supervisor', caseId: 'MX-905', owner: 'Revenue recovery', scheduledOn: '2026-10-21', asOf: '2026-10-20', contactEvidence: 'Customer confirmed the missed commitment.', escalationReason: 'Joint field and customer custody recovery requires one owner.' })
+  state = planMeterCustodyHandoff(state, { id: 'amend-original-plan', expectedRevision: state.revision, role: 'Operations Supervisor', caseId: 'MX-905', contractorId: 'CONTRACTOR-CMS', scheduledOn: '2026-12-01', plannedBy: 'Operations supervisor', plannedOn: '2026-10-20' })
+  for (const stage of ['requested', 'authorized'] as const) state = recordMeterDisposalStage(state, { id: `amend-${stage}`, expectedRevision: state.revision, role: 'Operations Supervisor', caseId: 'MX-905', stage, contractor: 'Circular Meter Services', contractorId: 'CONTRACTOR-CMS', custodyReference: 'CUSTODY-905', evidenceReference: `AUTH-${stage}`, reason: null, actor: 'Original supervisor', occurredOn: '2026-10-22' })
+  return reassignPlannedCustodyHandoff(state, { id: 'amend-replacement-plan', expectedRevision: state.revision, role: 'Operations Supervisor', caseId: 'MX-905', contractorId: 'CONTRACTOR-ARC', scheduledOn: '2026-12-01', reassignedBy: 'Operations supervisor', reassignedOn: '2026-10-22', reason: 'Original certification does not cover the custody transfer date.' })
+}
+
+it('requires independent amendment before replacement contractor can execute already authorized custody', () => {
+  const state = reassignedAuthorizedCustody()
+  expect(custodyAuthorizationReadiness(state, 'MX-905').amendmentRequired).toBe(true)
+  const transfer = { id: 'amended-transfer', expectedRevision: state.revision, role: 'Operations Supervisor' as const, caseId: 'MX-905', stage: 'handed-off' as const, contractor: 'Arc Reclamation', contractorId: 'CONTRACTOR-ARC', custodyReference: 'CUSTODY-905', evidenceReference: 'ARC-RECEIPT', reason: null, actor: 'Field operator', occurredOn: '2026-12-01' }
+  expect(() => recordMeterDisposalStage(state, transfer)).toThrow('pre-transfer authorization amendment')
+  const amendment = { id: 'amendment-905', expectedRevision: state.revision, role: 'Operations Supervisor' as const, caseId: 'MX-905', planId: 'amend-replacement-plan', authorizationEventId: 'amend-authorized', reason: 'Independent replacement contractor custody authorization reviewed.', approvalEvidence: 'APPROVAL-905', approvedBy: 'Assurance supervisor', approvedOn: '2026-10-23' }
+  const before = structuredClone(state)
+  expect(() => amendMeterCustodyAuthorization(state, { ...amendment, role: 'Operations Viewer' })).toThrow('operations supervisor')
+  expect(() => amendMeterCustodyAuthorization(state, { ...amendment, approvedBy: 'Original supervisor' })).toThrow('Independent')
+  expect(() => amendMeterCustodyAuthorization(state, { ...amendment, approvedOn: '2026-11-31' })).toThrow('valid date')
+  expect(() => amendMeterCustodyAuthorization(state, { ...amendment, expectedRevision: 0 })).toThrow('Refresh')
+  expect(() => amendMeterCustodyAuthorization(state, { ...amendment, planId: 'amend-original-plan' })).toThrow('Current reassigned')
+  expect(state).toEqual(before)
+  const amended = amendMeterCustodyAuthorization(state, amendment)
+  expect(amended.disposalEvents).toEqual(state.disposalEvents)
+  expect(amended.plannedHandoffs).toEqual(state.plannedHandoffs)
+  expect(amended.custodyAmendments[0]).toMatchObject({ previousContractorId: 'CONTRACTOR-CMS', replacementContractorId: 'CONTRACTOR-ARC', authorizationEventId: 'amend-authorized', immutable: true })
+  expect(custodyAuthorizationReadiness(amended, 'MX-905')).toMatchObject({ amendmentRequired: false, ready: true })
+  expect(amendMeterCustodyAuthorization(amended, amendment)).toBe(amended)
+  expect(() => recordMeterDisposalStage(amended, { ...transfer, expectedRevision: amended.revision, custodyReference: 'UNRELATED-CUSTODY' })).toThrow('pre-transfer')
+  const handed = recordMeterDisposalStage(amended, { ...transfer, expectedRevision: amended.revision })
+  expect(handed.disposalEvents[0]).toEqual(state.disposalEvents[0])
+  expect(handed.disposalEvents.at(-1)?.contractorId).toBe('CONTRACTOR-ARC')
+  expect(() => amendMeterCustodyAuthorization(handed, { ...amendment, id: 'late-amendment', expectedRevision: handed.revision })).toThrow('unexecuted')
+})
+
+it('pins custody amendments in recovery archives and rejects missing authorization lineage', () => {
+  const state = reassignedAuthorizedCustody()
+  const amended = amendMeterCustodyAuthorization(state, { id: 'archived-amendment', expectedRevision: state.revision, role: 'Operations Supervisor', caseId: 'MX-905', planId: 'amend-replacement-plan', authorizationEventId: 'amend-authorized', reason: 'Replacement contractor authorization and consignment independently reviewed.', approvalEvidence: 'APPROVAL-905', approvedBy: 'Assurance supervisor', approvedOn: '2026-10-23' })
+  const snapshot = captureMeterCaseSnapshot(amended, { id: 'amendment-archive', caseId: 'MX-905', role: 'Operations Supervisor', createdOn: '2026-10-24' })
+  expect(parseMeterCaseSnapshot(JSON.stringify(snapshot)).custodyAmendments).toEqual(amended.custodyAmendments)
+  expect(previewMeterCaseRestore(amended, snapshot, 'MX-905').ready).toBe(true)
+  const malformed = JSON.parse(JSON.stringify(snapshot)) as { custodyAmendments: Record<string, unknown>[] }
+  delete malformed.custodyAmendments[0]!['approvedOn']
+  expect(() => parseMeterCaseSnapshot(JSON.stringify(malformed))).toThrow('custody amendments are invalid')
+  snapshot.custodyAmendments![0]!.authorizationEventId = 'missing-authorization'
+  expect(previewMeterCaseRestore(amended, snapshot, 'MX-905').reasons).toContain('Custody authorization amendment lineage is incomplete.')
+  const legacy = { ...amended, custodyAmendments: undefined }
+  const loaded = new BrowserMeterWorkloadPersistence({ getItem: () => JSON.stringify(legacy), setItem: () => undefined }).load()
+  expect(loaded?.custodyAmendments).toEqual([])
+  expect(custodyAuthorizationReadiness(loaded!, 'MX-905').amendmentRequired).toBe(true)
+})
+it('rejects imported custody amendments with invalid approval even when the local history is missing', () => {
+  const state = reassignedAuthorizedCustody()
+  const amended = amendMeterCustodyAuthorization(state, { id: 'imported-amendment', expectedRevision: state.revision, role: 'Operations Supervisor', caseId: 'MX-905', planId: 'amend-replacement-plan', authorizationEventId: 'amend-authorized', reason: 'Replacement contractor authorization and consignment independently reviewed.', approvalEvidence: 'APPROVAL-IMPORT-905', approvedBy: 'Assurance supervisor', approvedOn: '2026-10-23' })
+  const snapshot = captureMeterCaseSnapshot(amended, { id: 'imported-amendment-archive', caseId: 'MX-905', role: 'Operations Supervisor', createdOn: '2026-10-24' })
+  const local = { ...structuredClone(amended), custodyAmendments: [] }
+  const before = structuredClone(local)
+  const restore = { id: 'restore-amendment', expectedRevision: local.revision, role: 'Operations Supervisor' as const, caseId: 'MX-905', restoredBy: 'Recovery supervisor', restoredOn: '2026-10-24' }
+  expect(restoreMeterCaseSnapshot(local, snapshot, restore).custodyAmendments).toEqual(amended.custodyAmendments)
+  for (const invalid of [{ approvedBy: 'Original supervisor' }, { approvedOn: '2026-10-21' }, { approvedOn: '2026-12-02' }, { approvedOn: '2026-11-31' }]) {
+    const changed = structuredClone(snapshot)
+    Object.assign(changed.custodyAmendments![0]!, invalid)
+    const preview = previewMeterCaseRestore(local, changed, 'MX-905')
+    expect(preview.ready).toBe(false)
+    expect(preview.reasons).toContain('Custody authorization amendment requires independent approval and a valid business date between authorization and transfer.')
+    expect(preview.reasons.some((reason) => reason.includes('conflicts with current evidence'))).toBe(false)
+    expect(() => restoreMeterCaseSnapshot(local, changed, restore)).toThrow('independent approval')
+    expect(local).toEqual(before)
+  }
 })
