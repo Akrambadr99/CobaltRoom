@@ -134,3 +134,23 @@ it('reviews overdue deferred custody with immutable continuation and eligible re
   const old = { getItem: () => JSON.stringify({ ...deferred, deferralReviews: undefined }), setItem: () => undefined }
   expect(new BrowserMeterWorkloadPersistence(old).load()?.deferralReviews).toEqual([])
 })
+
+it('requires authoritative certification and predecessor evidence when recovering custody deferrals', () => {
+  const state = structuredClone(initialMeterWorkloadState)
+  const snapshot = captureMeterCaseSnapshot(state, { id: 'archive-lineage', caseId: 'MX-905', role: 'Operations Supervisor', createdOn: '2026-10-20' })
+  snapshot.contractorIds = ['CONTRACTOR-CMS', 'CONTRACTOR-ARC']
+  snapshot.plannedHandoffs.push({ id: 'plan-original', caseId: 'MX-905', contractorId: 'CONTRACTOR-CMS', scheduledOn: '2026-10-25', plannedBy: 'supervisor', sourceRevision: 0, immutable: true })
+  snapshot.remediationDeferrals.push({ id: 'deferral', caseId: 'MX-905', affectedHandoffId: 'plan-original', certificationEventId: 'suspension', owner: 'supervisor', reason: 'Await verified replacement custody.', reviewOn: '2026-10-24', deferredOn: '2026-10-20', immutable: true })
+  const command = { id: 'restore-lineage', expectedRevision: 0, role: 'Operations Supervisor' as const, caseId: 'MX-905', restoredBy: 'Supervisor A', restoredOn: '2026-10-20' }
+  const before = structuredClone(state)
+  expect(() => restoreMeterCaseSnapshot(state, snapshot, command)).toThrow('authoritative contractor certification')
+  expect(state).toEqual(before)
+  state.contractorHistory.push({ id: 'suspension', contractorId: 'CONTRACTOR-CMS', active: false, certificationExpiresOn: '2026-11-30', actor: 'assurance', reason: 'Failed certification audit.', changedOn: '2026-10-20', sourceRevision: 0, immutable: true })
+  snapshot.deferralReviews.push({ id: 'review', deferralId: 'deferral', caseId: 'MX-905', decision: 'reassign', reviewedBy: 'supervisor', reviewedOn: '2026-10-24', evidenceReference: 'AUTH-1', nextReviewOn: null, replacementPlanId: 'plan-replacement', immutable: true })
+  expect(() => restoreMeterCaseSnapshot(state, snapshot, command)).toThrow('reassignment lineage')
+  snapshot.plannedHandoffs.push({ id: 'plan-replacement', caseId: 'MX-905', contractorId: 'CONTRACTOR-ARC', scheduledOn: '2026-10-25', plannedBy: 'supervisor', sourceRevision: 0, previousHandoffId: 'plan-original', immutable: true })
+  const restored = restoreMeterCaseSnapshot(state, snapshot, command)
+  expect(restored.remediationDeferrals).toEqual(snapshot.remediationDeferrals)
+  expect(restored.deferralReviews).toEqual(snapshot.deferralReviews)
+  expect(restored.contractorHistory).toEqual(state.contractorHistory)
+})

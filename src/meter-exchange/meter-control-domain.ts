@@ -284,6 +284,16 @@ export function previewMeterCaseRestore(state: MeterWorkloadState, snapshot: Met
   for (const plan of snapshot.plannedHandoffs) {
     if (plan.caseId !== caseId || (plan.previousHandoffId && !plans.has(plan.previousHandoffId))) reasons.push(`Custody plan ${plan.id} has broken case or predecessor lineage.`)
   }
+  for (const deferral of snapshot.remediationDeferrals) {
+    const plan = plans.get(deferral.affectedHandoffId)
+    const certification = state.contractorHistory.find((event) => event.id === deferral.certificationEventId)
+    if (!plan || certification?.contractorId !== plan.contractorId) reasons.push(`Deferral ${deferral.id} has no matching authoritative contractor certification event.`)
+  }
+  for (const review of snapshot.deferralReviews) {
+    const deferral = snapshot.remediationDeferrals.find((item) => item.id === review.deferralId)
+    const replacement = review.replacementPlanId ? plans.get(review.replacementPlanId) : undefined
+    if (!deferral || (review.decision === 'reassign' && replacement?.previousHandoffId !== deferral.affectedHandoffId) || (review.decision === 'continue' && review.replacementPlanId !== null)) reasons.push(`Deferral review ${review.id} has incomplete custody reassignment lineage.`)
+  }
   if (snapshot.closures.some((item) => item.caseId !== caseId || !snapshot.followUps.some((followUp) => followUp.id === item.followUpId))) reasons.push('Closure has no matching case follow-up evidence.')
   if (snapshot.eligibilityNotices.some((item) => !plans.has(item.handoffId)) || snapshot.noticeAcknowledgements.some((item) => !snapshot.eligibilityNotices.some((notice) => notice.id === item.noticeId))) reasons.push('Contractor eligibility notice lineage is incomplete.')
   if ([...snapshot.followUps, ...snapshot.operationalEvents, ...snapshot.disposalEvents, ...snapshot.plannedHandoffs, ...snapshot.remediationDeferrals, ...snapshot.deferralReviews, ...snapshot.closures].some((item) => item.caseId !== caseId)) reasons.push('Historical evidence belongs to another case.')
