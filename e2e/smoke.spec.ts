@@ -162,7 +162,7 @@ test('combines customer and field meter blockers',async({page})=>{await page.got
 test('supervisor coordinates customer and field follow-up under one owner',async({page})=>{await page.goto('/meter-exchange');await page.getByLabel('Workload role').selectOption('Operations Supervisor');await page.getByRole('button',{name:'Coordinate urgent meter follow-up'}).click();await expect(page.getByRole('status')).toContainText('one owner');await expect(page.getByRole('region',{name:'Meter operations workload'})).toContainText('field Revenue recovery · customer Revenue recovery · contacts 4');await page.reload();await expect(page.getByRole('list',{name:'Meter follow-up history'})).toContainText('scheduled 2026-10-21');});
 
 test('supervisor closes a meter case only after customer and custody reconciliation',async({page})=>{await page.goto('/meter-exchange');await page.getByLabel('Workload role').selectOption('Operations Supervisor');await page.getByRole('button',{name:'Coordinate urgent meter follow-up'}).click();await page.getByRole('button',{name:'Close reconciled meter case'}).click();await expect(page.getByRole('status')).toContainText('physical-custody reconciliation');await expect(page.getByRole('region',{name:'Meter operations workload'})).toContainText('MX-905 · ready');await page.reload();await expect(page.getByRole('list',{name:'Meter closure history'})).toContainText('custody DISPOSAL-905 · customer ACK-905');});
-test('preserves contractor disposal custody through rejection correction and confirmation',async({page})=>{await page.goto('/meter-exchange');await page.getByLabel('Workload role').selectOption('Operations Supervisor');await page.getByRole('button',{name:'Coordinate urgent meter follow-up'}).click();for(let index=0;index<7;index+=1)await page.getByRole('button',{name:'Advance disposal custody'}).click();await expect(page.getByRole('list',{name:'Meter disposal custody history'})).toContainText('evidence-rejected');await expect(page.getByRole('list',{name:'Meter disposal custody history'})).toContainText('confirmed · Circular Meter Services');await page.getByRole('button',{name:'Close reconciled meter case'}).click();await expect(page.getByRole('status')).toContainText('physical-custody reconciliation');});
+test('preserves contractor disposal custody through rejection correction and confirmation',async({page})=>{await page.goto('/meter-exchange');await page.getByLabel('Workload role').selectOption('Operations Supervisor');await page.getByRole('button',{name:'Coordinate urgent meter follow-up'}).click();for(let index=0;index<4;index+=1)await page.getByRole('button',{name:'Advance disposal custody'}).click();await page.getByLabel('Disposal certificate review evidence').fill('SEAL-REVIEW-905');await page.getByLabel('Disposal correction reason').fill('Certificate omitted the serialized removed meter seal.');await page.getByRole('button',{name:'Return disposal certificate'}).click();await page.getByLabel('Case disposal certificate').fill('DISPOSAL-905-CORRECTED');await page.getByRole('button',{name:'Submit corrected disposal certificate'}).click();await page.getByRole('button',{name:'Accept disposal certificate'}).click();await expect(page.getByRole('list',{name:'Meter disposal custody history'})).toContainText('evidence-rejected');await expect(page.getByRole('list',{name:'Meter disposal custody history'})).toContainText('confirmed · Circular Meter Services');await page.getByRole('button',{name:'Close reconciled meter case'}).click();await expect(page.getByRole('status')).toContainText('physical-custody reconciliation');});
 test('selects an authorized disposal contractor and preserves its identity through custody',async({page})=>{await page.goto('/meter-exchange');await page.getByLabel('Workload role').selectOption('Operations Supervisor');await expect(page.getByLabel('Eligible disposal contractor').locator('option[disabled]')).toHaveCount(1);await page.getByRole('button',{name:'Coordinate urgent meter follow-up'}).click();await page.getByRole('button',{name:'Advance disposal custody'}).click();await page.getByRole('button',{name:'Advance disposal custody'}).click();await page.getByRole('button',{name:'Advance disposal custody'}).click();await expect(page.getByRole('list',{name:'Meter disposal custody history'})).toContainText('handed-off · Circular Meter Services');});
 test('renews contractor certification with attributed history before custody handoff',async({page})=>{await page.goto('/meter-exchange');await page.getByLabel('Workload role').selectOption('Operations Supervisor');await expect(page.getByLabel('Contractor certification readiness')).toContainText('renewal due soon');await page.getByRole('button',{name:'Renew contractor authorization'}).click();await expect(page.getByRole('list',{name:'Contractor authorization history'})).toContainText('Operations supervisor');await page.reload();await expect(page.getByLabel('Contractor certification readiness')).toContainText('2027-11-30');});
 test('plans an at-risk contractor handoff and restores readiness after certification renewal',async({page})=>{await page.goto('/meter-exchange');await page.getByLabel('Workload role').selectOption('Operations Supervisor');await page.getByRole('button',{name:'Coordinate urgent meter follow-up'}).click();await page.getByRole('button',{name:'Plan contractor custody handoff'}).click();await expect(page.getByLabel('Planned custody readiness')).toContainText('reassignment or certification renewal required');await expect(page.getByLabel('Contractor eligibility notice')).toContainText('acknowledgement pending');await page.getByRole('button',{name:'Acknowledge contractor risk'}).click();await expect(page.getByLabel('Contractor eligibility notice')).toContainText('acknowledged by Operations supervisor');await page.getByRole('button',{name:'Renew contractor authorization'}).click();await expect(page.getByLabel('Planned custody readiness')).toContainText('ready for planned handoff');await page.reload();await expect(page.getByLabel('Planned custody readiness')).toContainText('ready for planned handoff');await page.getByLabel('Workload role').selectOption('Operations Supervisor');for(let index=0;index<3;index+=1)await page.getByRole('button',{name:'Advance disposal custody'}).click();await expect(page.getByRole('list',{name:'Meter disposal custody history'})).toContainText('handed-off · Circular Meter Services');});
@@ -219,7 +219,10 @@ test('supervisor resolves case-specific field custody without advancing another 
   await page.getByLabel('Eligible disposal contractor').selectOption('CONTRACTOR-ARC')
   await page.getByLabel('Planned custody date').fill('2026-10-26')
   await page.getByRole('button', { name: 'Plan contractor custody handoff' }).click()
-  for (let index = 0; index < 7; index += 1) await page.getByRole('button', { name: 'Advance disposal custody' }).click()
+  await page.getByLabel('Case disposal certificate').fill('FIELD-INSPECTION-881-confirmed')
+  for (let index = 0; index < 4; index += 1) await page.getByRole('button', { name: 'Advance disposal custody' }).click()
+  await page.getByLabel('Disposal certificate review evidence').fill('SEAL-AND-SERIAL-REVIEW-881')
+  await page.getByRole('button', { name: 'Accept disposal certificate' }).click()
   await expect(page.getByRole('list', { name: 'Meter disposal custody history' })).toContainText('confirmed · Arc Reclamation · custody FIELD-CUSTODY-881')
   await page.getByLabel('Case customer acknowledgement').fill('CUSTOMER-ACK-881')
   await page.getByLabel('Case disposal certificate').fill('FIELD-INSPECTION-881-confirmed')
@@ -236,4 +239,32 @@ test('supervisor resolves case-specific field custody without advancing another 
   await expect(page.getByLabel('Custody case')).toHaveValue('MX-881')
   await expect(page.getByLabel('Eligible disposal contractor')).toHaveValue('CONTRACTOR-ARC')
   await expect(page.getByRole('list', { name: 'Meter closure history' })).toContainText('CUSTOMER-ACK-881')
+})
+
+test('independently accepts valid disposal evidence and preserves case context after a failed review', async ({ page }) => {
+  await page.goto('/meter-exchange')
+  await page.getByLabel('Workload role').selectOption('Operations Supervisor')
+  await page.getByRole('button', { name: 'Coordinate urgent meter follow-up' }).click()
+  for (let index = 0; index < 4; index += 1) await page.getByRole('button', { name: 'Advance disposal custody' }).click()
+  await expect(page.getByRole('button', { name: 'Advance disposal custody' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Accept disposal certificate' }).click()
+  await expect(page.getByRole('status')).toContainText('review evidence')
+  await expect(page.getByRole('status')).toBeFocused()
+  await page.getByLabel('Disposal certificate review evidence').fill('DISPOSAL-SEAL-AND-SERIAL-VERIFIED-905')
+  await page.getByLabel('Custody case').selectOption('MX-881')
+  await expect(page.getByRole('button', { name: 'Accept disposal certificate' })).toHaveCount(0)
+  await page.getByLabel('Custody case').selectOption('MX-905')
+  await page.getByRole('button', { name: 'Refresh selected meter case' }).click()
+  await expect(page.getByLabel('Disposal certificate review evidence')).toHaveValue('DISPOSAL-SEAL-AND-SERIAL-VERIFIED-905')
+  await page.getByRole('button', { name: 'Accept disposal certificate' }).click()
+  await expect(page.getByRole('list', { name: 'Meter disposal custody history' })).toContainText('confirmed')
+  await expect(page.getByRole('list', { name: 'Meter disposal custody history' })).not.toContainText('evidence-rejected')
+  await page.getByLabel('Case disposal certificate').fill('UNREVIEWED-CERTIFICATE')
+  await page.getByRole('button', { name: 'Close reconciled meter case' }).click()
+  await expect(page.getByRole('status')).toContainText('accepted disposal certificate')
+  await page.getByLabel('Case disposal certificate').fill('DISPOSAL-905')
+  await page.getByRole('button', { name: 'Close reconciled meter case' }).click()
+  await expect(page.getByRole('list', { name: 'Meter closure history' })).toContainText('custody DISPOSAL-905')
+  await page.reload()
+  await expect(page.getByRole('list', { name: 'Meter disposal custody history' })).toContainText('reviewed receipt')
 })

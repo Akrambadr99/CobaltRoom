@@ -3,7 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MeterWorkloadControl } from './MeterWorkloadControl'
 import { describe, expect, it } from 'vitest'
-import { amendMeterCustodyAuthorization, custodyAuthorizationReadiness, acknowledgeCustodyEligibilityNotice, BrowserMeterWorkloadPersistence, captureMeterCaseSnapshot, closeMeterCase, contractorCertificationImpact, contractorEligibility, coordinateMeterFollowUp, custodyRemediationProgress, deferCustodyRemediation, initialMeterWorkloadState, MeterCaseError, MeterWorkloadRepository, parseMeterCaseSnapshot, planMeterCustodyHandoff, plannedCustodyReadiness, previewMeterCaseRestore, queryMeterOperationalHistory, reassignPlannedCustodyHandoff, restoreMeterCaseSnapshot, reviewDeferredCustodyPlan, recordMeterDisposalStage, setDisposalContractorActive, type MeterDisposalStage, type MeterWorkloadPersistence, type MeterWorkloadState } from './meter-control-domain'
+import { amendMeterCustodyAuthorization, custodyAuthorizationReadiness, acknowledgeCustodyEligibilityNotice, BrowserMeterWorkloadPersistence, captureMeterCaseSnapshot, closeMeterCase, contractorCertificationImpact, contractorEligibility, coordinateMeterFollowUp, custodyRemediationProgress, deferCustodyRemediation, initialMeterWorkloadState, MeterCaseError, MeterWorkloadRepository, parseMeterCaseSnapshot, planMeterCustodyHandoff, plannedCustodyReadiness, previewMeterCaseRestore, queryMeterOperationalHistory, reassignPlannedCustodyHandoff, restoreMeterCaseSnapshot, reviewDeferredCustodyPlan, reviewMeterDisposalCertificate, recordMeterDisposalStage, setDisposalContractorActive, type MeterDisposalStage, type MeterWorkloadPersistence, type MeterWorkloadState } from './meter-control-domain'
 
 it('previews a versioned meter case archive and restores only under matching source revision', () => {
   const state = structuredClone(initialMeterWorkloadState)
@@ -284,4 +284,135 @@ it('executes selected case custody stages independently and preserves failed evi
   expect(screen.getByLabelText('Case custody consignment')).toHaveValue('FIELD-CUSTODY-881')
   cleanup()
   localStorage.clear()
+})
+
+function receivedDisposalCertificate() {
+  let state = coordinateMeterFollowUp(initialMeterWorkloadState, command)
+  for (const stage of ['requested', 'authorized', 'handed-off', 'received'] as const) {
+    state = recordMeterDisposalStage(state, {
+      id: `review-${stage}`, expectedRevision: state.revision, role: 'Operations Supervisor', caseId: 'MX-905', stage,
+      contractor: 'Circular Meter Services', contractorId: 'CONTRACTOR-CMS', custodyReference: 'REVIEW-CUSTODY-905',
+      evidenceReference: `RECEIPT-${stage}`, ...(stage === 'received' ? { certificateReference: 'CERTIFICATE-905-R1' } : {}),
+      reason: null, actor: 'Receipt operator', occurredOn: '2026-10-22',
+    })
+  }
+  return state
+}
+function certificateReview(state: MeterWorkloadState) {
+  return { id: 'independent-certificate-review', expectedRevision: state.revision, role: 'Operations Supervisor' as const, caseId: 'MX-905', expectedEvidenceEventId: 'review-received', decision: 'accept' as const, certificateReference: 'CERTIFICATE-905-R1', evidenceReference: 'SERIAL-AND-SEAL-REVIEW-905', reason: '', reviewedBy: 'Independent reviewer', reviewedOn: '2026-10-23' }
+}
+it('independently accepts a valid initial certificate without manufacturing a rejection and pins closure evidence', () => {
+  const received = receivedDisposalCertificate(), before = structuredClone(received)
+  const review = certificateReview(received)
+  expect(() => recordMeterDisposalStage(received, { id: 'bypass-certificate-review', expectedRevision: received.revision, role: 'Operations Supervisor', caseId: 'MX-905', stage: 'confirmed', contractor: 'Circular Meter Services', custodyReference: 'REVIEW-CUSTODY-905', evidenceReference: 'UNREVIEWED', reason: null, actor: 'Receipt operator', occurredOn: '2026-10-23' })).toThrow('pinned independent review')
+  const accepted = reviewMeterDisposalCertificate(received, review)
+  expect(accepted.disposalEvents.map((item) => item.stage)).toEqual(['requested', 'authorized', 'handed-off', 'received', 'confirmed'])
+  expect(accepted.disposalEvents.at(-1)).toMatchObject({ reviewedEvidenceEventId: 'review-received', certificateReference: 'CERTIFICATE-905-R1', actor: 'Independent reviewer', immutable: true })
+  expect(received).toEqual(before)
+  expect(reviewMeterDisposalCertificate(accepted, review)).toBe(accepted)
+  const closure = { id: 'accepted-certificate-closure', expectedRevision: accepted.revision, role: 'Operations Supervisor' as const, caseId: 'MX-905', customerAcknowledgement: 'ACK-905', disposalCertificate: 'CERTIFICATE-905-R1', billingAdjustmentReference: 'BILL-905', paymentPlanReference: 'PLAN-905', fieldActionsOpen: 0, reviewedBy: 'Independent reviewer', closedOn: '2026-10-23' }
+  expect(() => closeMeterCase(accepted, { ...closure, disposalCertificate: 'UNREVIEWED-CERTIFICATE' })).toThrow('accepted disposal certificate')
+  const closed = closeMeterCase(accepted, closure)
+  expect(closed.closures.at(-1)?.disposalCertificate).toBe('CERTIFICATE-905-R1')
+  expect(closed.disposalEvents).toEqual(accepted.disposalEvents)
+  expect(closed.cases.find((item) => item.caseId === 'MX-881')).toEqual(received.cases.find((item) => item.caseId === 'MX-881'))
+})
+it('rejects stale, foreign, self-reviewed, impossible-date and unpinned certificate reviews atomically', () => {
+  const received = receivedDisposalCertificate(), before = structuredClone(received), review = certificateReview(received)
+  for (const invalid of [
+    { expectedRevision: 0 }, { role: 'Operations Viewer' as const }, { caseId: 'MX-881' },
+    { expectedEvidenceEventId: 'review-authorized' }, { reviewedBy: 'Receipt operator' },
+    { reviewedOn: '2026-02-30' }, { reviewedOn: '2026-10-21' }, { certificateReference: 'CERTIFICATE-R2' },
+    { decision: 'return' as const, reason: 'short' }, { evidenceReference: '' },
+  ]) { expect(() => reviewMeterDisposalCertificate(received, { ...review, ...invalid })).toThrow(); expect(received).toEqual(before) }
+})
+it('returns evidence with a correction obligation and reviews changed evidence without losing previous receipts', () => {
+  const received = receivedDisposalCertificate()
+  const returned = reviewMeterDisposalCertificate(received, { ...certificateReview(received), decision: 'return', reason: 'The serialized removed meter seal is missing from the certificate.' })
+  const correction = { id: 'corrected-certificate', expectedRevision: returned.revision, role: 'Operations Supervisor' as const, caseId: 'MX-905', stage: 'evidence-corrected' as const, contractor: 'Circular Meter Services', contractorId: 'CONTRACTOR-CMS', custodyReference: 'REVIEW-CUSTODY-905', evidenceReference: 'RECEIPT-received', certificateReference: 'CERTIFICATE-905-R1', reason: null, actor: 'Receipt operator', occurredOn: '2026-10-24' }
+  expect(() => recordMeterDisposalStage(returned, correction)).toThrow('changed certificate')
+  const corrected = recordMeterDisposalStage(returned, { ...correction, certificateReference: 'CERTIFICATE-905-R2' })
+  expect(() => reviewMeterDisposalCertificate(corrected, { ...certificateReview(corrected), id: 'stale-receipt-review' })).toThrow('current received or corrected')
+  const accepted = reviewMeterDisposalCertificate(corrected, { ...certificateReview(corrected), id: 'corrected-certificate-review', expectedEvidenceEventId: correction.id, certificateReference: 'CERTIFICATE-905-R2', reviewedOn: '2026-10-24' })
+  expect(accepted.disposalEvents.slice(0, received.disposalEvents.length)).toEqual(received.disposalEvents)
+  expect(accepted.disposalEvents.at(-1)).toMatchObject({ stage: 'confirmed', certificateReference: 'CERTIFICATE-905-R2', reviewedEvidenceEventId: correction.id })
+  expect(accepted.disposalEvents.find((item) => item.stage === 'evidence-rejected')?.reason).toContain('seal')
+})
+it('preserves legacy certificate history and verifies new review authority and lineage during case restore', () => {
+  const accepted = reviewMeterDisposalCertificate(receivedDisposalCertificate(), certificateReview(receivedDisposalCertificate()))
+  const archive = captureMeterCaseSnapshot(accepted, { id: 'certificate-archive', caseId: 'MX-905', role: 'Operations Supervisor', createdOn: '2026-10-24' })
+  expect(parseMeterCaseSnapshot(JSON.stringify(archive))).toEqual(archive)
+  const local = structuredClone(accepted); local.disposalEvents = local.disposalEvents.filter((item) => !item.reviewedEvidenceEventId)
+  expect(previewMeterCaseRestore(local, archive, 'MX-905').ready).toBe(true)
+  for (const invalid of [{ actor: 'Receipt operator' }, { reviewedEvidenceEventId: 'review-authorized' }, { certificateReference: 'FOREIGN-CERTIFICATE' }, { occurredOn: '2026-10-21' }]) {
+    const changed = structuredClone(archive); Object.assign(changed.disposalEvents.at(-1)!, invalid)
+    expect(previewMeterCaseRestore(local, changed, 'MX-905').ready).toBe(false)
+  }
+  const invalid = structuredClone(archive); Object.assign(invalid.disposalEvents.at(-1)!, { reviewedEvidenceEventId: 12 })
+  expect(() => parseMeterCaseSnapshot(JSON.stringify(invalid))).toThrow('certificate references')
+  const missingReceiptActor = JSON.parse(JSON.stringify(archive)) as { disposalEvents: Record<string, unknown>[] }; delete missingReceiptActor.disposalEvents.find((item) => item['id'] === 'review-received')?.['actor']
+  expect(() => parseMeterCaseSnapshot(JSON.stringify(missingReceiptActor))).toThrow('review evidence is invalid')
+  const legacy = { ...structuredClone(accepted), disposalEvents: accepted.disposalEvents.map((event) => { const legacyEvent = { ...event }; delete legacyEvent.certificateReference; delete legacyEvent.reviewedEvidenceEventId; return legacyEvent }) }
+  expect(new BrowserMeterWorkloadPersistence({ getItem: () => JSON.stringify(legacy), setItem: () => undefined }).load()?.disposalEvents).toEqual(legacy.disposalEvents)
+})
+it('preserves a failed certificate review draft across refresh and case selection then explicitly returns and accepts a correction', async () => {
+  localStorage.clear()
+  const user = userEvent.setup()
+  new BrowserMeterWorkloadPersistence(localStorage).save(receivedDisposalCertificate())
+  render(createElement(MeterWorkloadControl))
+  await user.selectOptions(screen.getByLabelText('Workload role'), 'Operations Supervisor')
+  await user.click(screen.getByRole('button', { name: 'Accept disposal certificate' }))
+  expect(screen.getByRole('status')).toHaveTextContent('review evidence')
+  expect(screen.getByRole('status')).toHaveFocus()
+  await user.click(screen.getByLabelText('Disposal certificate review evidence')); await user.paste('SERIAL-REVIEW-905')
+  await user.click(screen.getByLabelText('Disposal correction reason')); await user.paste('Removed meter seal was omitted and requires corrected evidence.')
+  const sibling = new MeterWorkloadRepository(new BrowserMeterWorkloadPersistence(localStorage)), current = sibling.read()
+  sibling.dispatch({ ...command, id: 'sibling-custody-881', expectedRevision: current.revision, caseId: 'MX-881', scope: 'field custody', owner: 'Field owner', contactEvidence: 'Damaged seal inspected in the unrelated field case.', escalationReason: 'Unrelated field custody needs separately accountable disposal recovery.' })
+  await user.click(screen.getByRole('button', { name: 'Accept disposal certificate' }))
+  expect(screen.getByRole('status')).toHaveTextContent('changed. Refresh')
+  expect(sibling.read().disposalEvents).toHaveLength(4)
+  await user.selectOptions(screen.getByLabelText('Custody case'), 'MX-881')
+  expect(screen.queryByLabelText('Disposal certificate review evidence')).not.toBeInTheDocument()
+  await user.selectOptions(screen.getByLabelText('Custody case'), 'MX-905')
+  await user.click(screen.getByRole('button', { name: 'Refresh selected meter case' }))
+  expect(screen.getByLabelText('Disposal correction reason')).toHaveValue('Removed meter seal was omitted and requires corrected evidence.')
+  await user.click(screen.getByRole('button', { name: 'Return disposal certificate' }))
+  expect(screen.getByRole('button', { name: 'Close reconciled meter case' })).toBeDisabled()
+  await user.clear(screen.getByLabelText('Case disposal certificate')); await user.click(screen.getByLabelText('Case disposal certificate')); await user.paste('CERTIFICATE-905-R2')
+  await user.click(screen.getByRole('button', { name: 'Submit corrected disposal certificate' }))
+  await user.click(screen.getByRole('button', { name: 'Accept disposal certificate' }))
+  expect(screen.getByRole('status')).toHaveTextContent('independently accepted')
+  const saved = new BrowserMeterWorkloadPersistence(localStorage).load()!
+  expect(saved.disposalEvents.at(-1)).toMatchObject({ certificateReference: 'CERTIFICATE-905-R2', stage: 'confirmed' })
+  expect(saved.disposalEvents).toHaveLength(7)
+  cleanup(); render(createElement(MeterWorkloadControl))
+  expect(screen.getByLabelText('Case disposal certificate')).toHaveValue('CERTIFICATE-905-R2')
+  cleanup(); localStorage.clear()
+})
+
+it('prevents pinned certificate chains from downgrading to unreviewed legacy confirmation through correction or restore', () => {
+  const received = receivedDisposalCertificate()
+  const returned = reviewMeterDisposalCertificate(received, { ...certificateReview(received), decision: 'return', reason: 'Seal identity is missing and must be supplied in a corrected certificate.' })
+  const correction = { id: 'no-pin-correction', expectedRevision: returned.revision, role: 'Operations Supervisor' as const, caseId: 'MX-905', stage: 'evidence-corrected' as const, contractor: 'Circular Meter Services', custodyReference: 'REVIEW-CUSTODY-905', evidenceReference: 'CORRECTED-SEAL-EVIDENCE', reason: null, actor: 'Receipt operator', occurredOn: '2026-10-24' }
+  const before = structuredClone(returned)
+  expect(() => recordMeterDisposalStage(returned, correction)).toThrow('explicit certificate reference')
+  expect(() => recordMeterDisposalStage(returned, { ...correction, certificateReference: 'CERTIFICATE-R2', occurredOn: '2026-10-22' })).toThrow('date after prior')
+  expect(returned).toEqual(before)
+  const corrected = recordMeterDisposalStage(returned, { ...correction, certificateReference: 'CERTIFICATE-R2' })
+  const confirmed = reviewMeterDisposalCertificate(corrected, { ...certificateReview(corrected), id: 'review-pinned-correction', expectedEvidenceEventId: correction.id, certificateReference: 'CERTIFICATE-R2', reviewedOn: '2026-10-24' })
+  const archive = captureMeterCaseSnapshot(confirmed, { id: 'pin-preservation-archive', caseId: 'MX-905', role: 'Operations Supervisor', createdOn: '2026-10-24' })
+  const local = { ...structuredClone(confirmed), disposalEvents: [] }
+  expect(previewMeterCaseRestore(local, archive, 'MX-905').ready).toBe(true)
+  const downgraded = structuredClone(archive)
+  const correctionEvent = downgraded.disposalEvents.find((item) => item.id === correction.id)!
+  delete correctionEvent.certificateReference
+  delete downgraded.disposalEvents.at(-1)!.reviewedEvidenceEventId
+  delete downgraded.disposalEvents.at(-1)!.certificateReference
+  const preview = previewMeterCaseRestore(local, downgraded, 'MX-905')
+  expect(preview.ready).toBe(false)
+  expect(preview.reasons).toContain('Corrected disposal evidence cannot discard the pinned certificate identity.')
+  expect(() => restoreMeterCaseSnapshot(local, downgraded, { id: 'restore-downgrade', expectedRevision: local.revision, role: 'Operations Supervisor', caseId: 'MX-905', restoredBy: 'Recovery supervisor', restoredOn: '2026-10-24' })).toThrow('cannot discard')
+  expect(local.disposalEvents).toEqual([])
+  const unreviewed = structuredClone(archive); delete unreviewed.disposalEvents.at(-1)!.reviewedEvidenceEventId
+  expect(previewMeterCaseRestore(local, unreviewed, 'MX-905').reasons).toContain('Disposal certificate review has invalid evidence lineage, independent authority or date.')
 })

@@ -36,8 +36,8 @@ export function MeterWorkloadControl() {
   const caseFollowUps = state.followUps.filter((item) => item.caseId === custodyCaseId);
   const caseDisposalEvents = state.disposalEvents.filter((item) => item.caseId === custodyCaseId);
   const caseClosures = state.closures.filter((item) => item.caseId === custodyCaseId);
-  const [caseDrafts, setCaseDrafts] = useState<Record<string, { contact: string; reason: string; custody: string; evidence: string; acknowledgement: string; certificate: string; billing: string; payment: string }>>({ 'MX-905': { contact: 'Customer confirmed the missed commitment by telephone.', reason: 'Payment and custody blockers require one accountable recovery owner.', custody: 'CUSTODY-905', evidence: 'DISPOSAL', acknowledgement: 'ACK-905', certificate: 'DISPOSAL-905', billing: 'BILL-ADJ-905', payment: 'PLAN-905' } });
-  const caseDraft = caseDrafts[custodyCaseId] ?? { contact: '', reason: '', custody: '', evidence: '', acknowledgement: '', certificate: '', billing: '', payment: '' };
+  const [caseDrafts, setCaseDrafts] = useState<Record<string, { contact: string; reason: string; custody: string; evidence: string; acknowledgement: string; certificate: string; billing: string; payment: string; reviewReason?: string; reviewEvidence?: string }>>({ 'MX-905': { contact: 'Customer confirmed the missed commitment by telephone.', reason: 'Payment and custody blockers require one accountable recovery owner.', custody: 'CUSTODY-905', evidence: 'DISPOSAL', acknowledgement: 'ACK-905', certificate: state.disposalEvents.filter((item) => item.caseId === 'MX-905' && item.certificateReference).at(-1)?.certificateReference ?? 'DISPOSAL-905', billing: 'BILL-ADJ-905', payment: 'PLAN-905' } });
+  const caseDraft = caseDrafts[custodyCaseId] ?? { contact: '', reason: '', custody: '', evidence: '', acknowledgement: '', certificate: caseDisposalEvents.filter((item) => item.certificateReference).at(-1)?.certificateReference ?? '', billing: '', payment: '' };
   const updateCaseDraft = (draft: typeof caseDraft) => { setCaseDrafts((current) => ({ ...current, [custodyCaseId]: draft })); };
   const [deferralReason, setDeferralReason] = useState('Replacement contractor evidence requires a separate case review.');
   const [deferralReviewOn, setDeferralReviewOn] = useState('2026-10-25');
@@ -92,7 +92,40 @@ export function MeterWorkloadControl() {
     }
     queueMicrotask(() => feedback.current?.focus());
   };
-  const advanceDisposal = () => { const stages: MeterDisposalStage[] = ["requested", "authorized", "handed-off", "received", "evidence-rejected", "evidence-corrected", "confirmed"]; const stage = stages[caseDisposalEvents.length]; if (!stage) return; const contractor = state.contractors.find((item) => item.id === contractorId); try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: custodyCaseId, stage, contractor: contractor?.organizationName ?? "", contractorId, custodyReference: caseDisposalEvents[0]?.custodyReference ?? caseDraft.custody, evidenceReference: caseDraft.evidence.trim() ? `${caseDraft.evidence.trim()}-${stage}` : "", reason: stage === "evidence-rejected" ? "Certificate omitted the serialized meter seal reference." : null, actor: "Operations assurance", occurredOn: custodyReadiness && stages.indexOf(stage) >= 2 ? custodyReadiness.plan.scheduledOn : "2026-10-22" })); setMessage(`Disposal custody advanced to ${stage}.`); } catch (error) { setMessage(error instanceof Error ? error.message : "Disposal custody update failed."); } queueMicrotask(() => feedback.current?.focus()); };
+  const lastDisposal = caseDisposalEvents.at(-1);
+  const reviewable = lastDisposal?.stage === 'received' || lastDisposal?.stage === 'evidence-corrected';
+  const nextDisposalStage: MeterDisposalStage | null = !lastDisposal ? 'requested' : lastDisposal.stage === 'requested' ? 'authorized' : lastDisposal.stage === 'authorized' ? 'handed-off' : lastDisposal.stage === 'handed-off' ? 'received' : lastDisposal.stage === 'evidence-rejected' ? 'evidence-corrected' : null;
+  const advanceDisposal = () => {
+    if (!nextDisposalStage) return;
+    const stage = nextDisposalStage;
+    const contractor = state.contractors.find((item) => item.id === contractorId);
+    try {
+      setState(repository.dispatch({
+        id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: custodyCaseId, stage,
+        contractor: contractor?.organizationName ?? '', contractorId,
+        custodyReference: caseDisposalEvents[0]?.custodyReference ?? caseDraft.custody,
+        evidenceReference: ['received', 'evidence-corrected'].includes(stage) ? caseDraft.evidence.trim() : caseDraft.evidence.trim() ? `${caseDraft.evidence.trim()}-${stage}` : '',
+        ...(['received', 'evidence-corrected'].includes(stage) ? { certificateReference: caseDraft.certificate.trim() } : {}),
+        reason: null, actor: 'Operations assurance',
+        occurredOn: stage === 'evidence-corrected' ? lastDisposal?.occurredOn.slice(0, 10) ?? '2026-10-22' : custodyReadiness && ['handed-off', 'received'].includes(stage) ? custodyReadiness.plan.scheduledOn : '2026-10-22',
+      }));
+      setMessage(stage === 'evidence-corrected' ? 'Corrected certificate submitted; independent review remains required.' : `Disposal custody advanced to ${stage}.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Disposal custody update failed.'); }
+    queueMicrotask(() => feedback.current?.focus());
+  };
+  const reviewCertificate = (decision: 'accept' | 'return') => {
+    if (!lastDisposal) return;
+    try {
+      setState(repository.dispatch({
+        id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: custodyCaseId,
+        expectedEvidenceEventId: lastDisposal.id, decision, certificateReference: caseDraft.certificate,
+        evidenceReference: caseDraft.reviewEvidence ?? '', reason: caseDraft.reviewReason ?? '',
+        reviewedBy: 'Independent disposal reviewer', reviewedOn: lastDisposal.occurredOn.slice(0, 10),
+      }));
+      setMessage(decision === 'accept' ? 'Exact disposal certificate independently accepted; case reconciliation may now close.' : 'Disposal certificate returned; correct the evidence without changing prior custody history.');
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Disposal certificate review failed.'); }
+    queueMicrotask(() => feedback.current?.focus());
+  };
   const close = () => {
     try {
       setState(
@@ -177,7 +210,8 @@ export function MeterWorkloadControl() {
       {custodyAuthorization.authorization && <section aria-label="Pre-transfer custody authorization"><h3>Replacement custody authorization</h3><p aria-label="Custody authorization status">{custodyAuthorization.transferred ? 'Physical custody transferred; original authorization remains immutable' : custodyAuthorization.amendmentRequired ? 'Replacement plan requires independent authorization before transfer' : custodyAuthorization.amendment ? 'Replacement contractor authorized for the current plan' : 'Original custody authorization remains current'}</p>{custodyAuthorization.amendmentRequired && <><label>Custody amendment reason<input value={amendmentReason} onChange={(event) => { setAmendmentReason(event.target.value); }} /></label><label>Custody amendment approval evidence<input value={amendmentEvidence} onChange={(event) => { setAmendmentEvidence(event.target.value); }} /></label><button disabled={role !== 'Operations Supervisor' || !custodyReadiness?.ready} onClick={amendCustody}>Authorize replacement custody</button></>}<details><summary>Custody authorization amendment history ({state.custodyAmendments.filter((item) => item.caseId === custodyCaseId).length})</summary><ol aria-label="Custody authorization amendment history">{state.custodyAmendments.filter((item) => item.caseId === custodyCaseId).map((item) => <li key={item.id}>{item.previousContractorId} to {item.replacementContractorId} · {item.custodyReference} · {item.approvalEvidence} · {item.approvedBy} · {item.approvedOn} · plan {item.planId}</li>)}</ol></details></section>}
       <ol aria-label="Planned custody history">{state.plannedHandoffs.map((item) => <li key={item.id}>{item.contractorId} · {item.scheduledOn} · {item.previousHandoffId ? `reassigned from ${item.previousHandoffId}` : 'initial plan'} · {item.plannedBy}</li>)}</ol>
       {custodyReadiness?.notice && <><p aria-label="Contractor eligibility notice">Certification expires {custodyReadiness.notice.certificationExpiresOn} · {custodyReadiness.acknowledgement ? `acknowledged by ${custodyReadiness.acknowledgement.actor}` : "acknowledgement pending"}</p><button disabled={role !== "Operations Supervisor" || Boolean(custodyReadiness.acknowledgement)} onClick={acknowledgeNotice}>Acknowledge contractor risk</button></>}
-      <button disabled={role !== "Operations Supervisor" || caseFollowUps.length === 0 || caseClosures.length > 0 || caseDisposalEvents.at(-1)?.stage === "confirmed"} onClick={advanceDisposal}>Advance disposal custody</button>
+      <button disabled={role !== "Operations Supervisor" || caseFollowUps.length === 0 || caseClosures.length > 0 || !nextDisposalStage} onClick={advanceDisposal}>{nextDisposalStage === 'evidence-corrected' ? 'Submit corrected disposal certificate' : 'Advance disposal custody'}</button>
+      {reviewable && <fieldset><legend>Independent disposal certificate review</legend><p>Review submitted certificate {lastDisposal.certificateReference ?? 'legacy certificate not pinned'} against receipt {lastDisposal.id}. Acceptance does not replace financial or customer reconciliation.</p><label>Disposal certificate review evidence<input value={caseDraft.reviewEvidence ?? ''} onChange={(event) => { updateCaseDraft({ ...caseDraft, reviewEvidence: event.target.value }); }} /></label><label>Disposal correction reason<textarea value={caseDraft.reviewReason ?? ''} onChange={(event) => { updateCaseDraft({ ...caseDraft, reviewReason: event.target.value }); }} /></label><button disabled={role !== 'Operations Supervisor'} onClick={() => { reviewCertificate('accept'); }}>Accept disposal certificate</button><button disabled={role !== 'Operations Supervisor'} onClick={() => { reviewCertificate('return'); }}>Return disposal certificate</button></fieldset>}
       <button
         disabled={
           role !== "Operations Supervisor" ||
@@ -205,7 +239,7 @@ export function MeterWorkloadControl() {
           ))}
       </ol>
       <h3>Field and custody activity</h3>
-      <ol aria-label="Meter disposal custody history">{caseDisposalEvents.map((item) => <li key={item.id}>{item.stage} · {item.contractor} · custody {item.custodyReference} · evidence {item.evidenceReference}</li>)}</ol>
+      <ol aria-label="Meter disposal custody history">{caseDisposalEvents.map((item) => <li key={item.id}>{item.stage} · {item.contractor} · custody {item.custodyReference} · evidence {item.evidenceReference}{item.certificateReference ? ` · certificate ${item.certificateReference}` : ''}{item.reviewedEvidenceEventId ? ` · reviewed receipt ${item.reviewedEvidenceEventId}` : ''}{item.reason ? ` · reason ${item.reason}` : ''}</li>)}</ol>
       <ol aria-label="Meter field custody activity">
         {state.operationalEvents
           .filter((item) => item.caseId === custodyCaseId && item.stream === "field-custody")
