@@ -1,3 +1,4 @@
+import { meterOperators } from './meter-operators';
 import { useRef, useState } from "react";
 import { meterCaseWorkload } from "./meter-case-workload";
 import {
@@ -26,12 +27,20 @@ export function MeterWorkloadControl() {
   const [state, setState] = useState(() => repository.read());
   const [role, setRole] = useState<MeterWorkloadRole>("Operations Viewer");
   const [message, setMessage] = useState("");
+  const [operatorId, setOperatorId] = useState(() => localStorage.getItem('gridloom:meter-custody-operator:v1') ?? 'METER-CUSTODY');
+  const [reviewOperatorId, setReviewOperatorId] = useState(() => localStorage.getItem('gridloom:meter-review-operator:v1') ?? 'METER-REVIEW');
+  const [businessDates, setBusinessDates] = useState<Record<string, string>>({});
+  const operators = state.operators ?? meterOperators;
+  const custodyOperator = operators.find((item) => item.id === operatorId);
+  const reviewOperator = operators.find((item) => item.id === reviewOperatorId);
+
   const [recoverySnapshot, setRecoverySnapshot] = useState<MeterCaseRecoverySnapshot | null>(() => {
     try { const saved = localStorage.getItem('gridloom:meter-case-recovery:v1'); return saved ? parseMeterCaseSnapshot(saved) : null; } catch { return null; }
   });
   const [contractorId, setContractorId] = useState(() => { const caseId = localStorage.getItem('gridloom:meter-selected-case:v1') ?? 'MX-905'; return plannedCustodyReadiness(state, caseId)?.plan.contractorId ?? state.disposalEvents.filter((item) => item.caseId === caseId).at(-1)?.contractorId ?? 'CONTRACTOR-CMS'; });
   const [impactContractorId, setImpactContractorId] = useState('CONTRACTOR-CMS');
   const [custodyCaseId, setCustodyCaseId] = useState(() => { const saved = localStorage.getItem('gridloom:meter-selected-case:v1'); return typeof saved === 'string' && state.cases.some((item) => item.caseId === saved) ? saved : 'MX-905'; });
+  const custodyBusinessDate = businessDates[custodyCaseId] === '' ? undefined : businessDates[custodyCaseId];
   const selectedCase = state.cases.find((item) => item.caseId === custodyCaseId);
   const caseFollowUps = state.followUps.filter((item) => item.caseId === custodyCaseId);
   const caseDisposalEvents = state.disposalEvents.filter((item) => item.caseId === custodyCaseId);
@@ -106,8 +115,8 @@ export function MeterWorkloadControl() {
         custodyReference: caseDisposalEvents[0]?.custodyReference ?? caseDraft.custody,
         evidenceReference: ['received', 'evidence-corrected'].includes(stage) ? caseDraft.evidence.trim() : caseDraft.evidence.trim() ? `${caseDraft.evidence.trim()}-${stage}` : '',
         ...(['received', 'evidence-corrected'].includes(stage) ? { certificateReference: caseDraft.certificate.trim() } : {}),
-        reason: null, actor: 'Operations assurance',
-        occurredOn: stage === 'evidence-corrected' ? lastDisposal?.occurredOn.slice(0, 10) ?? '2026-10-22' : custodyReadiness && ['handed-off', 'received'].includes(stage) ? custodyReadiness.plan.scheduledOn : '2026-10-22',
+        reason: null, operatorId, actor: custodyOperator?.displayName ?? '',
+        occurredOn: custodyBusinessDate ?? (stage === 'evidence-corrected' ? lastDisposal?.occurredOn.slice(0, 10) ?? '2026-10-22' : custodyReadiness && ['handed-off', 'received'].includes(stage) ? custodyReadiness.plan.scheduledOn : '2026-10-22'),
       }));
       setMessage(stage === 'evidence-corrected' ? 'Corrected certificate submitted; independent review remains required.' : `Disposal custody advanced to ${stage}.`);
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Disposal custody update failed.'); }
@@ -120,7 +129,7 @@ export function MeterWorkloadControl() {
         id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: custodyCaseId,
         expectedEvidenceEventId: lastDisposal.id, decision, certificateReference: caseDraft.certificate,
         evidenceReference: caseDraft.reviewEvidence ?? '', reason: caseDraft.reviewReason ?? '',
-        reviewedBy: 'Independent disposal reviewer', reviewedOn: lastDisposal.occurredOn.slice(0, 10),
+        operatorId: reviewOperatorId, reviewedBy: reviewOperator?.displayName ?? '', reviewedOn: custodyBusinessDate ?? lastDisposal.occurredOn.slice(0, 10),
       }));
       setMessage(decision === 'accept' ? 'Exact disposal certificate independently accepted; case reconciliation may now close.' : 'Disposal certificate returned; correct the evidence without changing prior custody history.');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Disposal certificate review failed.'); }
@@ -139,8 +148,8 @@ export function MeterWorkloadControl() {
           billingAdjustmentReference: caseDraft.billing,
           paymentPlanReference: caseDraft.payment,
           fieldActionsOpen: 0,
-          reviewedBy: "Operations assurance",
-          closedOn: caseDisposalEvents.at(-1)?.occurredOn.slice(0, 10) ?? "2026-10-22",
+          operatorId, reviewedBy: custodyOperator?.displayName ?? "",
+          closedOn: custodyBusinessDate ?? (caseDisposalEvents.at(-1)?.occurredOn.slice(0, 10) ?? "2026-10-22"),
         }),
       );
       setMessage(
@@ -168,6 +177,12 @@ export function MeterWorkloadControl() {
           <option>Operations Supervisor</option>
         </select>
       </label>
+      <fieldset><legend>Meter operating context</legend>
+        <p>Named demonstration operators govern new custody actions. Historical actor labels remain unchanged. An explicit date applies to this selected case; leaving it empty uses its existing custody schedule.</p>
+        <label>Custody execution operator<select value={operatorId} onChange={(event) => { setOperatorId(event.target.value); localStorage.setItem('gridloom:meter-custody-operator:v1', event.target.value); }}>{operators.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.id}{item.active ? '' : ' · inactive'}</option>)}</select></label>
+        <label>Certificate review operator<select value={reviewOperatorId} onChange={(event) => { setReviewOperatorId(event.target.value); localStorage.setItem('gridloom:meter-review-operator:v1', event.target.value); }}>{operators.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.id}{item.active ? '' : ' · inactive'}</option>)}</select></label>
+        <label>Meter business date<input type="date" value={businessDates[custodyCaseId] ?? ''} onChange={(event) => { setBusinessDates((current) => ({ ...current, [custodyCaseId]: event.target.value })); }} /></label>
+      </fieldset>
       <p aria-label="Selected meter source">{custodyCaseId} · account {selectedCase?.accountId ?? 'missing source'} · meter {selectedCase?.meterSerial ?? 'missing source'} · field {selectedCase?.fieldOwner} · customer {selectedCase?.customerOwner}</p>
       <fieldset><legend>Selected case recovery evidence</legend><label>Follow-up contact or field evidence<textarea value={caseDraft.contact} onChange={(event) => { updateCaseDraft({ ...caseDraft, contact: event.target.value }); }} /></label><label>Selected case recovery reason<textarea value={caseDraft.reason} onChange={(event) => { updateCaseDraft({ ...caseDraft, reason: event.target.value }); }} /></label><label>Case custody consignment<input value={caseDisposalEvents[0]?.custodyReference ?? caseDraft.custody} disabled={caseDisposalEvents.length > 0} onChange={(event) => { updateCaseDraft({ ...caseDraft, custody: event.target.value }); }} /></label><label>Case disposal evidence reference<input value={caseDraft.evidence} onChange={(event) => { updateCaseDraft({ ...caseDraft, evidence: event.target.value }); }} /></label><label>Case customer acknowledgement<input value={caseDraft.acknowledgement} onChange={(event) => { updateCaseDraft({ ...caseDraft, acknowledgement: event.target.value }); }} /></label><label>Case disposal certificate<input value={caseDraft.certificate} onChange={(event) => { updateCaseDraft({ ...caseDraft, certificate: event.target.value }); }} /></label><label>Case billing reconciliation<input value={caseDraft.billing} onChange={(event) => { updateCaseDraft({ ...caseDraft, billing: event.target.value }); }} /></label><label>Case payment arrangement<input value={caseDraft.payment} onChange={(event) => { updateCaseDraft({ ...caseDraft, payment: event.target.value }); }} /></label></fieldset>
       <button onClick={() => { setState(repository.read()); setMessage('Selected meter case refreshed; its recovery evidence draft is preserved.'); }}>Refresh selected meter case</button>
@@ -239,7 +254,7 @@ export function MeterWorkloadControl() {
           ))}
       </ol>
       <h3>Field and custody activity</h3>
-      <ol aria-label="Meter disposal custody history">{caseDisposalEvents.map((item) => <li key={item.id}>{item.stage} · {item.contractor} · custody {item.custodyReference} · evidence {item.evidenceReference}{item.certificateReference ? ` · certificate ${item.certificateReference}` : ''}{item.reviewedEvidenceEventId ? ` · reviewed receipt ${item.reviewedEvidenceEventId}` : ''}{item.reason ? ` · reason ${item.reason}` : ''}</li>)}</ol>
+      <ol aria-label="Meter disposal custody history">{caseDisposalEvents.map((item) => <li key={item.id}>{item.stage} · {item.contractor} · custody {item.custodyReference} · evidence {item.evidenceReference}{item.certificateReference ? ` · certificate ${item.certificateReference}` : ''}{item.reviewedEvidenceEventId ? ` · reviewed receipt ${item.reviewedEvidenceEventId}` : ''}{item.reason ? ` · reason ${item.reason}` : ''} · {item.actor}{item.operatorId ? ` / ${item.operatorId}` : ' / legacy attribution'} · {item.occurredOn}</li>)}</ol>
       <ol aria-label="Meter field custody activity">
         {state.operationalEvents
           .filter((item) => item.caseId === custodyCaseId && item.stream === "field-custody")
@@ -261,7 +276,7 @@ export function MeterWorkloadControl() {
         {caseClosures.map((item) => (
           <li key={item.id}>
             {item.caseId} · closed {item.closedOn} · custody{" "}
-            {item.disposalCertificate} · customer {item.customerAcknowledgement}
+            {item.disposalCertificate} · customer {item.customerAcknowledgement} · {item.reviewedBy}{item.operatorId ? ` / ${item.operatorId}` : " / legacy attribution"}
           </li>
         ))}
       </ol>
