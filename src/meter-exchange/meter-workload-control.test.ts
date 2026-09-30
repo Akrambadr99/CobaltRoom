@@ -1,3 +1,7 @@
+import { createElement } from 'react'
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MeterWorkloadControl } from './MeterWorkloadControl'
 import { describe, expect, it } from 'vitest'
 import { amendMeterCustodyAuthorization, custodyAuthorizationReadiness, acknowledgeCustodyEligibilityNotice, BrowserMeterWorkloadPersistence, captureMeterCaseSnapshot, closeMeterCase, contractorCertificationImpact, contractorEligibility, coordinateMeterFollowUp, custodyRemediationProgress, deferCustodyRemediation, initialMeterWorkloadState, MeterCaseError, MeterWorkloadRepository, parseMeterCaseSnapshot, planMeterCustodyHandoff, plannedCustodyReadiness, previewMeterCaseRestore, queryMeterOperationalHistory, reassignPlannedCustodyHandoff, restoreMeterCaseSnapshot, reviewDeferredCustodyPlan, recordMeterDisposalStage, setDisposalContractorActive, type MeterDisposalStage, type MeterWorkloadPersistence, type MeterWorkloadState } from './meter-control-domain'
 
@@ -222,4 +226,62 @@ it('rejects imported custody amendments with invalid approval even when the loca
     expect(() => restoreMeterCaseSnapshot(local, changed, restore)).toThrow('independent approval')
     expect(local).toEqual(before)
   }
+})
+
+
+it('coordinates and executes field-only custody for the selected case without changing customer ownership or another case', () => {
+  const scope = { ...command, id: 'field-881-follow', caseId: 'MX-881', scope: 'field custody' as const, owner: 'Operations custody', contactEvidence: 'Damaged seal witnessed in the field inspection.', escalationReason: 'Disposal document damage requires accountable field recovery.' }
+  const original = structuredClone(initialMeterWorkloadState)
+  expect(() => coordinateMeterFollowUp(original, { ...scope, caseId: 'MX-930' })).toThrow('unresolved field-custody')
+  const coordinated = coordinateMeterFollowUp(original, scope)
+  expect(coordinated.cases.find((item) => item.caseId === 'MX-881')).toMatchObject({ fieldOwner: 'Operations custody', customerOwner: 'customer-care', contactAttempts: 1 })
+  expect(queryMeterOperationalHistory(coordinated, 'MX-881').customer).toEqual([])
+  const requested = recordMeterDisposalStage(coordinated, { id: 'field-881-requested', expectedRevision: coordinated.revision, role: 'Operations Supervisor', caseId: 'MX-881', stage: 'requested', contractor: 'Circular Meter Services', contractorId: 'CONTRACTOR-CMS', custodyReference: 'CUSTODY-FIELD-881', evidenceReference: 'FIELD-881-REQUEST', reason: null, actor: 'Field assurance', occurredOn: '2026-10-22' })
+  expect(() => recordMeterDisposalStage(requested, { id: 'foreign-consignment', expectedRevision: requested.revision, role: 'Operations Supervisor', caseId: 'MX-881', stage: 'authorized', contractor: 'Circular Meter Services', contractorId: 'CONTRACTOR-CMS', custodyReference: 'CUSTODY-905', evidenceReference: 'FIELD-881-AUTH', reason: null, actor: 'Field assurance', occurredOn: '2026-10-22' })).toThrow('reference must remain consistent')
+  expect(requested.cases.find((item) => item.caseId === 'MX-905')).toEqual(original.cases.find((item) => item.caseId === 'MX-905'))
+  expect(requested.disposalEvents).toHaveLength(1)
+  expect(new BrowserMeterWorkloadPersistence({ getItem: () => JSON.stringify(requested), setItem: () => undefined }).load()?.followUps[0]).toMatchObject({ scope: 'field custody', caseId: 'MX-881' })
+})
+
+it('executes selected case custody stages independently and preserves failed evidence drafts through switching and refresh', async () => {
+  localStorage.clear()
+  const user = userEvent.setup()
+  render(createElement(MeterWorkloadControl))
+  await user.selectOptions(screen.getByLabelText('Workload role'), 'Operations Supervisor')
+  await user.click(screen.getByRole('button', { name: 'Coordinate urgent meter follow-up' }))
+  await user.click(screen.getByRole('button', { name: 'Advance disposal custody' }))
+  await user.selectOptions(screen.getByLabelText('Custody case'), 'MX-881')
+  expect(screen.getByRole('button', { name: 'Coordinate field custody follow-up' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Advance disposal custody' })).toBeDisabled()
+  await user.click(screen.getByLabelText('Follow-up contact or field evidence'))
+  await user.paste('Damaged seal witnessed during field inspection.')
+  await user.click(screen.getByLabelText('Selected case recovery reason'))
+  await user.paste('Field disposal evidence requires separately accountable recovery.')
+  await user.click(screen.getByRole('button', { name: 'Coordinate field custody follow-up' }))
+  expect(screen.getByRole('status')).toHaveTextContent('customer ownership preserved')
+  await user.click(screen.getByRole('button', { name: 'Advance disposal custody' }))
+  expect(screen.getByRole('status')).toHaveTextContent('custody, stage evidence')
+  expect(screen.getByRole('status')).toHaveFocus()
+  await user.click(screen.getByLabelText('Case custody consignment'))
+  await user.paste('FIELD-CUSTODY-881')
+  await user.click(screen.getByLabelText('Case disposal evidence reference'))
+  await user.paste('FIELD-INSPECTION-881')
+  await user.selectOptions(screen.getByLabelText('Custody case'), 'MX-905')
+  expect(screen.getByLabelText('Case custody consignment')).toHaveValue('CUSTODY-905')
+  await user.selectOptions(screen.getByLabelText('Custody case'), 'MX-881')
+  expect(screen.getByLabelText('Case custody consignment')).toHaveValue('FIELD-CUSTODY-881')
+  await user.click(screen.getByRole('button', { name: 'Refresh selected meter case' }))
+  expect(screen.getByLabelText('Case disposal evidence reference')).toHaveValue('FIELD-INSPECTION-881')
+  await user.click(screen.getByRole('button', { name: 'Advance disposal custody' }))
+  expect(screen.getByRole('list', { name: 'Meter disposal custody history' })).toHaveTextContent('requested')
+  const saved = new BrowserMeterWorkloadPersistence(localStorage).load()!
+  expect(saved.disposalEvents.filter((item) => item.caseId === 'MX-905').map((item) => item.stage)).toEqual(['requested'])
+  expect(saved.disposalEvents.filter((item) => item.caseId === 'MX-881').map((item) => item.stage)).toEqual(['requested'])
+  expect(saved.cases.find((item) => item.caseId === 'MX-881')?.customerOwner).toBe('customer-care')
+  cleanup()
+  render(createElement(MeterWorkloadControl))
+  expect(screen.getByLabelText('Custody case')).toHaveValue('MX-881')
+  expect(screen.getByLabelText('Case custody consignment')).toHaveValue('FIELD-CUSTODY-881')
+  cleanup()
+  localStorage.clear()
 })

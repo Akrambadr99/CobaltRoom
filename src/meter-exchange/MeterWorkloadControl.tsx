@@ -29,15 +29,22 @@ export function MeterWorkloadControl() {
   const [recoverySnapshot, setRecoverySnapshot] = useState<MeterCaseRecoverySnapshot | null>(() => {
     try { const saved = localStorage.getItem('gridloom:meter-case-recovery:v1'); return saved ? parseMeterCaseSnapshot(saved) : null; } catch { return null; }
   });
-  const [contractorId, setContractorId] = useState("CONTRACTOR-CMS");
+  const [contractorId, setContractorId] = useState(() => { const caseId = localStorage.getItem('gridloom:meter-selected-case:v1') ?? 'MX-905'; return plannedCustodyReadiness(state, caseId)?.plan.contractorId ?? state.disposalEvents.filter((item) => item.caseId === caseId).at(-1)?.contractorId ?? 'CONTRACTOR-CMS'; });
   const [impactContractorId, setImpactContractorId] = useState('CONTRACTOR-CMS');
-  const [custodyCaseId, setCustodyCaseId] = useState('MX-905');
+  const [custodyCaseId, setCustodyCaseId] = useState(() => { const saved = localStorage.getItem('gridloom:meter-selected-case:v1'); return typeof saved === 'string' && state.cases.some((item) => item.caseId === saved) ? saved : 'MX-905'; });
+  const selectedCase = state.cases.find((item) => item.caseId === custodyCaseId);
+  const caseFollowUps = state.followUps.filter((item) => item.caseId === custodyCaseId);
+  const caseDisposalEvents = state.disposalEvents.filter((item) => item.caseId === custodyCaseId);
+  const caseClosures = state.closures.filter((item) => item.caseId === custodyCaseId);
+  const [caseDrafts, setCaseDrafts] = useState<Record<string, { contact: string; reason: string; custody: string; evidence: string; acknowledgement: string; certificate: string; billing: string; payment: string }>>({ 'MX-905': { contact: 'Customer confirmed the missed commitment by telephone.', reason: 'Payment and custody blockers require one accountable recovery owner.', custody: 'CUSTODY-905', evidence: 'DISPOSAL', acknowledgement: 'ACK-905', certificate: 'DISPOSAL-905', billing: 'BILL-ADJ-905', payment: 'PLAN-905' } });
+  const caseDraft = caseDrafts[custodyCaseId] ?? { contact: '', reason: '', custody: '', evidence: '', acknowledgement: '', certificate: '', billing: '', payment: '' };
+  const updateCaseDraft = (draft: typeof caseDraft) => { setCaseDrafts((current) => ({ ...current, [custodyCaseId]: draft })); };
   const [deferralReason, setDeferralReason] = useState('Replacement contractor evidence requires a separate case review.');
   const [deferralReviewOn, setDeferralReviewOn] = useState('2026-10-25');
   const [reviewEvidence, setReviewEvidence] = useState('Updated contractor eligibility register and planned custody reviewed.');
   const [nextReviewOn, setNextReviewOn] = useState('2026-11-02');
   const [certificationExpiresOn, setCertificationExpiresOn] = useState("2027-11-30");
-  const [handoffOn, setHandoffOn] = useState("2026-12-01");
+  const [handoffOn, setHandoffOn] = useState(() => plannedCustodyReadiness(state, custodyCaseId)?.plan.scheduledOn ?? "2026-12-01");
   const [amendmentReason, setAmendmentReason] = useState('Replacement contractor acceptance reviewed before physical custody transfer.');
   const [amendmentEvidence, setAmendmentEvidence] = useState('CUSTODY-AUTHORIZATION-905');
   const feedback = useRef<HTMLParagraphElement>(null);
@@ -68,17 +75,16 @@ export function MeterWorkloadControl() {
           id: crypto.randomUUID(),
           expectedRevision: state.revision,
           role,
-          caseId: "MX-905",
-          owner: "Revenue recovery",
+          caseId: custodyCaseId,
+          owner: workload.find((item) => item.caseId === custodyCaseId)?.priority === "urgent" ? "Revenue recovery" : "Operations custody",
           scheduledOn: "2026-10-21",
           asOf: "2026-10-20",
-          contactEvidence:
-            "Customer confirmed the missed commitment by telephone.",
-          escalationReason:
-            "Payment and custody blockers require one accountable recovery owner.",
+          contactEvidence: caseDraft.contact,
+          escalationReason: caseDraft.reason,
+          ...(workload.find((item) => item.caseId === custodyCaseId)?.priority === 'urgent' ? {} : { scope: 'field custody' as const }),
         }),
       );
-      setMessage("Customer and field follow-up coordinated under one owner.");
+      setMessage(workload.find((item) => item.caseId === custodyCaseId)?.priority === "urgent" ? "Customer and field follow-up coordinated under one owner." : "Field custody follow-up coordinated; customer ownership preserved.");
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Meter follow-up failed.",
@@ -86,7 +92,7 @@ export function MeterWorkloadControl() {
     }
     queueMicrotask(() => feedback.current?.focus());
   };
-  const advanceDisposal = () => { const stages: MeterDisposalStage[] = ["requested", "authorized", "handed-off", "received", "evidence-rejected", "evidence-corrected", "confirmed"]; const stage = stages[state.disposalEvents.length]; if (!stage) return; const contractor = state.contractors.find((item) => item.id === contractorId); try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: "MX-905", stage, contractor: contractor?.organizationName ?? "", contractorId, custodyReference: "CUSTODY-905", evidenceReference: `DISPOSAL-${stage}`, reason: stage === "evidence-rejected" ? "Certificate omitted the serialized meter seal reference." : null, actor: "Operations assurance", occurredOn: custodyReadiness && stages.indexOf(stage) >= 2 ? custodyReadiness.plan.scheduledOn : "2026-10-22" })); setMessage(`Disposal custody advanced to ${stage}.`); } catch (error) { setMessage(error instanceof Error ? error.message : "Disposal custody update failed."); } queueMicrotask(() => feedback.current?.focus()); };
+  const advanceDisposal = () => { const stages: MeterDisposalStage[] = ["requested", "authorized", "handed-off", "received", "evidence-rejected", "evidence-corrected", "confirmed"]; const stage = stages[caseDisposalEvents.length]; if (!stage) return; const contractor = state.contractors.find((item) => item.id === contractorId); try { setState(repository.dispatch({ id: crypto.randomUUID(), expectedRevision: state.revision, role, caseId: custodyCaseId, stage, contractor: contractor?.organizationName ?? "", contractorId, custodyReference: caseDisposalEvents[0]?.custodyReference ?? caseDraft.custody, evidenceReference: caseDraft.evidence.trim() ? `${caseDraft.evidence.trim()}-${stage}` : "", reason: stage === "evidence-rejected" ? "Certificate omitted the serialized meter seal reference." : null, actor: "Operations assurance", occurredOn: custodyReadiness && stages.indexOf(stage) >= 2 ? custodyReadiness.plan.scheduledOn : "2026-10-22" })); setMessage(`Disposal custody advanced to ${stage}.`); } catch (error) { setMessage(error instanceof Error ? error.message : "Disposal custody update failed."); } queueMicrotask(() => feedback.current?.focus()); };
   const close = () => {
     try {
       setState(
@@ -94,14 +100,14 @@ export function MeterWorkloadControl() {
           id: crypto.randomUUID(),
           expectedRevision: state.revision,
           role,
-          caseId: "MX-905",
-          customerAcknowledgement: "ACK-905",
-          disposalCertificate: "DISPOSAL-905",
-          billingAdjustmentReference: "BILL-ADJ-905",
-          paymentPlanReference: "PLAN-905",
+          caseId: custodyCaseId,
+          customerAcknowledgement: caseDraft.acknowledgement,
+          disposalCertificate: caseDraft.certificate,
+          billingAdjustmentReference: caseDraft.billing,
+          paymentPlanReference: caseDraft.payment,
           fieldActionsOpen: 0,
           reviewedBy: "Operations assurance",
-          closedOn: "2026-10-22",
+          closedOn: caseDisposalEvents.at(-1)?.occurredOn.slice(0, 10) ?? "2026-10-22",
         }),
       );
       setMessage(
@@ -129,6 +135,9 @@ export function MeterWorkloadControl() {
           <option>Operations Supervisor</option>
         </select>
       </label>
+      <p aria-label="Selected meter source">{custodyCaseId} · account {selectedCase?.accountId ?? 'missing source'} · meter {selectedCase?.meterSerial ?? 'missing source'} · field {selectedCase?.fieldOwner} · customer {selectedCase?.customerOwner}</p>
+      <fieldset><legend>Selected case recovery evidence</legend><label>Follow-up contact or field evidence<textarea value={caseDraft.contact} onChange={(event) => { updateCaseDraft({ ...caseDraft, contact: event.target.value }); }} /></label><label>Selected case recovery reason<textarea value={caseDraft.reason} onChange={(event) => { updateCaseDraft({ ...caseDraft, reason: event.target.value }); }} /></label><label>Case custody consignment<input value={caseDisposalEvents[0]?.custodyReference ?? caseDraft.custody} disabled={caseDisposalEvents.length > 0} onChange={(event) => { updateCaseDraft({ ...caseDraft, custody: event.target.value }); }} /></label><label>Case disposal evidence reference<input value={caseDraft.evidence} onChange={(event) => { updateCaseDraft({ ...caseDraft, evidence: event.target.value }); }} /></label><label>Case customer acknowledgement<input value={caseDraft.acknowledgement} onChange={(event) => { updateCaseDraft({ ...caseDraft, acknowledgement: event.target.value }); }} /></label><label>Case disposal certificate<input value={caseDraft.certificate} onChange={(event) => { updateCaseDraft({ ...caseDraft, certificate: event.target.value }); }} /></label><label>Case billing reconciliation<input value={caseDraft.billing} onChange={(event) => { updateCaseDraft({ ...caseDraft, billing: event.target.value }); }} /></label><label>Case payment arrangement<input value={caseDraft.payment} onChange={(event) => { updateCaseDraft({ ...caseDraft, payment: event.target.value }); }} /></label></fieldset>
+      <button onClick={() => { setState(repository.read()); setMessage('Selected meter case refreshed; its recovery evidence draft is preserved.'); }}>Refresh selected meter case</button>
       {workload.map((item) => (
         <p key={item.caseId}>
           {item.caseId} · {item.priority} · {item.blockers.join(", ")} ·{" "}
@@ -139,11 +148,11 @@ export function MeterWorkloadControl() {
       <section aria-label="Meter case recovery"><h3>Case recovery</h3><p>Capture one meter case with its customer, custody, contractor, billing, and closure evidence.</p><button disabled={role !== 'Operations Supervisor'} onClick={captureRecovery}>Capture selected case recovery snapshot</button><label>Import meter case archive<input type="file" accept="application/json,.json" onChange={(event) => { void importRecovery(event.target.files?.[0]); }} /></label>{recoverySnapshot && <><p aria-label="Meter recovery preview">Snapshot {recoverySnapshot.id} · case {recoverySnapshot.caseId} · created {recoverySnapshot.createdOn} · source revision {String(recoverySnapshot.sourceRevision)} · current revision {String(state.revision)} · {recoveryPreview?.ready ? 'verified for restore' : 'restore blocked'}</p>{recoveryPreview?.reasons.map((reason) => <p role="alert" key={reason}>{reason}</p>)}<a download={`meter-case-${recoverySnapshot.caseId}-${recoverySnapshot.id}.json`} href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(recoverySnapshot, null, 2))}`}>Download case archive</a><button disabled={role !== 'Operations Supervisor' || !recoveryPreview?.ready} onClick={restoreRecovery}>Restore verified meter case</button></>}</section>
       <button
         disabled={
-          role !== "Operations Supervisor" || state.followUps.length > 0
+          role !== "Operations Supervisor" || caseFollowUps.length > 0 || caseClosures.length > 0
         }
         onClick={coordinate}
       >
-        Coordinate urgent meter follow-up
+        {workload.find((item) => item.caseId === custodyCaseId)?.priority === "urgent" ? "Coordinate urgent meter follow-up" : "Coordinate field custody follow-up"}
       </button>
       <label>Eligible disposal contractor<select value={contractorId} onChange={(event) => { setContractorId(event.target.value); }}>{state.contractors.map((item) => <option key={item.id} value={item.id} disabled={!item.active || item.authorizationStatus !== "authorized"}>{item.organizationName} · {item.active ? item.authorizationStatus : "inactive"}</option>)}</select></label>
       {selectedContractor && <p aria-label="Contractor certification readiness">{selectedContractor.organizationName} · certification expires {selectedContractor.certificationExpiresOn} · {contractorEligibility(selectedContractor, "2026-10-22").eligible ? "eligible" : "not eligible"} · {contractorEligibility(selectedContractor, "2026-11-15").expiringSoon ? "renewal due soon" : "renewal not due"}</p>}
@@ -152,7 +161,7 @@ export function MeterWorkloadControl() {
       <button disabled={role !== "Operations Supervisor" || !selectedContractor?.active} onClick={() => { updateCertification(false); }}>Suspend contractor authorization</button>
       <ol aria-label="Contractor authorization history">{state.contractorHistory.map((item) => <li key={item.id}>{item.contractorId} · {item.active ? "renewed" : "suspended"} · {item.actor} · {item.changedOn} · {item.reason}</li>)}</ol>
       <label>Certification impact contractor<select value={impactContractorId} onChange={(event) => { setImpactContractorId(event.target.value); }}>{state.contractors.map((item) => <option key={item.id} value={item.id}>{item.organizationName}</option>)}</select></label>
-      <label>Custody case<select value={custodyCaseId} onChange={(event) => { setCustodyCaseId(event.target.value); }}>{state.cases.filter((item) => item.disposalEvidence !== "valid").map((item) => <option key={item.caseId} value={item.caseId}>{item.caseId}</option>)}</select></label>
+      <label>Custody case<select value={custodyCaseId} onChange={(event) => { const id = event.target.value; setCustodyCaseId(id); localStorage.setItem('gridloom:meter-selected-case:v1', id); const plan = plannedCustodyReadiness(state, id); const priorContractor = state.disposalEvents.filter((item) => item.caseId === id).at(-1)?.contractorId; setContractorId(plan?.plan.contractorId ?? priorContractor ?? 'CONTRACTOR-CMS'); setHandoffOn(plan?.plan.scheduledOn ?? '2026-12-01'); setMessage('Case custody context loaded; other case evidence and drafts are preserved.'); }}>{state.cases.map((item) => <option key={item.caseId} value={item.caseId}>{item.caseId}</option>)}</select></label>
       <p aria-label="Custody remediation progress">{remediation.total} impacted · {remediation.reassigned} reassigned · {remediation.deferred} deferred · {remediation.unresolved} unresolved</p>
       {selectedImpact && <p aria-label="Selected custody impact">{selectedImpact.caseId} · {selectedImpact.outcome} · candidate contractors {selectedImpact.candidates.join(", ") || "none"} · original plan {selectedImpact.originalPlanId}</p>}
       <label>Case deferral reason<input value={deferralReason} onChange={(event) => { setDeferralReason(event.target.value); }} /></label>
@@ -168,13 +177,13 @@ export function MeterWorkloadControl() {
       {custodyAuthorization.authorization && <section aria-label="Pre-transfer custody authorization"><h3>Replacement custody authorization</h3><p aria-label="Custody authorization status">{custodyAuthorization.transferred ? 'Physical custody transferred; original authorization remains immutable' : custodyAuthorization.amendmentRequired ? 'Replacement plan requires independent authorization before transfer' : custodyAuthorization.amendment ? 'Replacement contractor authorized for the current plan' : 'Original custody authorization remains current'}</p>{custodyAuthorization.amendmentRequired && <><label>Custody amendment reason<input value={amendmentReason} onChange={(event) => { setAmendmentReason(event.target.value); }} /></label><label>Custody amendment approval evidence<input value={amendmentEvidence} onChange={(event) => { setAmendmentEvidence(event.target.value); }} /></label><button disabled={role !== 'Operations Supervisor' || !custodyReadiness?.ready} onClick={amendCustody}>Authorize replacement custody</button></>}<details><summary>Custody authorization amendment history ({state.custodyAmendments.filter((item) => item.caseId === custodyCaseId).length})</summary><ol aria-label="Custody authorization amendment history">{state.custodyAmendments.filter((item) => item.caseId === custodyCaseId).map((item) => <li key={item.id}>{item.previousContractorId} to {item.replacementContractorId} · {item.custodyReference} · {item.approvalEvidence} · {item.approvedBy} · {item.approvedOn} · plan {item.planId}</li>)}</ol></details></section>}
       <ol aria-label="Planned custody history">{state.plannedHandoffs.map((item) => <li key={item.id}>{item.contractorId} · {item.scheduledOn} · {item.previousHandoffId ? `reassigned from ${item.previousHandoffId}` : 'initial plan'} · {item.plannedBy}</li>)}</ol>
       {custodyReadiness?.notice && <><p aria-label="Contractor eligibility notice">Certification expires {custodyReadiness.notice.certificationExpiresOn} · {custodyReadiness.acknowledgement ? `acknowledged by ${custodyReadiness.acknowledgement.actor}` : "acknowledgement pending"}</p><button disabled={role !== "Operations Supervisor" || Boolean(custodyReadiness.acknowledgement)} onClick={acknowledgeNotice}>Acknowledge contractor risk</button></>}
-      <button disabled={role !== "Operations Supervisor" || state.followUps.length === 0 || state.disposalEvents.at(-1)?.stage === "confirmed"} onClick={advanceDisposal}>Advance disposal custody</button>
+      <button disabled={role !== "Operations Supervisor" || caseFollowUps.length === 0 || caseClosures.length > 0 || caseDisposalEvents.at(-1)?.stage === "confirmed"} onClick={advanceDisposal}>Advance disposal custody</button>
       <button
         disabled={
           role !== "Operations Supervisor" ||
-          state.followUps.length === 0 ||
-          (state.disposalEvents.length > 0 && state.disposalEvents.at(-1)?.stage !== "confirmed") ||
-          state.closures.length > 0
+          caseFollowUps.length === 0 ||
+          (caseDisposalEvents.length > 0 && caseDisposalEvents.at(-1)?.stage !== "confirmed") ||
+          caseClosures.length > 0
         }
         onClick={close}
       >
@@ -188,7 +197,7 @@ export function MeterWorkloadControl() {
       <h3>Customer activity</h3>
       <ol aria-label="Meter customer activity">
         {state.operationalEvents
-          .filter((item) => item.stream === "customer")
+          .filter((item) => item.caseId === custodyCaseId && item.stream === "customer")
           .map((item) => (
             <li key={item.id}>
               {item.kind} · {item.meaning} · evidence {item.evidenceReference}
@@ -196,10 +205,10 @@ export function MeterWorkloadControl() {
           ))}
       </ol>
       <h3>Field and custody activity</h3>
-      <ol aria-label="Meter disposal custody history">{state.disposalEvents.map((item) => <li key={item.id}>{item.stage} · {item.contractor} · custody {item.custodyReference} · evidence {item.evidenceReference}</li>)}</ol>
+      <ol aria-label="Meter disposal custody history">{caseDisposalEvents.map((item) => <li key={item.id}>{item.stage} · {item.contractor} · custody {item.custodyReference} · evidence {item.evidenceReference}</li>)}</ol>
       <ol aria-label="Meter field custody activity">
         {state.operationalEvents
-          .filter((item) => item.stream === "field-custody")
+          .filter((item) => item.caseId === custodyCaseId && item.stream === "field-custody")
           .map((item) => (
             <li key={item.id}>
               {item.kind} · {item.meaning} · evidence {item.evidenceReference}
@@ -207,7 +216,7 @@ export function MeterWorkloadControl() {
           ))}
       </ol>
       <ol aria-label="Meter follow-up history">
-        {state.followUps.map((item) => (
+        {caseFollowUps.map((item) => (
           <li key={item.id}>
             {item.caseId} · {item.owner} · scheduled {item.scheduledOn} ·{" "}
             {item.status}
@@ -215,7 +224,7 @@ export function MeterWorkloadControl() {
         ))}
       </ol>
       <ol aria-label="Meter closure history">
-        {state.closures.map((item) => (
+        {caseClosures.map((item) => (
           <li key={item.id}>
             {item.caseId} · closed {item.closedOn} · custody{" "}
             {item.disposalCertificate} · customer {item.customerAcknowledgement}
